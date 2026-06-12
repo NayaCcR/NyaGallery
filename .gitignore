@@ -9,4 +9,7 @@ venv/
 dist/
 build/
 storage/
+frontend/node_modules/
+frontend/.next/
+frontend/tsconfig.tsbuildinfo
 
