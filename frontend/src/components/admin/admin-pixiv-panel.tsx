@@ -99,6 +99,8 @@ type AdminPixivPanelProps = {
   onPixivDelayChange: (value: number) => void;
   pixivConcurrency: number;
   onPixivConcurrencyChange: (value: number) => void;
+  pixivStorageStrategy: string;
+  onPixivStorageStrategyChange: (value: string) => void;
   pixivMaxRetries: number;
   onPixivMaxRetriesChange: (value: number) => void;
   pixivRetryBase: number;
@@ -183,6 +185,8 @@ export function AdminPixivPanel({
   onPixivDelayChange,
   pixivConcurrency,
   onPixivConcurrencyChange,
+  pixivStorageStrategy,
+  onPixivStorageStrategyChange,
   pixivMaxRetries,
   onPixivMaxRetriesChange,
   pixivRetryBase,
@@ -541,6 +545,21 @@ export function AdminPixivPanel({
             <option value="following" disabled>关注新作（预留）</option>
             <option value="search_tag" disabled>标签搜索（预留）</option>
             <option value="ranking" disabled>排行榜（预留）</option>
+          </select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Storage strategy</Label>
+          <select
+            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm focus-ring"
+            value={pixivStorageStrategy}
+            onChange={(e) => onPixivStorageStrategyChange(e.target.value)}
+          >
+            {(pixivConfig?.storage_strategies?.length ? pixivConfig.storage_strategies : [{ name: "local", type: "local", is_default: true, is_remote: false }]).map((strategy) => (
+              <option key={strategy.name} value={strategy.name}>
+                {strategy.name}{strategy.is_default ? " (default)" : ""} · {strategy.type}
+              </option>
+            ))}
           </select>
         </div>
 

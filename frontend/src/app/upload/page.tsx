@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import {
   CheckCircle2,
   FilePlus2,
@@ -37,6 +37,10 @@ export default function UploadPage() {
     setDefaultTags,
     tagAliasesText,
     setTagAliasesText,
+    storageStrategy,
+    setStorageStrategy,
+    storageStrategies,
+    loadStorageStrategies,
     submitting,
     dragActive,
     setDragActive,
@@ -48,12 +52,17 @@ export default function UploadPage() {
     uploadAll,
   } = useUploadQueue({ onSuccess: toast.success, onError: toast.error });
 
+  useEffect(() => {
+    if (!ready || !token) return;
+    void loadStorageStrategies();
+  }, [loadStorageStrategies, ready, token]);
+
   if (ready && !token) {
     return (
       <div className="container max-w-md py-16 text-center">
         <h1 className="mb-2 text-lg font-semibold">需要登录</h1>
         <p className="text-sm text-muted-foreground">
-          上传需要 editor 或 admin 权限。
+          上传需要 editor、admin 或 developer 权限。
         </p>
         <Button className="mt-4" onClick={() => router.push("/login")}>
           去登录
@@ -126,6 +135,21 @@ export default function UploadPage() {
 
       {/* Default fields */}
       <div className="mt-5 grid gap-4 rounded-2xl border border-border bg-card p-4 sm:grid-cols-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="storage_strategy">Storage strategy</Label>
+          <select
+            id="storage_strategy"
+            value={storageStrategy}
+            onChange={(e) => setStorageStrategy(e.target.value)}
+            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm focus-ring"
+          >
+            {storageStrategies.map((strategy) => (
+              <option key={strategy.name} value={strategy.name}>
+                {strategy.name}{strategy.is_default ? " (default)" : ""} · {strategy.type}
+              </option>
+            ))}
+          </select>
+        </div>
         <div className="space-y-1.5">
           <Label htmlFor="default_artist">默认作者</Label>
           <Input

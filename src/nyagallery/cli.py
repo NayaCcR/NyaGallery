@@ -51,6 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     sync_pid.add_argument("--auth-mode", default="auto", help="auto, public, refresh_token, or cookie.")
     sync_pid.add_argument("--refresh-token", default=None)
     sync_pid.add_argument("--cookie", default=None)
+    sync_pid.add_argument("--storage-strategy", default=None, help="Original storage strategy name.")
     sync_pid.add_argument("--generate-cache", action="store_true")
     sync_pid.add_argument("--rebuild-db", action="store_true")
 
@@ -60,6 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     sync_user.add_argument("--auth-mode", default="auto", help="auto, public, refresh_token, or cookie.")
     sync_user.add_argument("--refresh-token", default=None)
     sync_user.add_argument("--cookie", default=None)
+    sync_user.add_argument("--storage-strategy", default=None, help="Original storage strategy name.")
     sync_user.add_argument("--generate-cache", action="store_true")
     sync_user.add_argument("--rebuild-db", action="store_true")
 
@@ -140,7 +142,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     config = load_config(args.config)
     apply_config_environment(config)
-    storage = GalleryStorage(args.storage or config.core.storage)
+    storage = GalleryStorage(
+        args.storage or config.core.storage,
+        default_strategy=config.original_storage.default_strategy,
+        strategies=config.original_storage.strategies,
+    )
     storage.ensure()
     database_url = args.database_url or config.core.database_url or default_database_url(storage)
 
@@ -345,7 +351,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     client, downloader = _pixiv_cli_sync_components(args, config)
-    service = PixivSyncService(storage, client=client, downloader=downloader)
+    storage_strategy = storage.validate_storage_strategy(args.storage_strategy)
+    service = PixivSyncService(storage, client=client, downloader=downloader, storage_strategy_name=storage_strategy)
     if args.command == "pixiv-sync-pid":
         results = service.sync_pid(args.pid)
     elif args.command == "pixiv-sync-user":

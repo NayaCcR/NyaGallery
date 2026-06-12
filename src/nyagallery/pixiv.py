@@ -478,6 +478,7 @@ class PixivSyncService:
         downloader: Downloader | None = None,
         uploader_user_id: int | None = None,
         uploader_username: str | None = None,
+        storage_strategy_name: str | None = None,
         progress: ProgressCallback | None = None,
     ) -> None:
         self.storage = storage
@@ -485,6 +486,7 @@ class PixivSyncService:
         self.downloader = downloader or HTTPPixivDownloader()
         self.uploader_user_id = uploader_user_id
         self.uploader_username = uploader_username
+        self.storage_strategy_name = storage_strategy_name
         self.progress = progress
 
     def sync_pid(self, pixiv_id: str) -> list[SyncAssetResult]:
@@ -563,7 +565,13 @@ class PixivSyncService:
                 progress=round((page_number / page_count) * 100, 2),
             )
             content = self.downloader.download(page.original_url)
-            stored = self.storage.write_original(asset_key, source_filename, content)
+            stored = self.storage.write_original(
+                asset_key,
+                source_filename,
+                content,
+                strategy_name=self.storage_strategy_name,
+                content_type=page.mime_type,
+            )
             duplicate = self.storage.find_by_sha256(stored.sha256, exclude_asset_key=asset_key)
             source_type = "ugoira" if page.is_ugoira else artwork.source_type
             image_id = self._image_id(artwork, page, page_index)

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, NyaApi } from "@/lib/api";
+import type { StorageStrategySummary } from "@/lib/types";
 
 export type UploadStatus = "pending" | "uploading" | "done" | "error";
 
@@ -36,6 +37,10 @@ export function useUploadQueue({ onSuccess, onError }: UseUploadQueueOptions) {
   const [defaultArtist, setDefaultArtist] = useState("");
   const [defaultTags, setDefaultTags] = useState<string[]>([]);
   const [tagAliasesText, setTagAliasesText] = useState("");
+  const [storageStrategy, setStorageStrategy] = useState("local");
+  const [storageStrategies, setStorageStrategies] = useState<StorageStrategySummary[]>([
+    { name: "local", type: "local", is_default: true, is_remote: false },
+  ]);
   const [submitting, setSubmitting] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const itemsRef = useRef<UploadItem[]>([]);
@@ -120,6 +125,25 @@ export function useUploadQueue({ onSuccess, onError }: UseUploadQueueOptions) {
     });
   }, []);
 
+  const loadStorageStrategies = useCallback(async () => {
+    try {
+      const response = await NyaApi.storageStrategies();
+      const items = response.items.length > 0
+        ? response.items
+        : [{ name: response.default_strategy || "local", type: "local", is_default: true, is_remote: false }];
+      setStorageStrategies(items);
+      setStorageStrategy((current) => (
+        items.some((item) => item.name === current)
+          ? current
+          : response.default_strategy || items[0]?.name || "local"
+      ));
+      return response;
+    } catch (err) {
+      onError(err instanceof ApiError ? err.message : String(err));
+      return null;
+    }
+  }, [onError]);
+
   const uploadAll = useCallback(async () => {
     const queue = items.filter((item) => item.status === "pending" || item.status === "error");
     if (queue.length === 0) {
@@ -151,6 +175,7 @@ export function useUploadQueue({ onSuccess, onError }: UseUploadQueueOptions) {
       if (item.sourceId) form.set("source_id", item.sourceId);
       if (tagAliasesPayload) form.set("tag_aliases", tagAliasesPayload);
       form.set("generate_cache", generateCache ? "true" : "false");
+      form.set("storage_strategy", storageStrategy);
 
       try {
         const asset = await NyaApi.uploadAsset(form);
@@ -183,7 +208,7 @@ export function useUploadQueue({ onSuccess, onError }: UseUploadQueueOptions) {
     } else {
       onError(`全部失败（${failCount}）`);
     }
-  }, [defaultArtist, defaultTags, generateCache, items, onError, onSuccess, tagAliasesText, updateItem]);
+  }, [defaultArtist, defaultTags, generateCache, items, onError, onSuccess, storageStrategy, tagAliasesText, updateItem]);
 
   return {
     items,
@@ -195,6 +220,10 @@ export function useUploadQueue({ onSuccess, onError }: UseUploadQueueOptions) {
     setDefaultTags,
     tagAliasesText,
     setTagAliasesText,
+    storageStrategy,
+    setStorageStrategy,
+    storageStrategies,
+    loadStorageStrategies,
     submitting,
     dragActive,
     setDragActive,

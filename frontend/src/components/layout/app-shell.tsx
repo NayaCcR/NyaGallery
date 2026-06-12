@@ -94,7 +94,6 @@ export function AppShell({ children }: AppShellProps) {
   const { token, ready, me } = useAuth();
   const { t } = useI18n();
   const { data: siteConfig } = useSiteConfig();
-  const projectHomepage = siteConfig?.project_homepage || DEFAULT_REPOSITORY_URL;
   const repositoryUrl = siteConfig?.repository || DEFAULT_REPOSITORY_URL;
   const privateItems = ready && token ? PRIVATE_NAV : [];
   const requestedAdminSection = normalizeAdminSection(searchParams?.get("section"));
@@ -209,9 +208,7 @@ export function AppShell({ children }: AppShellProps) {
           <div className="mx-auto grid w-full max-w-6xl gap-4 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:items-center">
             <div className="flex flex-wrap items-center justify-center gap-2 md:justify-start">
               <span>{"\uD83D\uDC3E Powered by"}</span>
-              <FooterLink href={projectHomepage} className="font-medium text-foreground">
-                NyaGallery
-              </FooterLink>
+              <span className="font-medium text-foreground">NyaGallery</span>
               <span>By NayaCcR</span>
               <FooterIconLink href={repositoryUrl} label="NyaGallery GitHub repository">
                 <Github className="h-4 w-4" />
@@ -243,27 +240,6 @@ export function AppShell({ children }: AppShellProps) {
         </footer>
       </div>
     </div>
-  );
-}
-
-function FooterLink({
-  href,
-  children,
-  className,
-}: {
-  href: string;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      className={cn("underline-offset-4 transition-colors hover:text-foreground hover:underline", className)}
-    >
-      {children}
-    </a>
   );
 }
 

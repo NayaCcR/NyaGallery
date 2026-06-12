@@ -50,6 +50,29 @@ class RedisConfig:
 
 
 @dataclass(frozen=True)
+class StorageStrategyConfig:
+    name: str
+    type: str = "local"
+    prefix: str = "original"
+    endpoint: str = ""
+    bucket: str = ""
+    username: str = ""
+    password: str = ""
+    token: str = ""
+    access_key_id: str = ""
+    access_key_secret: str = ""
+    drive_id: str = ""
+    root_path: str = ""
+    timeout_seconds: int = 60
+
+
+@dataclass(frozen=True)
+class OriginalStorageConfig:
+    default_strategy: str = "local"
+    strategies: tuple[StorageStrategyConfig, ...] = ()
+
+
+@dataclass(frozen=True)
 class DeveloperConfig:
     config_editor_enabled: bool = True
     console_enabled: bool = False
@@ -62,6 +85,7 @@ class NyaGalleryConfig:
     site: SiteConfig = SiteConfig()
     pixiv: PixivConfig = PixivConfig()
     redis: RedisConfig = RedisConfig()
+    original_storage: OriginalStorageConfig = OriginalStorageConfig()
     developer: DeveloperConfig = DeveloperConfig()
     path: Path | None = None
 
@@ -117,6 +141,13 @@ def config_to_dict(config: NyaGalleryConfig, *, redact_secrets: bool = False) ->
             "url": config.redis.url or "",
             "key_prefix": config.redis.key_prefix,
             "security_limiter": config.redis.security_limiter,
+        },
+        "original_storage": {
+            "default_strategy": config.original_storage.default_strategy,
+            "strategies": [
+                _storage_strategy_to_dict(strategy, redact_secrets=redact_secrets)
+                for strategy in config.original_storage.strategies
+            ],
         },
         "developer": {
             "config_editor_enabled": config.developer.config_editor_enabled,
@@ -174,12 +205,62 @@ def render_config(config: NyaGalleryConfig) -> str:
         f"key_prefix = {_toml_string(config.redis.key_prefix)}",
         f"security_limiter = {_toml_bool(config.redis.security_limiter)}",
         "",
+        "[original_storage]",
+        f"default_strategy = {_toml_string(config.original_storage.default_strategy)}",
+        "",
+        *_render_storage_strategies(config.original_storage.strategies),
         "[developer]",
         f"config_editor_enabled = {_toml_bool(config.developer.config_editor_enabled)}",
         f"console_enabled = {_toml_bool(config.developer.console_enabled)}",
         "",
     ]
     return "\n".join(lines)
+
+
+def _storage_strategy_to_dict(strategy: StorageStrategyConfig, *, redact_secrets: bool = False) -> dict[str, object]:
+    password = "" if redact_secrets and strategy.password else strategy.password
+    token = "" if redact_secrets and strategy.token else strategy.token
+    access_key_secret = "" if redact_secrets and strategy.access_key_secret else strategy.access_key_secret
+    return {
+        "name": strategy.name,
+        "type": strategy.type,
+        "prefix": strategy.prefix,
+        "endpoint": strategy.endpoint,
+        "bucket": strategy.bucket,
+        "username": strategy.username,
+        "password": password,
+        "token": token,
+        "access_key_id": strategy.access_key_id,
+        "access_key_secret": access_key_secret,
+        "drive_id": strategy.drive_id,
+        "root_path": strategy.root_path,
+        "timeout_seconds": strategy.timeout_seconds,
+    }
+
+
+def _render_storage_strategies(strategies: tuple[StorageStrategyConfig, ...]) -> list[str]:
+    lines: list[str] = []
+    for strategy in strategies:
+        lines.extend(
+            [
+                "[[original_storage.strategies]]",
+                f"name = {_toml_string(strategy.name)}",
+                f"type = {_toml_string(strategy.type)}",
+                f"prefix = {_toml_string(strategy.prefix)}",
+                f"endpoint = {_toml_string(strategy.endpoint)}",
+                f"bucket = {_toml_string(strategy.bucket)}",
+                f"username = {_toml_string(strategy.username)}",
+                f"password = {_toml_string(strategy.password)}",
+                f"token = {_toml_string(strategy.token)}",
+                f"access_key_id = {_toml_string(strategy.access_key_id)}",
+                f"access_key_secret = {_toml_string(strategy.access_key_secret)}",
+                f"drive_id = {_toml_string(strategy.drive_id)}",
+                f"root_path = {_toml_string(strategy.root_path)}",
+                f"timeout_seconds = {int(strategy.timeout_seconds)}",
+                "",
+            ]
+        )
+    return lines
 
 
 def _resolve_config_path(path: str | Path | None) -> Path | None:
@@ -200,6 +281,7 @@ def _config_from_dict(data: dict[str, Any], path: Path | None) -> NyaGalleryConf
     site = _table(data, "site")
     pixiv = _table(data, "pixiv")
     redis = _table(data, "redis")
+    original_storage = _table(data, "original_storage")
     developer = _table(data, "developer")
     return NyaGalleryConfig(
         core=CoreConfig(
@@ -228,6 +310,10 @@ def _config_from_dict(data: dict[str, Any], path: Path | None) -> NyaGalleryConf
             url=_optional_str(redis.get("url")),
             key_prefix=_str(redis.get("key_prefix"), "nyagallery"),
             security_limiter=_bool(redis.get("security_limiter"), False),
+        ),
+        original_storage=OriginalStorageConfig(
+            default_strategy=_str(original_storage.get("default_strategy"), "local"),
+            strategies=tuple(_storage_strategy_from_dict(item) for item in _strategy_items(original_storage)),
         ),
         developer=DeveloperConfig(
             config_editor_enabled=_bool(developer.get("config_editor_enabled"), True),
@@ -271,6 +357,10 @@ def _with_env_overrides(config: NyaGalleryConfig) -> NyaGalleryConfig:
             config.redis.security_limiter,
         ),
     )
+    original_storage = OriginalStorageConfig(
+        default_strategy=os.environ.get("NYAGALLERY_STORAGE_STRATEGY") or config.original_storage.default_strategy,
+        strategies=config.original_storage.strategies,
+    )
     developer = DeveloperConfig(
         config_editor_enabled=_bool(
             os.environ.get("NYAGALLERY_CONFIG_EDITOR_ENABLED"),
@@ -284,6 +374,7 @@ def _with_env_overrides(config: NyaGalleryConfig) -> NyaGalleryConfig:
         site=site,
         pixiv=pixiv,
         redis=redis,
+        original_storage=original_storage,
         developer=developer,
         path=config.path,
     )
@@ -292,6 +383,31 @@ def _with_env_overrides(config: NyaGalleryConfig) -> NyaGalleryConfig:
 def _table(data: dict[str, Any], key: str) -> dict[str, Any]:
     value = data.get(key, {})
     return value if isinstance(value, dict) else {}
+
+
+def _strategy_items(data: dict[str, Any]) -> list[dict[str, Any]]:
+    value = data.get("strategies", [])
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _storage_strategy_from_dict(data: dict[str, Any]) -> StorageStrategyConfig:
+    return StorageStrategyConfig(
+        name=_str(data.get("name"), "local"),
+        type=_str(data.get("type"), "local").casefold().replace("-", "_"),
+        prefix=_str(data.get("prefix"), "original").strip("/"),
+        endpoint=_str(data.get("endpoint") or data.get("url"), ""),
+        bucket=_str(data.get("bucket") or data.get("service"), ""),
+        username=_str(data.get("username") or data.get("operator"), ""),
+        password=_str(data.get("password"), ""),
+        token=_str(data.get("token") or data.get("access_token"), ""),
+        access_key_id=_str(data.get("access_key_id"), ""),
+        access_key_secret=_str(data.get("access_key_secret"), ""),
+        drive_id=_str(data.get("drive_id"), ""),
+        root_path=_str(data.get("root_path"), "").strip("/"),
+        timeout_seconds=_int(data.get("timeout_seconds"), 60),
+    )
 
 
 def _optional_str(value: Any) -> str | None:

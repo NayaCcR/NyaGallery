@@ -1748,8 +1748,7 @@ def _latest_jobs_for_assets(session: Session, asset_keys: list[str]) -> dict[str
 
 def _asset_file_size(storage: GalleryStorage, asset: AssetModel) -> int | None:
     try:
-        path = storage.resolve_relative_path(asset.original_path)
-        return path.stat().st_size if path.exists() else None
+        return storage.file_size(asset.original_path)
     except Exception:
         return None
 

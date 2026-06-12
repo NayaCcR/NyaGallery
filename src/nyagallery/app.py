@@ -124,7 +124,7 @@ from nyagallery.security import (
     same_or_trusted_origin,
     viewer_api_allowed,
 )
-from nyagallery.storage import GalleryStorage
+from nyagallery.storage import GalleryStorage, StorageError
 from nyagallery.storage import MetadataAlreadyExistsError, sha256_bytes
 from nyagallery.tags import TagAlreadyExistsError, TagCatalog, TagNotFoundError, source_tag_details_from_extra
 
@@ -235,6 +235,7 @@ class PixivSyncRequest(BaseModel):
     pixiv_token_id: int | None = None
     cookie: str | None = None
     pixiv_cookie_id: int | None = None
+    storage_strategy: str | None = None
     public_first: bool = True
     rebuild_db: bool = True
     generate_cache: bool = False
@@ -320,7 +321,11 @@ def create_app(
 ) -> FastAPI:
     config = load_config()
     apply_config_environment(config)
-    storage = GalleryStorage(storage_root or config.core.storage)
+    storage = GalleryStorage(
+        storage_root or config.core.storage,
+        default_strategy=config.original_storage.default_strategy,
+        strategies=config.original_storage.strategies,
+    )
     storage.ensure()
     catalog = _load_catalog(storage, tag_catalog_path or config.core.tag_catalog_path)
     engine = create_engine_for_url(database_url or config.core.database_url or default_database_url(storage))
@@ -369,6 +374,10 @@ def create_app(
             "repository": config.site.repository,
             "icp_beian": config.site.icp_beian or None,
         }
+
+    @app.get("/api/storage/strategies")
+    def api_storage_strategies(_principal: UploadPrincipal) -> dict[str, object]:
+        return _storage_strategy_response(storage)
 
     @app.get("/api/me")
     def api_me(request: Request, principal: ViewPrincipal) -> dict[str, object]:
@@ -842,7 +851,13 @@ def create_app(
             "path": str(config_path),
             "exists": config_path.exists(),
             "config": config_to_dict(state.config, redact_secrets=True),
-            "secret_fields": ["pixiv.refresh_token", "pixiv.cookie"],
+            "secret_fields": [
+                "pixiv.refresh_token",
+                "pixiv.cookie",
+                "original_storage.strategies.password",
+                "original_storage.strategies.token",
+                "original_storage.strategies.access_key_secret",
+            ],
             "restart_required": True,
             "message": "Saved config is written to TOML. Restart the backend to apply all runtime settings.",
         }
@@ -935,6 +950,7 @@ def create_app(
         canonical_tags: str = Form(""),
         tag_aliases: str = Form(""),
         generate_cache: bool = Form(False),
+        storage_strategy: str | None = Form(None),
     ) -> dict[str, object]:
         content = await file.read()
         security_settings = get_security_settings(db)
@@ -948,7 +964,17 @@ def create_app(
         upload_name_stem = Path(upload_filename).stem or upload_id
         parsed_filename = parse_pixiv_filename(upload_name_stem)
         extra = parsed_filename.to_extra() if parsed_filename else {}
-        stored = storage.write_original(asset_key, upload_filename, content)
+        try:
+            selected_storage_strategy = storage.validate_storage_strategy(storage_strategy)
+        except StorageError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        stored = storage.write_original(
+            asset_key,
+            upload_filename,
+            content,
+            strategy_name=selected_storage_strategy,
+            content_type=file.content_type,
+        )
         width, height = probe_media_size(stored.path, mime_type=file.content_type)
         is_animated = _is_animated_upload(stored.path, file.content_type)
         try:
@@ -1033,6 +1059,7 @@ def create_app(
                 "cache_status": "queued" if job_id else "missing",
                 "has_preview_cache": False,
                 "has_thumb_cache": False,
+                "storage_strategy": stored.strategy,
             },
         )
         db.commit()
@@ -1059,6 +1086,8 @@ def create_app(
             "supports_generate_cache": True,
             "supports_browser_oauth_login": browser_login_available,
             "supports_cookie_session_exchange": cookie_session_exchange_available,
+            "storage_strategies": _storage_strategy_items(storage),
+            "default_storage_strategy": storage.default_storage_strategy(),
             "auth_modes": ["public", "oauth_local", "refresh_token", "cookie", "oauth_manual", "local_import"],
             "default_request_delay_seconds": config.pixiv.default_request_delay_seconds,
             "max_concurrency": config.pixiv.max_concurrency,
@@ -1558,6 +1587,17 @@ def _model_dump(model: BaseModel) -> dict[str, object]:
     return model.dict()  # type: ignore[no-any-return]
 
 
+def _storage_strategy_response(storage: GalleryStorage) -> dict[str, object]:
+    return {
+        "default_strategy": storage.default_storage_strategy(),
+        "items": _storage_strategy_items(storage),
+    }
+
+
+def _storage_strategy_items(storage: GalleryStorage) -> list[dict[str, object]]:
+    return [item.__dict__ for item in storage.storage_strategies()]
+
+
 def _developer_config_payload_with_preserved_secrets(
     payload: dict[str, Any],
     config_path: Path,
@@ -1570,6 +1610,26 @@ def _developer_config_payload_with_preserved_secrets(
         value = pixiv.get(key)
         if value is None or str(value).strip() == "":
             pixiv[key] = str(file_pixiv.get(key) or "")
+    file_original_storage = file_data.get("original_storage") if isinstance(file_data.get("original_storage"), dict) else {}
+    file_strategies = file_original_storage.get("strategies") if isinstance(file_original_storage.get("strategies"), list) else []
+    saved_by_name = {
+        str(item.get("name") or "").strip(): item
+        for item in file_strategies
+        if isinstance(item, dict) and str(item.get("name") or "").strip()
+    }
+    original_storage = data.setdefault("original_storage", {})
+    strategies = original_storage.get("strategies")
+    if isinstance(strategies, list):
+        for item in strategies:
+            if not isinstance(item, dict):
+                continue
+            saved = saved_by_name.get(str(item.get("name") or "").strip())
+            if not saved:
+                continue
+            for key in ("password", "token", "access_key_secret"):
+                value = item.get(key)
+                if value is None or str(value).strip() == "":
+                    item[key] = str(saved.get(key) or "")
     return data
 
 
@@ -1735,6 +1795,7 @@ def _queue_pixiv_sync_job(
 ) -> dict[str, object]:
     job_id = secrets.token_urlsafe(9).rstrip("=")
     request_copy = PixivSyncRequest(**_model_dump(request))
+    request_copy.storage_strategy = storage.validate_storage_strategy(request_copy.storage_strategy)
     log = _create_pixiv_log(
         db,
         principal=principal,
@@ -1825,6 +1886,7 @@ def _run_pixiv_sync_job(
             downloader=downloader,
             uploader_user_id=principal.user_id,
             uploader_username=principal.username,
+            storage_strategy_name=request.storage_strategy,
             progress=progress,
         )
         results = []
@@ -2283,6 +2345,7 @@ def _pixiv_options_log(request: PixivSyncRequest) -> dict[str, object]:
         "pixiv_token_id": request.pixiv_token_id,
         "has_cookie": bool(request.cookie),
         "pixiv_cookie_id": request.pixiv_cookie_id,
+        "storage_strategy": request.storage_strategy,
         "public_first": request.public_first,
         "limit": request.limit,
         "rebuild_db": request.rebuild_db,
@@ -2886,8 +2949,7 @@ def _can_view_asset(asset: AssetModel, principal: Principal) -> bool:
 
 def _asset_original_size(storage: GalleryStorage, asset: AssetModel) -> int | None:
     try:
-        path = storage.resolve_relative_path(asset.original_path)
-        return path.stat().st_size if path.exists() else None
+        return storage.file_size(asset.original_path)
     except Exception:
         return None
 
@@ -2901,6 +2963,11 @@ def _asset_response(storage: GalleryStorage, asset: AssetModel, catalog: TagCata
 
 
 def _file_size_for_kind(storage: GalleryStorage, asset: AssetModel, kind: str) -> int | None:
+    if kind == "original":
+        try:
+            return storage.file_size(asset.original_path)
+        except Exception:
+            return None
     path, _filename = _asset_file_path(storage, asset, kind)
     try:
         return path.stat().st_size if path.exists() else None

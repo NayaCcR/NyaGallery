@@ -25,6 +25,7 @@ import type {
   SearchSort,
   SecuritySettings,
   SiteConfigResponse,
+  StorageStrategiesResponse,
   TagCatalogResponse,
   TagSuggestResponse,
   TagSuggestion,
@@ -129,6 +130,8 @@ export const NyaApi = {
   health: () => api<{ ok: boolean; storage: string }>("/health"),
 
   siteConfig: () => api<SiteConfigResponse>("/api/site/config", { token: null }),
+
+  storageStrategies: () => api<StorageStrategiesResponse>("/api/storage/strategies"),
 
   me: () => api<MeResponse>("/api/me"),
 

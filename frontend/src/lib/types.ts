@@ -37,10 +37,42 @@ export interface BackendConfig {
     key_prefix: string;
     security_limiter: boolean;
   };
+  original_storage: {
+    default_strategy: string;
+    strategies: StorageStrategyConfig[];
+  };
   developer: {
     config_editor_enabled: boolean;
     console_enabled: boolean;
   };
+}
+
+export interface StorageStrategyConfig {
+  name: string;
+  type: string;
+  prefix: string;
+  endpoint: string;
+  bucket: string;
+  username: string;
+  password: string;
+  token: string;
+  access_key_id: string;
+  access_key_secret: string;
+  drive_id: string;
+  root_path: string;
+  timeout_seconds: number;
+}
+
+export interface StorageStrategySummary {
+  name: string;
+  type: string;
+  is_default: boolean;
+  is_remote: boolean;
+}
+
+export interface StorageStrategiesResponse {
+  default_strategy: string;
+  items: StorageStrategySummary[];
 }
 
 export interface DeveloperConfigResponse {
@@ -125,6 +157,8 @@ export interface PixivConfigResponse {
   supports_generate_cache: boolean;
   supports_browser_oauth_login?: boolean;
   supports_cookie_session_exchange?: boolean;
+  storage_strategies: StorageStrategySummary[];
+  default_storage_strategy: string;
   auth_modes: PixivAuthMode[];
   default_request_delay_seconds: number;
   max_concurrency: number;
@@ -169,6 +203,7 @@ export interface PixivSyncOptions {
   pixiv_token_id?: number | null;
   cookie?: string;
   pixiv_cookie_id?: number | null;
+  storage_strategy?: string | null;
   public_first?: boolean;
   rebuild_db?: boolean;
   generate_cache?: boolean;

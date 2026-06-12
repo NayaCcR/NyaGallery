@@ -38,7 +38,7 @@ export function ContentPreferencesProvider({ children }: { children: React.React
   const username = me?.username || "guest";
   const identityKey = `${me?.user_id ?? "guest"}:${username}:${me?.role ?? "guest"}`;
   const storageKey = `${STORAGE_PREFIX}:${username}`;
-  const canViewSensitiveContent = me?.role === "viewer" || me?.role === "editor" || me?.role === "admin";
+  const canViewSensitiveContent = Boolean(me && me.role !== "guest");
   const [preferences, setPreferences] = useState<ContentPreferences>(DEFAULT_PREFERENCES);
   const [ready, setReady] = useState(false);
   const previousIdentityRef = useRef<string | null>(null);

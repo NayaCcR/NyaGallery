@@ -19,6 +19,7 @@ export function useAdminPixivSettings({ onError }: UseAdminPixivSettingsOptions)
   const [pixivRetryBase, setPixivRetryBase] = useState(60);
   const [pixivRetryMax, setPixivRetryMax] = useState(300);
   const [pixivConcurrency, setPixivConcurrency] = useState(1);
+  const [pixivStorageStrategy, setPixivStorageStrategy] = useState("local");
   const [pixivConfig, setPixivConfig] = useState<PixivConfigResponse | null>(null);
 
   const loadPixivConfig = useCallback(async () => {
@@ -27,6 +28,11 @@ export function useAdminPixivSettings({ onError }: UseAdminPixivSettingsOptions)
       setPixivConfig(config);
       setPixivDelay(config.default_request_delay_seconds ?? 1);
       setPixivConcurrency(Math.min(1, config.max_concurrency ?? 1));
+      setPixivStorageStrategy((current) => (
+        config.storage_strategies?.some((strategy) => strategy.name === current)
+          ? current
+          : config.default_storage_strategy || config.storage_strategies?.[0]?.name || "local"
+      ));
     } catch (err) {
       onError(err instanceof ApiError ? err.message : String(err));
     }
@@ -54,6 +60,8 @@ export function useAdminPixivSettings({ onError }: UseAdminPixivSettingsOptions)
     setPixivRetryMax,
     pixivConcurrency,
     setPixivConcurrency,
+    pixivStorageStrategy,
+    setPixivStorageStrategy,
     loadPixivConfig,
   };
 }

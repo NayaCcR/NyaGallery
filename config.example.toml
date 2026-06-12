@@ -6,7 +6,8 @@
 # Environment variables still work and override this file:
 #   NYAGALLERY_STORAGE, NYAGALLERY_DATABASE_URL, NYAGALLERY_SECURE_COOKIES,
 #   PIXIV_REFRESH_TOKEN, NYAGALLERY_SITE_ICP_BEIAN, NYAGALLERY_REDIS_URL,
-#   NYAGALLERY_CONFIG_EDITOR_ENABLED, NYAGALLERY_DEVELOPER_CONSOLE_ENABLED, etc.
+#   NYAGALLERY_STORAGE_STRATEGY, NYAGALLERY_CONFIG_EDITOR_ENABLED,
+#   NYAGALLERY_DEVELOPER_CONSOLE_ENABLED, etc.
 
 [core]
 # Required. Root directory for originals, metadata, cache, tags and logs.
@@ -20,6 +21,52 @@ database_url = ""
 
 # Optional. Empty uses storage/tags/catalog.json.
 tag_catalog_path = ""
+
+[original_storage]
+# Original file storage strategy used by upload and Pixiv sync when the request
+# does not choose a strategy explicitly. `local` is always available and writes
+# to storage/original. Remote originals are cached under storage/remote-cache
+# when they are downloaded or used for preview generation.
+default_strategy = "local"
+
+# Add remote strategies as needed. The admin upload and Pixiv panels will show
+# configured strategy names. Keep secrets in nyagallery.toml, not in git.
+#
+# [[original_storage.strategies]]
+# name = "webdav-main"
+# type = "webdav"
+# endpoint = "https://dav.example.com/nyagallery/"
+# username = ""
+# password = ""
+# token = ""
+# prefix = "original"
+# timeout_seconds = 60
+#
+# [[original_storage.strategies]]
+# name = "upyun-main"
+# type = "upyun"
+# endpoint = "https://v0.api.upyun.com"
+# bucket = "your-service"
+# username = "operator"
+# password = ""
+# prefix = "original"
+#
+# [[original_storage.strategies]]
+# name = "aliyun-oss-main"
+# type = "aliyun_oss"
+# endpoint = "https://oss-cn-hangzhou.aliyuncs.com"
+# bucket = "your-bucket"
+# access_key_id = ""
+# access_key_secret = ""
+# prefix = "original"
+#
+# [[original_storage.strategies]]
+# name = "onedrive-main"
+# type = "onedrive"
+# token = ""
+# drive_id = ""
+# root_path = "NyaGallery"
+# prefix = "original"
 
 [server]
 host = "127.0.0.1"

@@ -58,7 +58,7 @@ const ADMIN_SECTION_DESCRIPTIONS: Record<AdminSection, string> = {
   operations: "上传历史、转码队列和最近上传日志。",
   security: "安全开关、限流策略、访问日志与角色/用户额度。",
   tags: "标签别名、标签统计筛选与汇总导出。",
-  maintenance: "数据库重建和媒体缓存生成。",
+  maintenance: "数据库重建、媒体缓存生成和云储存配置。",
   accounts: "当前账号密码、API Token，以及管理员用户维护。",
   developer: "后端配置编辑、节点状态和开发者白名单维护动作。",
 };
@@ -126,6 +126,8 @@ export default function AdminPage() {
     setPixivRetryMax,
     pixivConcurrency,
     setPixivConcurrency,
+    pixivStorageStrategy,
+    setPixivStorageStrategy,
     loadPixivConfig,
   } = useAdminPixivSettings({ onError: toast.error });
   const {
@@ -288,10 +290,15 @@ export default function AdminPage() {
   }, [activeSection, isAdmin, loadUsers, token]);
 
   useEffect(() => {
-    if (!token || !isDeveloper || activeSection !== "developer") return;
-    void loadDeveloperConfig();
-    void loadDeveloperConsole();
-    void loadUsers();
+    if (!token || !isDeveloper || !activeSection) return;
+    if (activeSection === "developer") {
+      void loadDeveloperConfig();
+      void loadDeveloperConsole();
+      void loadUsers();
+    }
+    if (activeSection === "maintenance") {
+      void loadDeveloperConfig();
+    }
   }, [activeSection, isDeveloper, loadDeveloperConfig, loadDeveloperConsole, loadUsers, token]);
 
   useEffect(() => {
@@ -371,6 +378,7 @@ export default function AdminPage() {
       pixiv_token_id: pixivSavedTokenId || undefined,
       cookie: auth_mode === "cookie" && !pixivSavedCookieId ? pixivCookie.trim() : undefined,
       pixiv_cookie_id: auth_mode === "cookie" ? pixivSavedCookieId || undefined : undefined,
+      storage_strategy: pixivStorageStrategy,
       public_first: pixivPublicFirst,
       rebuild_db: pixivRebuildDb,
       generate_cache: pixivGenerateCache,
@@ -495,6 +503,8 @@ export default function AdminPage() {
             onPixivDelayChange={setPixivDelay}
             pixivConcurrency={pixivConcurrency}
             onPixivConcurrencyChange={setPixivConcurrency}
+            pixivStorageStrategy={pixivStorageStrategy}
+            onPixivStorageStrategyChange={setPixivStorageStrategy}
             pixivMaxRetries={pixivMaxRetries}
             onPixivMaxRetriesChange={setPixivMaxRetries}
             pixivRetryBase={pixivRetryBase}
@@ -558,6 +568,12 @@ export default function AdminPage() {
           <AdminMaintenancePanel
             busy={busy}
             rebuildResult={rebuildResult}
+            isDeveloper={isDeveloper}
+            configResponse={configResponse}
+            configDraft={configDraft}
+            onConfigDraftChange={setConfigDraft}
+            onRefreshConfig={() => run("developer-config-refresh", loadDeveloperConfig, () => "云储存配置已刷新")}
+            onSaveConfig={saveDeveloperConfig}
             onRebuild={() =>
               run("rebuild", () => NyaApi.rebuild(false), (r) =>
                 `重建完成 · 资产 ${r.assets} · 标签 ${r.tags} · 重复 ${r.duplicates}`
