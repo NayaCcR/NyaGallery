@@ -11,6 +11,7 @@ requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "NyaGallery contributors" }]
 dependencies = [
+    "cryptography>=42",
     "fastapi>=0.115",
     "python-multipart>=0.0.9",
     "SQLAlchemy>=2.0",

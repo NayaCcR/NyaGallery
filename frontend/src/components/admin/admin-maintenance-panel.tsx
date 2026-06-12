@@ -1,7 +1,7 @@
 "use client";
 
 import type { Dispatch, SetStateAction } from "react";
-import { Cloud, Plus, RefreshCw, Save, Trash2, Wand2 } from "lucide-react";
+import { Cloud, Plus, RefreshCw, Save, ShieldAlert, ShieldCheck, Trash2, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -132,6 +132,19 @@ export function AdminMaintenancePanel({
 
         {isDeveloper && configDraft && (
           <div className="space-y-5">
+            <div className="flex items-start gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-[11px] leading-5 text-muted-foreground">
+              {configDraft.security?.secret_encryption_enabled ? (
+                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+              ) : (
+                <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+              )}
+              <span>
+                {configDraft.security?.secret_encryption_enabled
+                  ? "已启用部署密钥：云储存 password/token/access_key_secret 会加密写入 TOML，界面只做脱敏编辑。"
+                  : "未启用部署密钥：云储存 password/token/access_key_secret 只会脱敏展示，写入 TOML 时不是加密保存。保存配置会自动生成 security.secret_key。"}
+              </span>
+            </div>
+
             <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>默认储存策略</Label>

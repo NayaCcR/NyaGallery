@@ -8,12 +8,13 @@ from pathlib import Path
 
 from sqlalchemy import select
 
-from nyagallery.config import NyaGalleryConfig, apply_config_environment, load_config
+from nyagallery.config import NyaGalleryConfig, apply_config_environment, config_to_dict, load_config, save_config_file
 from nyagallery.db import (
     UserModel,
     create_engine_for_url,
     create_user,
     default_database_url,
+    encrypt_stored_pixiv_credentials,
     init_database,
     issue_api_token,
     get_security_settings,
@@ -37,6 +38,7 @@ from nyagallery.pixiv import (
 )
 from nyagallery.storage import GalleryStorage
 from nyagallery.tags import TagCatalog
+from nyagallery.secret_crypto import generate_secret_key, secret_encryption_enabled
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -45,6 +47,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--storage", default=None, help="Storage root directory.")
     parser.add_argument("--database-url", default=None, help="SQLAlchemy database URL.")
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    secret_key_cmd = subparsers.add_parser("generate-secret-key", help="Generate a deployment secret key for encrypted credentials.")
+    secret_key_cmd.add_argument("--json", action="store_true", help="Print as a JSON object.")
 
     sync_pid = subparsers.add_parser("pixiv-sync-pid", help="Sync one Pixiv artwork by PID.")
     sync_pid.add_argument("pid")
@@ -150,7 +155,17 @@ def main(argv: list[str] | None = None) -> int:
     storage.ensure()
     database_url = args.database_url or config.core.database_url or default_database_url(storage)
 
+    if args.command == "generate-secret-key":
+        key = generate_secret_key()
+        if args.json:
+            print(json.dumps({"secret_key": key, "env": "NYAGALLERY_SECRET_KEY"}, ensure_ascii=False, indent=2))
+        else:
+            print(key)
+        return 0
+
     if args.command == "setup":
+        config = _ensure_setup_config(args, config, storage)
+        apply_config_environment(config)
         result = _setup(args, storage, database_url)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
@@ -418,6 +433,17 @@ def _pixiv_cli_sync_components(args, config: NyaGalleryConfig) -> tuple[object, 
     raise SystemExit(f"unsupported Pixiv auth mode: {mode}")
 
 
+def _ensure_setup_config(args, config: NyaGalleryConfig, _storage: GalleryStorage) -> NyaGalleryConfig:
+    config_path = Path(args.config).expanduser() if args.config else config.path or Path("nyagallery.toml")
+    data = config_to_dict(config, redact_secrets=False)
+    core = data.setdefault("core", {})
+    if isinstance(core, dict):
+        core["storage"] = args.storage or config.core.storage
+        core["database_url"] = args.database_url or config.core.database_url or ""
+    saved = save_config_file(data, config_path)
+    return saved
+
+
 def _setup(args, storage: GalleryStorage, database_url: str) -> dict[str, object]:
     tag_catalog_path = storage.tags_dir / "catalog.json"
     if args.replace_tags or not tag_catalog_path.exists():
@@ -439,6 +465,7 @@ def _setup(args, storage: GalleryStorage, database_url: str) -> dict[str, object
         media_results = [item.__dict__ for item in MediaGenerator(storage).generate_all()]
 
     with session_factory() as session:
+        encrypted_credentials = encrypt_stored_pixiv_credentials(session)
         rebuild_result = rebuild_database(session, storage, catalog)
         catalog.save(storage.tags_dir / "catalog.json")
         user = session.scalar(select(UserModel).where(UserModel.username == args.username))
@@ -473,6 +500,11 @@ def _setup(args, storage: GalleryStorage, database_url: str) -> dict[str, object
             "duplicates": rebuild_result.duplicates,
         },
         "media": media_results,
+        "secret_encryption": {
+            "enabled": secret_encryption_enabled(),
+            "pixiv_tokens_encrypted": encrypted_credentials["pixiv_tokens"],
+            "pixiv_cookies_encrypted": encrypted_credentials["pixiv_cookies"],
+        },
         "user": {
             "id": user.id,
             "username": user.username,

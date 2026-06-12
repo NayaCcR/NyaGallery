@@ -70,6 +70,8 @@ Create storage, the tag catalog, the database, and an admin account:
 nyagallery --storage storage setup --username admin --role admin --password 123123
 ```
 
+`setup` also creates or updates `nyagallery.toml` with a unique `[security].secret_key`, which encrypts saved Pixiv and cloud-storage credentials. If a copied config is served with an empty key, backend startup fills it automatically.
+
 Run the backend:
 
 ```powershell
@@ -104,9 +106,15 @@ Important sections:
 - `[core]`: storage root, database URL, optional tag catalog path
 - `[server]`: host, port, access log, secure cookie mode
 - `[site]`: project homepage, repository link, optional ICP filing number
+- `[original_storage]`: original-file storage strategy list for local, WebDAV, Upyun, Aliyun OSS, and OneDrive
 - `[pixiv]`: optional default Pixiv credentials and sync defaults
 - `[redis]`: optional Redis URL and shared security limiter
+- `[security]`: deployment secret key for reversible encryption of third-party credentials
 - `[developer]`: developer-only config editor switch and allowlisted console switch
+
+Upload and Pixiv sync can choose a configured storage strategy. `local` is always available; remote originals are downloaded into `storage/remote-cache` when media generation or original-file access needs a local copy.
+
+Reusable third-party credentials saved from the admin UI, including Pixiv Token/Cookie and cloud-storage secrets, are encrypted at rest when `[security].secret_key` is present. The UI still shows only redacted summaries. Keep this key stable across restarts and backend instances; losing it means those encrypted third-party credentials must be re-entered.
 
 ## Common Commands
 
@@ -126,6 +134,18 @@ Sync a Pixiv artwork:
 
 ```powershell
 nyagallery --storage storage pixiv-sync-pid 123456 --generate-cache --rebuild-db
+```
+
+Sync into a named original-storage strategy:
+
+```powershell
+nyagallery --storage storage pixiv-sync-pid 123456 --storage-strategy webdav-main
+```
+
+Generate a deployment secret key manually:
+
+```powershell
+nyagallery generate-secret-key
 ```
 
 Create a user:

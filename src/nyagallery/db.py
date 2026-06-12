@@ -26,6 +26,7 @@ from nyagallery.auth import (
 from nyagallery.metadata import GalleryMetadata
 from nyagallery.metadata import utc_now_iso
 from nyagallery.security import normalize_security_settings
+from nyagallery.secret_crypto import decrypt_secret, encrypt_secret, is_encrypted_secret, secret_encryption_enabled
 from nyagallery.storage import GalleryStorage
 from nyagallery.tags import HIDDEN_TAG, SearchQuery, TagCatalog, is_hidden_tag, normalize_name, source_tag_details_from_extra, source_tag_name, tag_sort_key
 
@@ -169,7 +170,7 @@ class PixivTokenModel(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    refresh_token: Mapped[str] = mapped_column(String(2000))
+    refresh_token: Mapped[str] = mapped_column(String(4000))
     refresh_token_hash: Mapped[str] = mapped_column(String(64), index=True)
     token_prefix: Mapped[str] = mapped_column(String(32), index=True)
     token_suffix: Mapped[str] = mapped_column(String(32), default="")
@@ -191,7 +192,7 @@ class PixivCookieModel(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    cookie: Mapped[str] = mapped_column(String(50_000))
+    cookie: Mapped[str] = mapped_column(String(100_000))
     cookie_hash: Mapped[str] = mapped_column(String(64), index=True)
     cookie_prefix: Mapped[str] = mapped_column(String(32), index=True)
     cookie_suffix: Mapped[str] = mapped_column(String(32), default="")
@@ -696,7 +697,7 @@ def save_pixiv_token(
     if row is None:
         row = PixivTokenModel(
             user_id=user.id,
-            refresh_token=token,
+            refresh_token=encrypt_secret(token),
             refresh_token_hash=token_hash,
             token_prefix=token_prefix(token),
             token_suffix=token[-8:] if len(token) > 8 else token,
@@ -705,7 +706,7 @@ def save_pixiv_token(
         )
         session.add(row)
     else:
-        row.refresh_token = token
+        row.refresh_token = encrypt_secret(token)
         row.token_prefix = token_prefix(token)
         row.token_suffix = token[-8:] if len(token) > 8 else token
         row.revoked_at = None
@@ -774,7 +775,7 @@ def get_pixiv_refresh_token(
         row.last_used_ip = (client_ip or "")[:120] or None
         row.updated_at = now_utc()
         session.flush()
-    return row.refresh_token
+    return decrypt_secret(row.refresh_token)
 
 
 def pixiv_token_to_dict(token: PixivTokenModel) -> dict[str, object]:
@@ -825,7 +826,7 @@ def save_pixiv_cookie(
     if row is None:
         row = PixivCookieModel(
             user_id=user.id,
-            cookie=cookie_value,
+            cookie=encrypt_secret(cookie_value),
             cookie_hash=cookie_hash,
             cookie_prefix=cookie_hash[:16],
             cookie_suffix=cookie_hash[-8:],
@@ -834,7 +835,7 @@ def save_pixiv_cookie(
         )
         session.add(row)
     else:
-        row.cookie = cookie_value
+        row.cookie = encrypt_secret(cookie_value)
         row.cookie_prefix = cookie_hash[:16]
         row.cookie_suffix = cookie_hash[-8:]
         row.revoked_at = None
@@ -903,7 +904,27 @@ def get_pixiv_cookie(
         row.last_used_ip = (client_ip or "")[:120] or None
         row.updated_at = now_utc()
         session.flush()
-    return row.cookie
+    return decrypt_secret(row.cookie)
+
+
+def encrypt_stored_pixiv_credentials(session: Session) -> dict[str, int]:
+    if not secret_encryption_enabled():
+        return {"pixiv_tokens": 0, "pixiv_cookies": 0}
+    token_count = 0
+    cookie_count = 0
+    for row in session.scalars(select(PixivTokenModel)).all():
+        if row.refresh_token and not is_encrypted_secret(row.refresh_token):
+            row.refresh_token = encrypt_secret(row.refresh_token)
+            row.updated_at = now_utc()
+            token_count += 1
+    for row in session.scalars(select(PixivCookieModel)).all():
+        if row.cookie and not is_encrypted_secret(row.cookie):
+            row.cookie = encrypt_secret(row.cookie)
+            row.updated_at = now_utc()
+            cookie_count += 1
+    if token_count or cookie_count:
+        session.commit()
+    return {"pixiv_tokens": token_count, "pixiv_cookies": cookie_count}
 
 
 def pixiv_cookie_to_dict(cookie: PixivCookieModel) -> dict[str, object]:

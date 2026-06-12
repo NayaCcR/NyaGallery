@@ -1,7 +1,7 @@
 "use client";
 
 import type { Dispatch, SetStateAction } from "react";
-import { Copy, ExternalLink, FolderInput, Globe2, KeyRound, ListChecks, RefreshCw } from "lucide-react";
+import { Copy, ExternalLink, FolderInput, Globe2, KeyRound, ListChecks, RefreshCw, ShieldAlert, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -212,6 +212,19 @@ export function AdminPixivPanel({
           <p className="mt-1 text-xs text-muted-foreground">
             {pixivConfig?.has_env_refresh_token ? "已检测到环境变量 PIXIV_REFRESH_TOKEN；公开作品仍建议免登录抓取。" : "公开作品可免登录抓取；Token/Cookie 仅用于账号相关来源。"}
           </p>
+        </div>
+
+        <div className="flex items-start gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-[11px] leading-5 text-muted-foreground">
+          {pixivConfig?.secret_encryption_enabled ? (
+            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+          ) : (
+            <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+          )}
+          <span>
+            {pixivConfig?.secret_encryption_enabled
+              ? "已启用部署密钥：保存的 Pixiv Token/Cookie 会加密落盘，界面只显示脱敏摘要。"
+              : "未启用部署密钥：Pixiv Token/Cookie 只会脱敏展示，落盘仍不是加密保存。请先在部署配置中生成 security.secret_key。"}
+          </span>
         </div>
 
         <div className="grid grid-cols-2 gap-1 rounded-lg border border-border bg-muted/40 p-1">

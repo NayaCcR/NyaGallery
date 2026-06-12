@@ -1,7 +1,7 @@
 "use client";
 
 import type { Dispatch, ReactNode, SetStateAction } from "react";
-import { AlertTriangle, KeyRound, Save, Server, Settings2 } from "lucide-react";
+import { AlertTriangle, KeyRound, Save, Server, Settings2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -72,7 +72,7 @@ export function AdminDeveloperPanel({
         {configDraft && (
           <div className="space-y-5">
             <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-200">
-              保存会重写 TOML 文件；大多数设置需要重启后端后才会完整生效。Pixiv token/cookie 留空会保留文件中的旧值。
+              保存会重写 TOML 文件；大多数设置需要重启后端后才会完整生效。secret_key 和 Pixiv token/cookie 留空会保留旧值；没有 secret_key 时保存会自动生成。
             </div>
 
             <ConfigGroup title="Core">
@@ -105,6 +105,16 @@ export function AdminDeveloperPanel({
               <TextField label="url" value={configDraft.redis.url} onChange={(value) => patch("redis", { url: value })} />
               <TextField label="key_prefix" value={configDraft.redis.key_prefix} onChange={(value) => patch("redis", { key_prefix: value })} />
               <ToggleField label="security_limiter" checked={configDraft.redis.security_limiter} onChange={(value) => patch("redis", { security_limiter: value })} />
+            </ConfigGroup>
+
+            <ConfigGroup title="Security">
+              <div className="md:col-span-2 xl:col-span-3">
+                <div className="flex items-start gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-[11px] leading-5 text-muted-foreground">
+                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                  <span>部署密钥用于可逆加密 Pixiv 与云储存凭据。部署初始化会预生成；多实例部署请确保所有后端使用同一值。</span>
+                </div>
+              </div>
+              <TextField type="password" label="secret_key" value={configDraft.security?.secret_key ?? ""} onChange={(value) => patch("security", { secret_key: value })} />
             </ConfigGroup>
 
             <ConfigGroup title="Developer">

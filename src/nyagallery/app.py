@@ -56,6 +56,7 @@ from nyagallery.db import (
     create_upload_log,
     create_user,
     default_database_url,
+    encrypt_stored_pixiv_credentials,
     init_database,
     issue_api_token,
     get_pixiv_refresh_token,
@@ -124,6 +125,7 @@ from nyagallery.security import (
     same_or_trusted_origin,
     viewer_api_allowed,
 )
+from nyagallery.secret_crypto import SecretEncryptionError, secret_encryption_enabled
 from nyagallery.storage import GalleryStorage, StorageError
 from nyagallery.storage import MetadataAlreadyExistsError, sha256_bytes
 from nyagallery.tags import TagAlreadyExistsError, TagCatalog, TagNotFoundError, source_tag_details_from_extra
@@ -320,6 +322,8 @@ def create_app(
     tag_catalog_path: str | Path | None = None,
 ) -> FastAPI:
     config = load_config()
+    if config.path and not config.security.secret_key:
+        config = save_config_file(config_to_dict(config, redact_secrets=False), config.path)
     apply_config_environment(config)
     storage = GalleryStorage(
         storage_root or config.core.storage,
@@ -339,6 +343,7 @@ def create_app(
     )
     with session_factory() as session:
         source_tag_backfill = backfill_source_tag_index(session, catalog)
+        encrypted_credentials = encrypt_stored_pixiv_credentials(session)
     if source_tag_backfill.tags or source_tag_backfill.labels:
         _save_catalog(storage, catalog)
 
@@ -365,6 +370,8 @@ def create_app(
             "storage": str(storage.root),
             "redis": redis_client is not None,
             "redis_security_limiter": redis_client is not None and config.redis.security_limiter,
+            "secret_encryption_enabled": secret_encryption_enabled(config.security.secret_key),
+            "encrypted_pixiv_credentials": encrypted_credentials,
         }
 
     @app.get("/api/site/config")
@@ -852,6 +859,7 @@ def create_app(
             "exists": config_path.exists(),
             "config": config_to_dict(state.config, redact_secrets=True),
             "secret_fields": [
+                "security.secret_key",
                 "pixiv.refresh_token",
                 "pixiv.cookie",
                 "original_storage.strategies.password",
@@ -876,6 +884,9 @@ def create_app(
         try:
             saved = save_config_file(data, config_path)
             reloaded = load_config(config_path)
+            apply_config_environment(reloaded)
+            with state.session_factory() as db:
+                encrypt_stored_pixiv_credentials(db)
         except (OSError, ValueError, TypeError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         request.app.state.nyagallery = replace(state, config=reloaded)
@@ -883,7 +894,14 @@ def create_app(
             "path": str(saved.path or config_path),
             "exists": True,
             "config": config_to_dict(reloaded, redact_secrets=True),
-            "secret_fields": ["pixiv.refresh_token", "pixiv.cookie"],
+            "secret_fields": [
+                "security.secret_key",
+                "pixiv.refresh_token",
+                "pixiv.cookie",
+                "original_storage.strategies.password",
+                "original_storage.strategies.token",
+                "original_storage.strategies.access_key_secret",
+            ],
             "restart_required": True,
             "message": "Config saved. Restart the backend to apply settings captured at startup.",
         }
@@ -1074,8 +1092,9 @@ def create_app(
         return response
 
     @app.get("/api/sync/pixiv/config")
-    def api_pixiv_config(_principal: UploadPrincipal) -> dict[str, object]:
-        configured_token = bool(config.pixiv.refresh_token)
+    def api_pixiv_config(request: Request, _principal: UploadPrincipal) -> dict[str, object]:
+        state_config: NyaGalleryConfig = request.app.state.nyagallery.config
+        configured_token = bool(state_config.pixiv.refresh_token)
         env_token = bool(os.environ.get("PIXIV_REFRESH_TOKEN"))
         browser_login_available = importlib.util.find_spec("gppt") is not None
         cookie_session_exchange_available = importlib.util.find_spec("playwright") is not None
@@ -1088,9 +1107,10 @@ def create_app(
             "supports_cookie_session_exchange": cookie_session_exchange_available,
             "storage_strategies": _storage_strategy_items(storage),
             "default_storage_strategy": storage.default_storage_strategy(),
+            "secret_encryption_enabled": secret_encryption_enabled(state_config.security.secret_key),
             "auth_modes": ["public", "oauth_local", "refresh_token", "cookie", "oauth_manual", "local_import"],
-            "default_request_delay_seconds": config.pixiv.default_request_delay_seconds,
-            "max_concurrency": config.pixiv.max_concurrency,
+            "default_request_delay_seconds": state_config.pixiv.default_request_delay_seconds,
+            "max_concurrency": state_config.pixiv.max_concurrency,
             "oauth_note": "Public Pixiv artwork/user crawling does not require login. Use OAuth only for account-scoped sources such as bookmarks or private context.",
             "browser_oauth_note": "Server-side browser login requires the optional pixiv-login dependency and sends Pixiv credentials only to this NyaGallery backend for the current request.",
             "manual_oauth_note": "Manual callback/code exchange is kept as a fallback because Pixiv web redirects may get stuck on post-redirect pages.",
@@ -1604,6 +1624,10 @@ def _developer_config_payload_with_preserved_secrets(
 ) -> dict[str, Any]:
     data = {section: dict(value) for section, value in payload.items() if isinstance(value, dict)}
     file_data = read_config_file_data(config_path)
+    file_security = file_data.get("security") if isinstance(file_data.get("security"), dict) else {}
+    security = data.setdefault("security", {})
+    if not str(security.get("secret_key") or "").strip():
+        security["secret_key"] = str(file_security.get("secret_key") or "")
     file_pixiv = file_data.get("pixiv") if isinstance(file_data.get("pixiv"), dict) else {}
     pixiv = data.setdefault("pixiv", {})
     for key in ("refresh_token", "cookie"):
@@ -2275,6 +2299,8 @@ def _resolve_saved_pixiv_token(
             record_usage=True,
             client_ip=client_ip(http_request, trust_proxy_headers=False),
         )
+    except SecretEncryptionError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     db.commit()
@@ -2297,6 +2323,8 @@ def _resolve_saved_pixiv_cookie(
             record_usage=True,
             client_ip=client_ip(http_request, trust_proxy_headers=False),
         )
+    except SecretEncryptionError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     db.commit()

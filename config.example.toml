@@ -6,8 +6,8 @@
 # Environment variables still work and override this file:
 #   NYAGALLERY_STORAGE, NYAGALLERY_DATABASE_URL, NYAGALLERY_SECURE_COOKIES,
 #   PIXIV_REFRESH_TOKEN, NYAGALLERY_SITE_ICP_BEIAN, NYAGALLERY_REDIS_URL,
-#   NYAGALLERY_STORAGE_STRATEGY, NYAGALLERY_CONFIG_EDITOR_ENABLED,
-#   NYAGALLERY_DEVELOPER_CONSOLE_ENABLED, etc.
+#   NYAGALLERY_STORAGE_STRATEGY, NYAGALLERY_SECRET_KEY,
+#   NYAGALLERY_CONFIG_EDITOR_ENABLED, NYAGALLERY_DEVELOPER_CONSOLE_ENABLED, etc.
 
 [core]
 # Required. Root directory for originals, metadata, cache, tags and logs.
@@ -112,6 +112,14 @@ key_prefix = "nyagallery"
 # instead of being tracked in local process memory. Useful once multiple API
 # instances are running behind the same frontend/proxy.
 security_limiter = false
+
+[security]
+# Deployment secret used to encrypt reusable third-party credentials such as
+# Pixiv Token/Cookie and cloud storage password/token/access_key_secret.
+# `nyagallery setup`, backend startup with this config file, and the developer
+# config editor generate one automatically when this is empty. Keep the same
+# value across restarts and backend instances.
+secret_key = ""
 
 [developer]
 # Allows users with the developer role to edit this TOML file from the admin UI.

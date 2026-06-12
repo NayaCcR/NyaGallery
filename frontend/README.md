@@ -116,9 +116,9 @@ nyagallery --storage storage serve --host 127.0.0.1 --port 8001
 `src/components/admin/` 已承接一部分管理页 UI：
 
 - `admin-fields`：开关、数字输入、文本域、限额网格、空状态。
-- `admin-pixiv-panel`：Pixiv 配置、OAuth/Token/Cookie 凭据入口、同步参数和抓取日志侧栏。
+- `admin-pixiv-panel`：Pixiv 配置、OAuth/Token/Cookie 凭据入口、储存策略选择、凭据加密状态提示、同步参数和抓取日志侧栏。
 - `admin-security-panel`：安全策略、默认/角色/用户限额和访问日志查询面板。
-- `admin-maintenance-panel` / `admin-tags-panel`：数据库重建、媒体缓存生成、标签别名搜索/保存和汇总导出。
+- `admin-maintenance-panel` / `admin-tags-panel`：数据库重建、媒体缓存生成、developer 专用云储存策略编辑、标签别名搜索/保存和汇总导出。
 - `admin-accounts-panel`：创建用户、API Token 签发/撤销、当前用户改密和管理员重置密码。
 - `admin-developer-panel`：developer 专用配置编辑、后端节点状态和白名单维护动作。
 - `admin-operations-panel`：上传与转码总面板，组合轮询状态、刷新入口、转码任务、上传历史和最近日志。
@@ -156,8 +156,10 @@ nyagallery --storage storage serve --host 127.0.0.1 --port 8001
 - 搜索页标签目录按分类聚合，技术标签默认折叠。
 - 随机图支持叠加当前标签筛选，并可跳转到对应资产详情。
 - 详情页支持多页 Pixiv 作品、原图下载、来源跳转、Pixiv 作品页跳转、标签编辑、Pixiv 原始标签、SHA256 和 API 链接复制/打开。
-- 上传页支持批量队列、拖拽、默认元数据、标签别名和上传后缓存生成。
-- 管理页支持按权限组拆分的 Pixiv 同步、上传与转码、访问日志、标签、维护、用户与 Token、安全限流配置，以及 developer 角色专用的可视化后端配置编辑和白名单开发者操作台。
+- 上传页支持批量队列、拖拽、默认元数据、标签别名、原图储存策略选择和上传后缓存生成。
+- 管理页支持按权限组拆分的 Pixiv 同步、上传与转码、访问日志、标签、维护、用户与 Token、安全限流配置，以及 developer 角色专用的可视化后端配置编辑、云储存策略配置和白名单开发者操作台。
+- 上传页和 Pixiv 同步面板会读取后端储存策略，按请求选择 local、WebDAV、又拍云、阿里云 OSS 或 OneDrive 等原图储存目标。
+- Pixiv 和云储存凭据只在界面显示脱敏摘要；后端启用部署密钥后会加密落盘，相关面板会显示当前加密状态。
 - 深浅色主题切换，预渲染前注入主题脚本避免闪烁。
 - PWA manifest 保留，可添加到主屏；当前未启用 Service Worker 离线缓存。
 
@@ -175,6 +177,7 @@ nyagallery --storage storage serve --host 127.0.0.1 --port 8001
 | `GET /api/assets/{key}/siblings` | 详情页多页作品 |
 | `GET /api/assets/{key}/preview` `GET /api/assets/{key}/thumb` | 卡片、详情页和 API 链接 |
 | `GET /api/assets/{key}/original` | 原图下载和 API 链接 |
+| `GET /api/storage/strategies` | 上传页储存策略选择 |
 | `POST /api/assets/{key}/tags` | 详情页标签编辑 |
 | `DELETE /api/assets/{key}` `DELETE /api/assets/{key}/cleanup` | 删除标记与管理员清理 |
 | `GET /api/tags/summary` `POST /api/tags/summary/export` | 搜索页标签目录、管理页标签统计导出 |
@@ -184,12 +187,12 @@ nyagallery --storage storage serve --host 127.0.0.1 --port 8001
 | `GET /api/uploads/history` `GET /api/uploads/logs` | 管理页上传历史和日志 |
 | `GET /api/transcode/jobs` `POST /api/transcode/assets/{key}/start` | 管理页转码队列与单项转码 |
 | `GET /api/security/settings` `PUT /api/security/settings` `GET /api/security/access-logs` | 管理页安全配置与访问日志 |
-| `GET/PUT /api/developer/config` `GET /api/developer/console` `POST /api/developer/console/reset-password` | 管理页开发者配置编辑和白名单操作台 |
-| `GET /api/sync/pixiv/config` | 管理页 Pixiv 能力检测 |
+| `GET/PUT /api/developer/config` `GET /api/developer/console` `POST /api/developer/console/reset-password` | 管理页开发者配置编辑、云储存策略配置和白名单操作台 |
+| `GET /api/sync/pixiv/config` | 管理页 Pixiv 能力检测、储存策略列表和凭据加密状态 |
 | `POST /api/sync/pixiv/oauth/start` `POST /api/sync/pixiv/oauth/exchange` | 管理页手动 OAuth |
 | `POST /api/sync/pixiv/oauth/browser-login` | 管理页无头 Pixiv 登录 |
 | `POST /api/sync/pixiv/oauth/visible/start` `GET /api/sync/pixiv/oauth/visible/{sessionId}` | 管理页可见浏览器 Pixiv 登录 |
-| `POST /api/sync/pixiv/{pid}` `POST /api/sync/pixiv/user/{uid}` | 管理页 Pixiv 单作品/用户同步 |
+| `POST /api/sync/pixiv/{pid}` `POST /api/sync/pixiv/user/{uid}` | 管理页 Pixiv 单作品/用户同步，支持按请求选择储存策略 |
 | `GET/POST /api/users...` `DELETE /api/tokens/{id}` | 管理页用户与 API Token |
 | `GET/POST/PATCH/DELETE /api/users...pixiv-*` | 管理页 Pixiv Token/Cookie 凭据管理 |
 

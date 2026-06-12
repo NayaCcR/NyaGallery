@@ -37,6 +37,10 @@ export interface BackendConfig {
     key_prefix: string;
     security_limiter: boolean;
   };
+  security: {
+    secret_key: string;
+    secret_encryption_enabled?: boolean;
+  };
   original_storage: {
     default_strategy: string;
     strategies: StorageStrategyConfig[];
@@ -159,6 +163,7 @@ export interface PixivConfigResponse {
   supports_cookie_session_exchange?: boolean;
   storage_strategies: StorageStrategySummary[];
   default_storage_strategy: string;
+  secret_encryption_enabled?: boolean;
   auth_modes: PixivAuthMode[];
   default_request_delay_seconds: number;
   max_concurrency: number;
