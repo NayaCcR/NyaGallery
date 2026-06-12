@@ -7,7 +7,8 @@ export type AdminSection =
   | "security"
   | "tags"
   | "maintenance"
-  | "accounts";
+  | "accounts"
+  | "developer";
 
 export const ADMIN_SECTION_ORDER: AdminSection[] = [
   "dashboard",
@@ -17,6 +18,7 @@ export const ADMIN_SECTION_ORDER: AdminSection[] = [
   "tags",
   "maintenance",
   "accounts",
+  "developer",
 ];
 
 export const ADMIN_SECTION_LABELS: Record<AdminSection, string> = {
@@ -27,16 +29,18 @@ export const ADMIN_SECTION_LABELS: Record<AdminSection, string> = {
   tags: "标签",
   maintenance: "维护",
   accounts: "账户",
+  developer: "开发者",
 };
 
 const ADMIN_SECTION_ROLES: Record<AdminSection, Role[]> = {
-  dashboard: ["viewer", "editor", "admin"],
-  pixiv: ["editor", "admin"],
-  operations: ["viewer", "editor", "admin"],
-  security: ["admin"],
-  tags: ["admin"],
-  maintenance: ["admin"],
-  accounts: ["viewer", "editor", "admin"],
+  dashboard: ["viewer", "editor", "admin", "developer"],
+  pixiv: ["editor", "admin", "developer"],
+  operations: ["viewer", "editor", "admin", "developer"],
+  security: ["admin", "developer"],
+  tags: ["admin", "developer"],
+  maintenance: ["admin", "developer"],
+  accounts: ["viewer", "editor", "admin", "developer"],
+  developer: ["developer"],
 };
 
 export function normalizeAdminSection(value: string | null | undefined): AdminSection {

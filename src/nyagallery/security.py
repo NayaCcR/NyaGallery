@@ -87,7 +87,7 @@ LIMIT_OVERRIDE_FIELDS = {
     "user_bytes_per_minute",
 }
 
-ROLE_NAMES = {"viewer", "editor", "admin"}
+ROLE_NAMES = {"viewer", "editor", "admin", "developer"}
 
 HTTP_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}

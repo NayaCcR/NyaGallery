@@ -9,7 +9,7 @@ import { bytesToMiB, formatDate, limitValue } from "@/components/admin/admin-for
 import type { AccessLogItem, Role, SecurityLimitOverride, SecuritySettings, UserSummary } from "@/lib/types";
 
 const MIB = 1024 * 1024;
-const ROLES: Role[] = ["viewer", "editor", "admin"];
+const ROLES: Role[] = ["viewer", "editor", "admin", "developer"];
 
 type AdminSecurityPanelProps = {
   busy: string | null;

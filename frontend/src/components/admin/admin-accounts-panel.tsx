@@ -10,7 +10,8 @@ import { TokenList } from "@/components/admin/admin-operation-rows";
 import { cn } from "@/lib/utils";
 import type { ApiTokenSummary, Role, UserSummary } from "@/lib/types";
 
-const ROLES: Role[] = ["viewer", "editor", "admin"];
+const ADMIN_CREATABLE_ROLES: Role[] = ["viewer", "editor", "admin"];
+const DEVELOPER_CREATABLE_ROLES: Role[] = [...ADMIN_CREATABLE_ROLES, "developer"];
 
 type NewUserDraft = {
   username: string;
@@ -26,6 +27,7 @@ type PasswordDraft = {
 
 type AdminAccountsPanelProps = {
   isAdmin: boolean;
+  isDeveloper: boolean;
   currentUsername: string;
   busy: string | null;
   newUser: NewUserDraft;
@@ -51,6 +53,7 @@ type AdminAccountsPanelProps = {
 
 export function AdminAccountsPanel({
   isAdmin,
+  isDeveloper,
   currentUsername,
   busy,
   newUser,
@@ -74,6 +77,7 @@ export function AdminAccountsPanel({
   onResetUserPassword,
 }: AdminAccountsPanelProps) {
   const activeTokenTarget = isAdmin ? tokenTarget : currentUsername;
+  const creatableRoles = isDeveloper ? DEVELOPER_CREATABLE_ROLES : ADMIN_CREATABLE_ROLES;
 
   return (
     <>
@@ -98,10 +102,15 @@ export function AdminAccountsPanel({
                 value={newUser.role}
                 onChange={(e) => onNewUserChange((user) => ({ ...user, role: e.target.value as Role }))}
               >
-                {ROLES.map((role) => <option key={role} value={role}>{role}</option>)}
+                {creatableRoles.map((role) => <option key={role} value={role}>{role}</option>)}
               </select>
             </div>
           </div>
+          {!isDeveloper && (
+            <p className="text-xs text-muted-foreground">
+              developer 账号只能由已有 developer 或本机 CLI 创建。
+            </p>
+          )}
           <Button size="sm" disabled={!newUser.username || !newUser.password || busy === "create-user"} onClick={onCreateUser}>
             创建
           </Button>
@@ -199,7 +208,7 @@ export function AdminAccountsPanel({
             <div>
               <h3 className="text-xs font-medium uppercase text-muted-foreground">现有用户</h3>
               <p className="mt-1 text-xs text-muted-foreground">
-                可为 viewer/editor 重置密码；admin 密码仅可本人通过上方旧密码修改或控制台修改。
+                可为普通用户重置密码；admin/developer 密码仅可本人通过上方旧密码修改或开发者控制台修改。
               </p>
             </div>
             {users.length === 0 ? (
@@ -207,7 +216,7 @@ export function AdminAccountsPanel({
             ) : (
               <div className="overflow-hidden rounded-lg border border-border text-xs">
                 {users.map((user) => {
-                  const isAdminUser = user.role === "admin";
+                  const isAdminUser = user.role === "admin" || user.role === "developer";
                   const passwordValue = userPasswordDrafts[user.username] ?? "";
                   const busyKey = `user-password-${user.username}`;
                   return (
@@ -231,7 +240,7 @@ export function AdminAccountsPanel({
                       </span>
                       {isAdminUser ? (
                         <div className="text-muted-foreground sm:col-span-2">
-                          admin 密码仅可本人旧密码修改或控制台修改
+                          特权账号密码仅可本人旧密码修改或开发者控制台修改
                         </div>
                       ) : (
                         <>

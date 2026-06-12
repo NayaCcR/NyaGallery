@@ -4,6 +4,29 @@
 
 NyaGallery is a self-hosted illustration gallery for archiving, browsing, tagging, and syncing image collections. It has a FastAPI backend, a Next.js frontend, immutable original storage, rebuildable metadata/indexes, Pixiv sync, user roles, API tokens, media cache generation, and optional Redis/PostgreSQL support for larger deployments.
 
+## Highlights
+
+- Archive-first storage: original files are treated as immutable records, while metadata, media cache, and database indexes can be rebuilt.
+- Illustration-aware workflows: Pixiv sync, multi-page artwork, ugoira media cache, source-site tags, R-18/AI content preferences, and hidden tag families are first-class concepts.
+- Backend-owned tag semantics: aliases, localized labels, implications, suggestions, source tags, and hidden tags live in the tag catalog instead of being scattered across clients.
+- Self-hosted but scale-ready: SQLite works for local use, while PostgreSQL and Redis are optional paths toward multi-process or future distributed deployments.
+- Practical account model: roles, HttpOnly sessions, CSRF protection, bearer API tokens, upload history, access logs, operation logs, and developer-only config tools are built in.
+- Modern browsing UI: responsive masonry browsing, sidebar-based workspace navigation, detail pages, upload queues, search tools, and a modular admin panel.
+
+## Why NyaGallery
+
+NyaGallery sits between a downloader script, a file browser, and a full booru-style image board.
+
+- Compared with a plain folder or photo manager, it preserves source metadata, supports structured tags, and keeps indexes rebuildable from the archive.
+- Compared with one-off downloader scripts, it gives the downloaded collection a long-term home: browse, search, retag, upload, audit, and regenerate cache from one interface.
+- Compared with generic DAM/gallery tools, it understands illustration-specific details such as Pixiv artwork IDs, translated source tags, multi-page works, ugoira, R-18/AI filtering, and booru-like tag relationships.
+- Compared with public-board-oriented booru systems, it is designed first for a personal or small-team archive: controlled accounts, private storage, rebuildable metadata files, and admin maintenance are central rather than afterthoughts.
+
+## Design Influences
+
+- [Szurubooru](https://github.com/rr-/szurubooru): NyaGallery follows the booru idea that tags should be structured, searchable, and maintainable. Canonical tags, categories, aliases, implications, suggestions, and query parsing are core parts of the backend instead of loose frontend labels.
+- [ImageFlow](https://github.com/Yuri-NagaSaki/ImageFlow): NyaGallery keeps the image-first browsing spirit: fast visual scanning, masonry-style flow, lightweight navigation, and preview-oriented interaction. It adds archive integrity, rebuildable metadata, source-aware tags, user roles, and admin maintenance around that browsing experience.
+
 ## Documentation Map
 
 | Document | Role |
@@ -83,6 +106,7 @@ Important sections:
 - `[site]`: project homepage, repository link, optional ICP filing number
 - `[pixiv]`: optional default Pixiv credentials and sync defaults
 - `[redis]`: optional Redis URL and shared security limiter
+- `[developer]`: developer-only config editor switch and allowlisted console switch
 
 ## Common Commands
 
@@ -108,6 +132,12 @@ Create a user:
 
 ```powershell
 nyagallery --storage storage create-user viewer --role viewer --password 123123
+```
+
+Create a developer account for config editing and controlled console actions. Developer users can only be created from the CLI or by an existing developer user:
+
+```powershell
+nyagallery --storage storage create-user dev --role developer --password 123123
 ```
 
 Issue an API token:

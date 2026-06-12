@@ -116,7 +116,9 @@ nyagallery --storage storage pixiv-sync-pid 123456 --generate-cache --rebuild-db
 nyagallery --config nyagallery.toml serve
 ```
 
-配置文件包含 `core.storage`、`core.database_url`、`server.host`、`server.port`、`site.project_homepage`、`site.icp_beian`、`pixiv.refresh_token` 和可选 Redis 等运行时配置。命令行参数优先于环境变量，环境变量优先于配置文件；`site.icp_beian` 留空时前端页脚不显示备案号。
+配置文件包含 `core.storage`、`core.database_url`、`server.host`、`server.port`、`site.project_homepage`、`site.icp_beian`、`pixiv.refresh_token`、可选 Redis，以及 `[developer]` 中的管理页配置编辑器和白名单开发者操作台开关。命令行参数优先于环境变量，环境变量优先于配置文件；`site.icp_beian` 留空时前端页脚不显示备案号。
+
+`developer` 角色继承 admin 能力，并额外拥有开发者模块入口。admin 不能通过 Web UI/API 创建 developer 用户；这个信任边界只能走本机 CLI 或已有 developer 账号。开发者操作台不会开放任意 shell 执行，只在 `developer.console_enabled = true` 时启用明确的维护动作，例如特权账号密码重置。
 
 Redis 默认关闭。安装 `python -m pip install -e ".[redis]"` 后设置 `[redis].url`，再打开 `redis.security_limiter` 可以把请求并发、频率和流量限制从进程内存切换到 Redis，方便多个 API 实例共享同一套限流状态。
 

@@ -1,12 +1,72 @@
 // Mirror of the FastAPI response shapes we consume.
 // See nyagallery/db.py::asset_to_dict and nyagallery/tags.py.
 
-export type Role = "guest" | "viewer" | "editor" | "admin";
+export type Role = "guest" | "viewer" | "editor" | "admin" | "developer";
 
 export interface SiteConfigResponse {
   project_homepage: string;
   repository: string;
   icp_beian: string | null;
+}
+
+export interface BackendConfig {
+  core: {
+    storage: string;
+    database_url: string;
+    tag_catalog_path: string;
+  };
+  server: {
+    host: string;
+    port: number;
+    access_log: boolean;
+    secure_cookies: boolean;
+  };
+  site: {
+    project_homepage: string;
+    repository: string;
+    icp_beian: string;
+  };
+  pixiv: {
+    refresh_token: string;
+    cookie: string;
+    default_request_delay_seconds: number;
+    max_concurrency: number;
+  };
+  redis: {
+    url: string;
+    key_prefix: string;
+    security_limiter: boolean;
+  };
+  developer: {
+    config_editor_enabled: boolean;
+    console_enabled: boolean;
+  };
+}
+
+export interface DeveloperConfigResponse {
+  path: string;
+  exists: boolean;
+  config: BackendConfig;
+  secret_fields: string[];
+  restart_required: boolean;
+  message: string;
+}
+
+export interface DeveloperConsoleNode {
+  id: string;
+  label: string;
+  status: string;
+  storage: string;
+  database_url: string;
+  redis: boolean;
+  config_path: string;
+}
+
+export interface DeveloperConsoleResponse {
+  enabled: boolean;
+  warning: string;
+  nodes: DeveloperConsoleNode[];
+  actions: string[];
 }
 
 export interface Asset {

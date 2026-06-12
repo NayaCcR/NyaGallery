@@ -94,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
 
     setup = subparsers.add_parser("setup", help="Initialize storage, tags, database, admin user, and API token.")
     setup.add_argument("--username", default="admin")
-    setup.add_argument("--role", default="admin", choices=("admin", "editor", "viewer", "guest"))
+    setup.add_argument("--role", default="admin", choices=("developer", "admin", "editor", "viewer", "guest"))
     setup.add_argument("--password", default=None)
     setup.add_argument("--replace-tags", action="store_true")
     setup.add_argument("--skip-metadata-migration", action="store_true")
@@ -112,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
 
     create_user_cmd = subparsers.add_parser("create-user", help="Create an API user.")
     create_user_cmd.add_argument("username")
-    create_user_cmd.add_argument("--role", default="viewer", choices=("admin", "editor", "viewer", "guest"))
+    create_user_cmd.add_argument("--role", default="viewer", choices=("developer", "admin", "editor", "viewer", "guest"))
     create_user_cmd.add_argument("--password", default=None)
 
     token_cmd = subparsers.add_parser("issue-token", help="Issue a bearer API token for a user.")

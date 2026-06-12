@@ -12,11 +12,13 @@ import {
   KeyRound,
   LayoutDashboard,
   Shield,
+  Settings2,
   Tags,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AdminAccountsPanel } from "@/components/admin/admin-accounts-panel";
+import { AdminDeveloperPanel } from "@/components/admin/admin-developer-panel";
 import { AdminMaintenancePanel } from "@/components/admin/admin-maintenance-panel";
 import { AdminOperationsPanel } from "@/components/admin/admin-operations-panel";
 import { AdminPixivPanel } from "@/components/admin/admin-pixiv-panel";
@@ -37,6 +39,7 @@ import {
 } from "@/lib/admin-sections";
 import { useAdminAccounts } from "@/hooks/admin/use-admin-accounts";
 import { useAdminAction } from "@/hooks/admin/use-admin-action";
+import { useAdminDeveloper } from "@/hooks/admin/use-admin-developer";
 import { useAdminOperations } from "@/hooks/admin/use-admin-operations";
 import { useAdminPixivCredentials } from "@/hooks/admin/use-admin-pixiv-credentials";
 import { useAdminPixivLogs } from "@/hooks/admin/use-admin-pixiv-logs";
@@ -57,6 +60,7 @@ const ADMIN_SECTION_DESCRIPTIONS: Record<AdminSection, string> = {
   tags: "标签别名、标签统计筛选与汇总导出。",
   maintenance: "数据库重建和媒体缓存生成。",
   accounts: "当前账号密码、API Token，以及管理员用户维护。",
+  developer: "后端配置编辑、节点状态和开发者白名单维护动作。",
 };
 
 const ADMIN_SECTION_ICONS: Record<AdminSection, LucideIcon> = {
@@ -67,6 +71,7 @@ const ADMIN_SECTION_ICONS: Record<AdminSection, LucideIcon> = {
   tags: Tags,
   maintenance: Database,
   accounts: KeyRound,
+  developer: Settings2,
 };
 
 export default function AdminPage() {
@@ -76,7 +81,8 @@ export default function AdminPage() {
   const { token, ready, me } = useAuth();
   const { t } = useI18n();
   const toast = useToast();
-  const isAdmin = me?.role === "admin";
+  const isAdmin = Boolean(me?.permissions?.includes("admin"));
+  const isDeveloper = Boolean(me?.permissions?.includes("developer"));
   const canPixivSync = canAccessAdminSection(me?.role, "pixiv");
   const rawSection = searchParams?.get("section");
   const requestedSection = normalizeAdminSection(rawSection);
@@ -245,6 +251,18 @@ export default function AdminPage() {
     patchRoleLimit,
     patchUserLimit,
   } = useAdminSecurity({ run, onUsersLoaded: replaceUsers });
+  const {
+    configResponse,
+    configDraft,
+    setConfigDraft,
+    loadDeveloperConfig,
+    saveDeveloperConfig,
+    consoleStatus,
+    loadDeveloperConsole,
+    consolePasswordDraft,
+    setConsolePasswordDraft,
+    resetConsolePassword,
+  } = useAdminDeveloper({ run, onError: toast.error });
 
   useEffect(() => {
     if (!ready || !token || !activeSection) return;
@@ -268,6 +286,13 @@ export default function AdminPage() {
     if (!token || !isAdmin || activeSection !== "accounts") return;
     void loadUsers();
   }, [activeSection, isAdmin, loadUsers, token]);
+
+  useEffect(() => {
+    if (!token || !isDeveloper || activeSection !== "developer") return;
+    void loadDeveloperConfig();
+    void loadDeveloperConsole();
+    void loadUsers();
+  }, [activeSection, isDeveloper, loadDeveloperConfig, loadDeveloperConsole, loadUsers, token]);
 
   useEffect(() => {
     if (!token || !canPixivSync || activeSection !== "pixiv") return;
@@ -562,12 +587,30 @@ export default function AdminPage() {
           />
           )}
 
+          {activeSection === "developer" && isDeveloper && (
+          <AdminDeveloperPanel
+            busy={busy}
+            configResponse={configResponse}
+            configDraft={configDraft}
+            onConfigDraftChange={setConfigDraft}
+            onRefreshConfig={() => run("developer-config-refresh", loadDeveloperConfig, () => "配置已刷新")}
+            onSaveConfig={saveDeveloperConfig}
+            consoleStatus={consoleStatus}
+            onRefreshConsole={() => run("developer-console-refresh", loadDeveloperConsole, () => "操作台状态已刷新")}
+            users={users}
+            passwordDraft={consolePasswordDraft}
+            onPasswordDraftChange={setConsolePasswordDraft}
+            onResetPassword={resetConsolePassword}
+          />
+          )}
+
         </>
       )}
 
       {activeSection === "accounts" && (
         <AdminAccountsPanel
           isAdmin={isAdmin}
+          isDeveloper={isDeveloper}
           currentUsername={me?.username ?? ""}
           busy={busy}
           newUser={newUser}

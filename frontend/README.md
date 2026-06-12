@@ -74,7 +74,7 @@ nyagallery --storage storage serve --host 127.0.0.1 --port 8001
 - `/search`：标签选择器、内容筛选、排除动图、随机图预览和跳转详情。
 - `/asset/[key]`：详情页，支持多页作品浏览、原图下载、Pixiv 作品页跳转、API 链接、标签编辑、删除标记和管理员清理。
 - `/upload`：批量上传图片或 zip，支持默认作者、默认标签、标签别名和上传后生成缓存。
-- `/admin`：管理后台入口，按侧边栏二级模块进入仪表盘、Pixiv、上传与转码、安全、标签、维护和账户；模块入口会按当前角色隐藏。
+- `/admin`：管理后台入口，按侧边栏二级模块进入仪表盘、Pixiv、上传与转码、安全、标签、维护、账户和开发者；模块入口会按当前角色隐藏。
 - `/login`：账号密码登录，使用 HttpOnly cookie 会话。
 - `/faq`：项目说明、致谢和个人链接。
 
@@ -86,8 +86,8 @@ nyagallery --storage storage serve --host 127.0.0.1 --port 8001
 - 登录后使用 HttpOnly cookie；Bearer Token 保留给脚本、外部程序和旧客户端。
 - 详情页原图下载走 `/api/assets/{key}/original`，由后端流式返回原始字节。
 - Pixiv 无头登录和可见浏览器登录通过 `src/app/api/sync/pixiv/oauth/*` 代理，避免 Next 默认请求超时影响长耗时登录。
-- 全站使用 `components/layout/app-shell` 作为应用壳：桌面端左侧模块导航并在侧栏顶部承载主题/语言/账号，移动端使用顶部工具栏与横向导航；页脚位于内容区底部，展示 ImageFlow、Szurubooru、项目仓库和可选 ICP 备案号。
-- 页脚 ICP 备案号来自后端 `/api/site/config`；在后端 `nyagallery.toml` 的 `site.icp_beian` 留空时不显示。
+- 全站使用 `components/layout/app-shell` 作为应用壳：桌面端左侧模块导航并在侧栏顶部承载主题/语言/账号，移动端使用顶部工具栏与横向导航；页脚位于内容区底部，左侧展示项目主页与 GitHub 仓库，中间按配置显示 ICP 备案号，右侧以说明型链接展示 ImageFlow 灵感和 Szurubooru 鸣谢。
+- 页脚 ICP 备案号来自后端 `/api/site/config`；在后端 `nyagallery.toml` 的 `site.icp_beian` 留空时不显示，显示时链接到 `http://beian.miit.gov.cn`。
 
 ## 页面拆分现状
 
@@ -109,6 +109,7 @@ nyagallery --storage storage serve --host 127.0.0.1 --port 8001
 - `use-admin-tags`：标签别名列表、搜索过滤、保存和导出汇总。
 - `use-admin-security`：安全设置、角色/用户限额、访问日志和用户列表同步。
 - `use-admin-accounts`：用户、密码、API Token 的表单状态和操作。
+- `use-admin-developer`：developer 专用配置草稿、后端节点状态和白名单维护动作。
 - `use-admin-pixiv-settings` / `use-admin-pixiv-credentials`：Pixiv 后端能力、同步参数、已保存 Token/Cookie 凭据和最近登录用户信息。
 - `use-admin-pixiv-oauth`：Pixiv OAuth 手动回调、无头登录、可见浏览器登录轮询和 post-redirect URL 识别。
 
@@ -119,15 +120,17 @@ nyagallery --storage storage serve --host 127.0.0.1 --port 8001
 - `admin-security-panel`：安全策略、默认/角色/用户限额和访问日志查询面板。
 - `admin-maintenance-panel` / `admin-tags-panel`：数据库重建、媒体缓存生成、标签别名搜索/保存和汇总导出。
 - `admin-accounts-panel`：创建用户、API Token 签发/撤销、当前用户改密和管理员重置密码。
+- `admin-developer-panel`：developer 专用配置编辑、后端节点状态和白名单维护动作。
 - `admin-operations-panel`：上传与转码总面板，组合轮询状态、刷新入口、转码任务、上传历史和最近日志。
 - `admin-operation-rows`：转码任务、上传历史、上传日志、Pixiv 日志、访问日志、API Token 列表。
 - `pixiv-credential-managers`：Pixiv Token/Cookie 保存项选择、备注和撤销。
 - `admin-format`：管理页日期、大小、状态、缓存、转码阶段等展示格式化工具。
 
-`/admin` 已按“仪表盘 / Pixiv / 上传与转码 / 安全 / 标签 / 维护 / 账户”切成侧边栏二级模块，并通过 `lib/admin-sections` 统一维护角色可见性：
+`/admin` 已按“仪表盘 / Pixiv / 上传与转码 / 安全 / 标签 / 维护 / 账户 / 开发者”切成侧边栏二级模块，并通过 `lib/admin-sections` 统一维护角色可见性：
 - `viewer`：仪表盘、上传与转码、账户。
 - `editor`：仪表盘、Pixiv、上传与转码、账户。
 - `admin`：全部管理模块。
+- `developer`：admin 的超集，额外显示开发者模块。
 
 页面内容也按当前 `section` 单模块挂载，隐藏的模块不会仅靠 CSS 收起；直接访问不可见 `section` 时会回落到该角色的默认可访问模块。
 
@@ -154,7 +157,7 @@ nyagallery --storage storage serve --host 127.0.0.1 --port 8001
 - 随机图支持叠加当前标签筛选，并可跳转到对应资产详情。
 - 详情页支持多页 Pixiv 作品、原图下载、来源跳转、Pixiv 作品页跳转、标签编辑、Pixiv 原始标签、SHA256 和 API 链接复制/打开。
 - 上传页支持批量队列、拖拽、默认元数据、标签别名和上传后缓存生成。
-- 管理页支持按权限组拆分的 Pixiv 同步、上传与转码、访问日志、标签、维护、用户与 Token、安全限流配置。
+- 管理页支持按权限组拆分的 Pixiv 同步、上传与转码、访问日志、标签、维护、用户与 Token、安全限流配置，以及 developer 角色专用的可视化后端配置编辑和白名单开发者操作台。
 - 深浅色主题切换，预渲染前注入主题脚本避免闪烁。
 - PWA manifest 保留，可添加到主屏；当前未启用 Service Worker 离线缓存。
 
@@ -181,6 +184,7 @@ nyagallery --storage storage serve --host 127.0.0.1 --port 8001
 | `GET /api/uploads/history` `GET /api/uploads/logs` | 管理页上传历史和日志 |
 | `GET /api/transcode/jobs` `POST /api/transcode/assets/{key}/start` | 管理页转码队列与单项转码 |
 | `GET /api/security/settings` `PUT /api/security/settings` `GET /api/security/access-logs` | 管理页安全配置与访问日志 |
+| `GET/PUT /api/developer/config` `GET /api/developer/console` `POST /api/developer/console/reset-password` | 管理页开发者配置编辑和白名单操作台 |
 | `GET /api/sync/pixiv/config` | 管理页 Pixiv 能力检测 |
 | `POST /api/sync/pixiv/oauth/start` `POST /api/sync/pixiv/oauth/exchange` | 管理页手动 OAuth |
 | `POST /api/sync/pixiv/oauth/browser-login` | 管理页无头 Pixiv 登录 |

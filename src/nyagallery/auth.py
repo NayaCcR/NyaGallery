@@ -12,6 +12,19 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "viewer": frozenset({"view", "download", "api"}),
     "editor": frozenset({"view", "download", "api", "upload", "edit_tags", "delete_request"}),
     "admin": frozenset({"view", "download", "api", "upload", "edit_tags", "delete_request", "delete", "admin"}),
+    "developer": frozenset({
+        "view",
+        "download",
+        "api",
+        "upload",
+        "edit_tags",
+        "delete_request",
+        "delete",
+        "admin",
+        "developer",
+        "config",
+        "console",
+    }),
 }
 
 

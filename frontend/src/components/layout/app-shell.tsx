@@ -5,12 +5,14 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   Activity,
   Database,
+  Github,
   Globe2,
   HelpCircle,
   Images,
   LayoutDashboard,
   Search,
   Settings,
+  Settings2,
   Shield,
   Sparkles,
   Tags,
@@ -64,6 +66,7 @@ const ADMIN_SECTION_ICONS: Record<AdminSection, LucideIcon> = {
   tags: Tags,
   maintenance: Database,
   accounts: UserCog,
+  developer: Settings2,
 };
 
 const ADMIN_NAV: NavItem[] = ADMIN_SECTION_ORDER.map((section) => ({
@@ -91,6 +94,7 @@ export function AppShell({ children }: AppShellProps) {
   const { token, ready, me } = useAuth();
   const { t } = useI18n();
   const { data: siteConfig } = useSiteConfig();
+  const projectHomepage = siteConfig?.project_homepage || DEFAULT_REPOSITORY_URL;
   const repositoryUrl = siteConfig?.repository || DEFAULT_REPOSITORY_URL;
   const privateItems = ready && token ? PRIVATE_NAV : [];
   const requestedAdminSection = normalizeAdminSection(searchParams?.get("section"));
@@ -202,17 +206,39 @@ export function AppShell({ children }: AppShellProps) {
           {children}
         </main>
         <footer className="border-t border-border bg-background px-4 py-5 text-xs text-muted-foreground lg:border-l">
-          <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <FooterLink href={IMAGEFLOW_URL}>ImageFlow</FooterLink>
-              <FooterLink href={SZURU_URL}>Szurubooru</FooterLink>
-              <FooterLink href={repositoryUrl}>NayaCcR/NyaGallery</FooterLink>
-            </div>
-            {siteConfig?.icp_beian && (
-              <FooterLink href="https://beian.miit.gov.cn/">
-                {siteConfig.icp_beian}
+          <div className="mx-auto grid w-full max-w-6xl gap-4 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:items-center">
+            <div className="flex flex-wrap items-center justify-center gap-2 md:justify-start">
+              <span>{"\uD83D\uDC3E Powered by"}</span>
+              <FooterLink href={projectHomepage} className="font-medium text-foreground">
+                NyaGallery
               </FooterLink>
-            )}
+              <span>By NayaCcR</span>
+              <FooterIconLink href={repositoryUrl} label="NyaGallery GitHub repository">
+                <Github className="h-4 w-4" />
+              </FooterIconLink>
+            </div>
+
+            <div className="min-h-5 text-center">
+              {siteConfig?.icp_beian && (
+                <a
+                  href="http://beian.miit.gov.cn"
+                  rel="external nofollow"
+                  target="_blank"
+                  className="underline-offset-4 transition-colors hover:text-foreground hover:underline"
+                >
+                  {siteConfig.icp_beian}
+                </a>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-center gap-2 md:justify-end">
+              <FooterCredit href={IMAGEFLOW_URL} prefix={"\u2728"} note="Inspired by">
+                ImageFlow
+              </FooterCredit>
+              <FooterCredit href={SZURU_URL} prefix={"\u2764\uFE0F"} note="Thanks to">
+                Szurubooru
+              </FooterCredit>
+            </div>
           </div>
         </footer>
       </div>
@@ -220,15 +246,62 @@ export function AppShell({ children }: AppShellProps) {
   );
 }
 
-function FooterLink({ href, children }: { href: string; children: React.ReactNode }) {
+function FooterLink({
+  href,
+  children,
+  className,
+}: {
+  href: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
     <a
       href={href}
       target="_blank"
       rel="noreferrer"
-      className="underline-offset-4 transition-colors hover:text-foreground hover:underline"
+      className={cn("underline-offset-4 transition-colors hover:text-foreground hover:underline", className)}
     >
       {children}
+    </a>
+  );
+}
+
+function FooterIconLink({ href, label, children }: { href: string; label: string; children: React.ReactNode }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      aria-label={label}
+      className="grid h-7 w-7 place-items-center rounded-md border border-border bg-muted/35 text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+    >
+      {children}
+    </a>
+  );
+}
+
+function FooterCredit({
+  href,
+  prefix,
+  note,
+  children,
+}: {
+  href: string;
+  prefix: string;
+  note: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-muted/30 px-2.5 transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+    >
+      <span aria-hidden="true">{prefix}</span>
+      <span>{note}</span>
+      <span className="font-medium text-foreground">{children}</span>
     </a>
   );
 }

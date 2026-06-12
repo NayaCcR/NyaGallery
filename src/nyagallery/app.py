@@ -26,7 +26,15 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from nyagallery.auth import Principal, permissions_for_role, validate_role
-from nyagallery.config import NyaGalleryConfig, apply_config_environment, load_config
+from nyagallery.config import (
+    DEFAULT_CONFIG_FILENAME,
+    NyaGalleryConfig,
+    apply_config_environment,
+    config_to_dict,
+    load_config,
+    read_config_file_data,
+    save_config_file,
+)
 from nyagallery.db import (
     AssetModel,
     TranscodeJobModel,
@@ -293,6 +301,15 @@ class SecuritySettingsUpdate(BaseModel):
     csrf_origin_check_enabled: bool | None = None
     trusted_origins: list[str] | None = None
     trust_proxy_headers: bool | None = None
+
+
+class DeveloperConfigUpdate(BaseModel):
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+class DeveloperPasswordResetRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=80)
+    new_password: str = Field(min_length=1)
 
 
 def create_app(
@@ -669,7 +686,7 @@ def create_app(
                 db,
                 storage,
                 user_id=principal.user_id,
-                is_admin=principal.role == "admin",
+                is_admin=_is_admin_principal(principal),
                 limit=limit,
                 offset=offset,
             ),
@@ -687,7 +704,7 @@ def create_app(
         logs = list_upload_logs(
             db,
             user_id=principal.user_id,
-            is_admin=principal.role == "admin",
+            is_admin=_is_admin_principal(principal),
             limit=limit,
             offset=offset,
         )
@@ -715,7 +732,7 @@ def create_app(
         logs = list_pixiv_logs(
             db,
             user_id=principal.user_id,
-            is_admin=principal.role == "admin",
+            is_admin=_is_admin_principal(principal),
             limit=limit,
             offset=offset,
         )
@@ -743,7 +760,7 @@ def create_app(
         jobs = list_transcode_jobs(
             db,
             user_id=principal.user_id,
-            is_admin=principal.role == "admin",
+            is_admin=_is_admin_principal(principal),
             limit=limit,
             offset=offset,
         )
@@ -814,6 +831,97 @@ def create_app(
             "offset": offset,
             "q": q,
         }
+
+    @app.get("/api/developer/config")
+    def api_developer_config(request: Request, _principal: DeveloperPrincipal) -> dict[str, object]:
+        state: AppState = request.app.state.nyagallery
+        if not state.config.developer.config_editor_enabled:
+            raise HTTPException(status_code=403, detail="developer config editor is disabled")
+        config_path = state.config.path or Path(DEFAULT_CONFIG_FILENAME)
+        return {
+            "path": str(config_path),
+            "exists": config_path.exists(),
+            "config": config_to_dict(state.config, redact_secrets=True),
+            "secret_fields": ["pixiv.refresh_token", "pixiv.cookie"],
+            "restart_required": True,
+            "message": "Saved config is written to TOML. Restart the backend to apply all runtime settings.",
+        }
+
+    @app.put("/api/developer/config")
+    def api_update_developer_config(
+        update: DeveloperConfigUpdate,
+        request: Request,
+        _principal: DeveloperPrincipal,
+    ) -> dict[str, object]:
+        state: AppState = request.app.state.nyagallery
+        if not state.config.developer.config_editor_enabled:
+            raise HTTPException(status_code=403, detail="developer config editor is disabled")
+        config_path = state.config.path or Path(DEFAULT_CONFIG_FILENAME)
+        data = _developer_config_payload_with_preserved_secrets(update.config, config_path)
+        try:
+            saved = save_config_file(data, config_path)
+            reloaded = load_config(config_path)
+        except (OSError, ValueError, TypeError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        request.app.state.nyagallery = replace(state, config=reloaded)
+        return {
+            "path": str(saved.path or config_path),
+            "exists": True,
+            "config": config_to_dict(reloaded, redact_secrets=True),
+            "secret_fields": ["pixiv.refresh_token", "pixiv.cookie"],
+            "restart_required": True,
+            "message": "Config saved. Restart the backend to apply settings captured at startup.",
+        }
+
+    @app.get("/api/developer/console")
+    def api_developer_console(request: Request, _principal: DeveloperPrincipal) -> dict[str, object]:
+        state: AppState = request.app.state.nyagallery
+        return {
+            "enabled": state.config.developer.console_enabled,
+            "warning": "The web console is restricted to allowlisted maintenance actions.",
+            "nodes": [
+                {
+                    "id": "local",
+                    "label": "Local backend",
+                    "status": "online",
+                    "storage": str(state.storage.root),
+                    "database_url": _redact_database_url(str(state.engine.url)),
+                    "redis": state.redis_client is not None,
+                    "config_path": str(state.config.path or Path(DEFAULT_CONFIG_FILENAME)),
+                }
+            ],
+            "actions": ["reset_user_password"] if state.config.developer.console_enabled else [],
+        }
+
+    @app.post("/api/developer/console/reset-password")
+    def api_developer_reset_password(
+        update: DeveloperPasswordResetRequest,
+        request: Request,
+        db: DbSession,
+        principal: DeveloperPrincipal,
+    ) -> dict[str, object]:
+        state: AppState = request.app.state.nyagallery
+        if not state.config.developer.console_enabled:
+            raise HTTPException(status_code=403, detail="developer console is disabled")
+        try:
+            user = set_user_password(db, update.username, update.new_password)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        _write_operation_log(
+            state.storage,
+            request=request,
+            identity={
+                "user_id": principal.user_id,
+                "username": principal.username,
+                "role": principal.role,
+                "auth_method": getattr(request.state, "nyagallery_auth_method", None),
+            },
+            client_ip_value=client_ip(request, trust_proxy_headers=False),
+            status_code=200,
+            action="developer_password_reset",
+            detail=f"target={user.username}",
+        )
+        return user_to_dict(user)
 
     @app.post("/api/upload")
     async def api_upload(
@@ -1239,8 +1347,11 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.post("/api/users")
-    def api_create_user(user: UserCreate, db: DbSession, _principal: AdminPrincipal) -> dict[str, object]:
-        created = create_user(db, user.username, user.password, validate_role(user.role))
+    def api_create_user(user: UserCreate, db: DbSession, principal: AdminPrincipal) -> dict[str, object]:
+        role = validate_role(user.role)
+        if role == "developer" and not _is_developer_principal(principal):
+            raise HTTPException(status_code=403, detail="developer users can only be created by developer role or CLI")
+        created = create_user(db, user.username, user.password, role)
         return {"id": created.id, "username": created.username, "role": created.role}
 
     @app.get("/api/users")
@@ -1265,10 +1376,10 @@ def create_app(
         )
         if target is None:
             raise HTTPException(status_code=404, detail=f"user not found: {username}")
-        if target.role == "admin":
+        if _role_has_admin_permission(target.role):
             raise HTTPException(
                 status_code=403,
-                detail="admin password can only be changed by self or console",
+                detail="privileged user password can only be changed by self or developer console",
             )
         try:
             updated = set_user_password(db, target.username, update.new_password)
@@ -1318,7 +1429,7 @@ def create_app(
 
     @app.delete("/api/tokens/{token_id}")
     def api_revoke_token(token_id: int, db: DbSession, principal: ApiPrincipal) -> dict[str, object]:
-        if principal.role != "admin" and not api_token_belongs_to_user(db, token_id, principal.user_id):
+        if not _is_admin_principal(principal) and not api_token_belongs_to_user(db, token_id, principal.user_id):
             raise HTTPException(status_code=403, detail="permission denied")
         try:
             token = revoke_api_token(db, token_id)
@@ -1395,7 +1506,7 @@ def create_app(
         db: DbSession,
         principal: ApiPrincipal,
     ) -> dict[str, object]:
-        if principal.role != "admin" and not pixiv_cookie_belongs_to_user(db, cookie_id, principal.user_id):
+        if not _is_admin_principal(principal) and not pixiv_cookie_belongs_to_user(db, cookie_id, principal.user_id):
             raise HTTPException(status_code=403, detail="permission denied")
         try:
             cookie = update_pixiv_cookie_label(db, cookie_id, request.label)
@@ -1405,7 +1516,7 @@ def create_app(
 
     @app.delete("/api/pixiv-cookies/{cookie_id}")
     def api_revoke_pixiv_cookie(cookie_id: int, db: DbSession, principal: ApiPrincipal) -> dict[str, object]:
-        if principal.role != "admin" and not pixiv_cookie_belongs_to_user(db, cookie_id, principal.user_id):
+        if not _is_admin_principal(principal) and not pixiv_cookie_belongs_to_user(db, cookie_id, principal.user_id):
             raise HTTPException(status_code=403, detail="permission denied")
         try:
             cookie = revoke_pixiv_cookie(db, cookie_id)
@@ -1420,7 +1531,7 @@ def create_app(
         db: DbSession,
         principal: ApiPrincipal,
     ) -> dict[str, object]:
-        if principal.role != "admin" and not pixiv_token_belongs_to_user(db, token_id, principal.user_id):
+        if not _is_admin_principal(principal) and not pixiv_token_belongs_to_user(db, token_id, principal.user_id):
             raise HTTPException(status_code=403, detail="permission denied")
         try:
             token = update_pixiv_token_label(db, token_id, request.label)
@@ -1430,7 +1541,7 @@ def create_app(
 
     @app.delete("/api/pixiv-tokens/{token_id}")
     def api_revoke_pixiv_token(token_id: int, db: DbSession, principal: ApiPrincipal) -> dict[str, object]:
-        if principal.role != "admin" and not pixiv_token_belongs_to_user(db, token_id, principal.user_id):
+        if not _is_admin_principal(principal) and not pixiv_token_belongs_to_user(db, token_id, principal.user_id):
             raise HTTPException(status_code=403, detail="permission denied")
         try:
             token = revoke_pixiv_token(db, token_id)
@@ -1445,6 +1556,41 @@ def _model_dump(model: BaseModel) -> dict[str, object]:
     if hasattr(model, "model_dump"):
         return model.model_dump()  # type: ignore[no-any-return, union-attr]
     return model.dict()  # type: ignore[no-any-return]
+
+
+def _developer_config_payload_with_preserved_secrets(
+    payload: dict[str, Any],
+    config_path: Path,
+) -> dict[str, Any]:
+    data = {section: dict(value) for section, value in payload.items() if isinstance(value, dict)}
+    file_data = read_config_file_data(config_path)
+    file_pixiv = file_data.get("pixiv") if isinstance(file_data.get("pixiv"), dict) else {}
+    pixiv = data.setdefault("pixiv", {})
+    for key in ("refresh_token", "cookie"):
+        value = pixiv.get(key)
+        if value is None or str(value).strip() == "":
+            pixiv[key] = str(file_pixiv.get(key) or "")
+    return data
+
+
+def _redact_database_url(value: str) -> str:
+    if "://" not in value or "@" not in value:
+        return value
+    scheme, rest = value.split("://", 1)
+    _, host = rest.rsplit("@", 1)
+    return f"{scheme}://***@{host}"
+
+
+def _role_has_admin_permission(role: str) -> bool:
+    return "admin" in permissions_for_role(role)
+
+
+def _is_admin_principal(principal: Principal) -> bool:
+    return _role_has_admin_permission(principal.role)
+
+
+def _is_developer_principal(principal: Principal) -> bool:
+    return "developer" in permissions_for_role(principal.role)
 
 
 def _run_visible_pixiv_login_session(
@@ -2058,7 +2204,7 @@ def _resolve_saved_pixiv_token(
 ) -> None:
     if request.pixiv_token_id is None:
         return
-    if principal.role != "admin" and not pixiv_token_belongs_to_user(db, request.pixiv_token_id, principal.user_id):
+    if not _is_admin_principal(principal) and not pixiv_token_belongs_to_user(db, request.pixiv_token_id, principal.user_id):
         raise HTTPException(status_code=403, detail="permission denied")
     try:
         request.refresh_token = get_pixiv_refresh_token(
@@ -2080,7 +2226,7 @@ def _resolve_saved_pixiv_cookie(
 ) -> None:
     if request.pixiv_cookie_id is None:
         return
-    if principal.role != "admin" and not pixiv_cookie_belongs_to_user(db, request.pixiv_cookie_id, principal.user_id):
+    if not _is_admin_principal(principal) and not pixiv_cookie_belongs_to_user(db, request.pixiv_cookie_id, principal.user_id):
         raise HTTPException(status_code=403, detail="permission denied")
     try:
         request.cookie = get_pixiv_cookie(
@@ -2640,7 +2786,7 @@ def _principal_from_state(request: Request) -> Principal | None:
 
 
 def _require_self_or_admin(username: str, principal: Principal) -> None:
-    if principal.role == "admin":
+    if _is_admin_principal(principal):
         return
     if username.strip().casefold() == principal.username.strip().casefold():
         return
@@ -2697,6 +2843,7 @@ EditTagsPrincipal = Annotated[Principal, Depends(require_permission("edit_tags")
 UploadPrincipal = Annotated[Principal, Depends(require_permission("upload"))]
 DeleteRequestPrincipal = Annotated[Principal, Depends(require_permission("delete_request"))]
 AdminPrincipal = Annotated[Principal, Depends(require_permission("admin"))]
+DeveloperPrincipal = Annotated[Principal, Depends(require_permission("developer"))]
 
 
 def _get_asset(db: Session, asset_key: str) -> AssetModel:
@@ -2707,7 +2854,7 @@ def _get_asset(db: Session, asset_key: str) -> AssetModel:
 
 
 def _require_asset_owner_or_admin(asset: AssetModel, principal: Principal) -> None:
-    if principal.role == "admin":
+    if _is_admin_principal(principal):
         return
     if principal.user_id is not None and asset.uploader_user_id == principal.user_id:
         return

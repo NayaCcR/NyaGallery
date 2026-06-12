@@ -3,6 +3,9 @@ import type {
   AssetSiblingResponse,
   ApiTokenListResponse,
   Asset,
+  BackendConfig,
+  DeveloperConfigResponse,
+  DeveloperConsoleResponse,
   IssueTokenResponse,
   LoginResponse,
   MeResponse,
@@ -249,6 +252,22 @@ export const NyaApi = {
     if (q.trim()) search.set("q", q.trim());
     return api<AccessLogResponse>(`/api/security/access-logs?${search.toString()}`);
   },
+
+  developerConfig: () => api<DeveloperConfigResponse>("/api/developer/config"),
+
+  updateDeveloperConfig: (config: BackendConfig) =>
+    api<DeveloperConfigResponse>("/api/developer/config", {
+      method: "PUT",
+      body: { config },
+    }),
+
+  developerConsole: () => api<DeveloperConsoleResponse>("/api/developer/console"),
+
+  developerResetPassword: (username: string, newPassword: string) =>
+    api<UserSummary>("/api/developer/console/reset-password", {
+      method: "POST",
+      body: { username, new_password: newPassword },
+    }),
 
   pixivConfig: () => api<PixivConfigResponse>("/api/sync/pixiv/config"),
 

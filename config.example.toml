@@ -5,7 +5,8 @@
 #
 # Environment variables still work and override this file:
 #   NYAGALLERY_STORAGE, NYAGALLERY_DATABASE_URL, NYAGALLERY_SECURE_COOKIES,
-#   PIXIV_REFRESH_TOKEN, NYAGALLERY_SITE_ICP_BEIAN, NYAGALLERY_REDIS_URL, etc.
+#   PIXIV_REFRESH_TOKEN, NYAGALLERY_SITE_ICP_BEIAN, NYAGALLERY_REDIS_URL,
+#   NYAGALLERY_CONFIG_EDITOR_ENABLED, NYAGALLERY_DEVELOPER_CONSOLE_ENABLED, etc.
 
 [core]
 # Required. Root directory for originals, metadata, cache, tags and logs.
@@ -64,3 +65,12 @@ key_prefix = "nyagallery"
 # instead of being tracked in local process memory. Useful once multiple API
 # instances are running behind the same frontend/proxy.
 security_limiter = false
+
+[developer]
+# Allows users with the developer role to edit this TOML file from the admin UI.
+config_editor_enabled = true
+
+# Enables the web developer console allowlist. Keep false unless this backend is
+# protected by trusted network/auth controls. The console does not expose
+# arbitrary shell execution; it only enables explicit maintenance actions.
+console_enabled = false
