@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import tomllib
 from typing import Any, Mapping
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from nyagallery.secret_crypto import (
     SECRET_KEY_ENV,
@@ -54,6 +55,9 @@ class PixivConfig:
 class NetworkProxyConfig:
     name: str
     url: str = ""
+    auth_enabled: bool = False
+    username: str = ""
+    password: str = ""
 
 
 @dataclass(frozen=True)
@@ -313,8 +317,12 @@ def _storage_strategy_to_dict(strategy: StorageStrategyConfig, *, redact_secrets
 def _network_proxy_to_dict(proxy: NetworkProxyConfig, *, redact_secrets: bool = False) -> dict[str, object]:
     return {
         "name": proxy.name,
-        "url": "" if redact_secrets and proxy.url else proxy.url,
+        "url": proxy.url,
         "url_configured": bool(proxy.url),
+        "auth_enabled": proxy.auth_enabled,
+        "username": proxy.username,
+        "password": "" if redact_secrets and proxy.password else proxy.password,
+        "password_configured": bool(proxy.password),
     }
 
 
@@ -325,7 +333,10 @@ def _render_network_proxies(proxies: tuple[NetworkProxyConfig, ...], *, secret_k
             [
                 "[[network.proxies]]",
                 f"name = {_toml_string(proxy.name)}",
-                f"url = {_toml_string(encrypt_secret(proxy.url, secret_key))}",
+                f"url = {_toml_string(proxy.url)}",
+                f"auth_enabled = {_toml_bool(proxy.auth_enabled)}",
+                f"username = {_toml_string(proxy.username if proxy.auth_enabled else '')}",
+                f"password = {_toml_string(encrypt_secret(proxy.password if proxy.auth_enabled else '', secret_key))}",
                 "",
             ]
         )
@@ -562,10 +573,14 @@ def _network_proxy_items(data: dict[str, Any], *, secret_key: str = "") -> list[
         if not name or key in seen:
             continue
         seen.add(key)
+        auth_enabled = _bool(item.get("auth_enabled"), bool(item.get("username") or item.get("password")))
         proxies.append(
             NetworkProxyConfig(
                 name=name,
                 url=_secret_str(item.get("url") or item.get("proxy"), secret_key),
+                auth_enabled=auth_enabled,
+                username=_str(item.get("username"), "") if auth_enabled else "",
+                password=_secret_str(item.get("password"), secret_key) if auth_enabled else "",
             )
         )
     return proxies
@@ -618,8 +633,35 @@ def _network_resolve_proxy_ref(network: NetworkConfig, value: str | None) -> str
         return None
     for proxy in network.proxies:
         if proxy.name.casefold() == ref.casefold():
-            return proxy.url or None
+            return _network_proxy_runtime_url(proxy)
     return ref if "://" in ref else None
+
+
+def _network_proxy_runtime_url(proxy: NetworkProxyConfig) -> str | None:
+    url = proxy.url.strip()
+    if not url:
+        return None
+    if not proxy.auth_enabled or not (proxy.username or proxy.password):
+        return url
+    return _url_with_basic_auth(url, proxy.username, proxy.password)
+
+
+def _url_with_basic_auth(url: str, username: str, password: str) -> str:
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname or ""
+        port = parts.port
+    except ValueError:
+        return url
+    if not parts.scheme or not parts.netloc or not host:
+        return url
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    user = quote(username, safe="")
+    secret = quote(password, safe="")
+    userinfo = f"{user}:{secret}@" if password else f"{user}@"
+    netloc = f"{userinfo}{host}{f':{port}' if port is not None else ''}"
+    return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
 
 
 def _network_with_proxy_override(

@@ -79,7 +79,16 @@ export function AdminDeveloperPanel({
   function addProxy() {
     const network = configDraft?.network ?? { default_proxy: "", proxies: [], sources: [] };
     patchNetwork({
-      proxies: [...network.proxies, { name: nextProxyName(network.proxies.map((proxy) => proxy.name)), url: "" }],
+      proxies: [
+        ...network.proxies,
+        {
+          name: nextProxyName(network.proxies.map((proxy) => proxy.name)),
+          url: "",
+          auth_enabled: false,
+          username: "",
+          password: "",
+        },
+      ],
     });
   }
 
@@ -102,6 +111,7 @@ export function AdminDeveloperPanel({
   }
 
   const networkDraft = configDraft?.network ?? { default_proxy: "", proxies: [], sources: [] };
+  const savedNetwork = configResponse?.config.network ?? networkDraft;
 
   return (
     <>
@@ -168,7 +178,7 @@ export function AdminDeveloperPanel({
               <SelectField
                 label="default_proxy"
                 value={networkDraft.default_proxy}
-                options={proxyReferenceOptions(networkDraft, networkDraft.default_proxy, false)}
+                options={proxyReferenceOptions(savedNetwork, networkDraft.default_proxy, false)}
                 onChange={(value) => patchNetwork({ default_proxy: value })}
               />
               <div className="space-y-2 md:col-span-2 xl:col-span-3">
@@ -180,15 +190,37 @@ export function AdminDeveloperPanel({
                 </div>
                 <div className="space-y-2">
                   {networkDraft.proxies.map((proxy, index) => (
-                    <div key={`${proxy.name}-${index}`} className="grid gap-2 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.4fr)_auto]">
+                    <div key={`proxy-${index}`} className="grid gap-2 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.4fr)_auto]">
                       <TextField label="name" value={proxy.name} placeholder="local" onChange={(value) => updateProxy(index, { name: value })} />
-                      <TextField type="password" label="url" value={proxy.url ?? ""} placeholder="http://127.0.0.1:7890" onChange={(value) => updateProxy(index, { url: value })} />
-                      <IconButton label={t("common.removeItem", { item: proxy.name || "proxy" })} onClick={() => removeProxy(index)} />
-                      {proxy.url_configured && !proxy.url ? (
-                        <div className="md:col-span-3 rounded-md border border-border bg-muted/35 px-3 py-2 text-[11px] leading-5 text-muted-foreground">
-                          {t("admin.developer.proxyUrlConfigured")}
-                        </div>
-                      ) : null}
+                      <div className="space-y-2">
+                        <TextField label="url" value={proxy.url ?? ""} placeholder="http://127.0.0.1:7890" onChange={(value) => updateProxy(index, { url: value })} />
+                        <ToggleField
+                          label="proxy_auth"
+                          checked={proxy.auth_enabled ?? false}
+                          onChange={(value) => updateProxy(index, {
+                            auth_enabled: value,
+                            ...(value ? {} : { username: "", password: "" }),
+                          })}
+                        />
+                        {proxy.auth_enabled ? (
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <TextField label="username" value={proxy.username ?? ""} onChange={(value) => updateProxy(index, { username: value })} />
+                            <TextField type="password" label="password" value={proxy.password ?? ""} onChange={(value) => updateProxy(index, { password: value })} />
+                            {proxy.password_configured && !proxy.password ? (
+                              <div className="sm:col-span-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-[11px] leading-5 text-muted-foreground">
+                                {t("admin.developer.proxyPasswordConfigured")}
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                      <ProxyRowActions
+                        saveLabel={t("admin.developer.saveConfig")}
+                        removeLabel={t("common.removeItem", { item: proxy.name || "proxy" })}
+                        saveDisabled={!configDraft || busy === "developer-config-save"}
+                        onSave={onSaveConfig}
+                        onRemove={() => removeProxy(index)}
+                      />
                     </div>
                   ))}
                 </div>
@@ -212,7 +244,7 @@ export function AdminDeveloperPanel({
                         <SelectField
                           label="proxy"
                           value={current}
-                          options={proxyReferenceOptions(networkDraft, current, true)}
+                          options={proxyReferenceOptions(savedNetwork, current, true)}
                           onChange={(value) => setSourceProxy(source.source, value)}
                         />
                       </div>
@@ -231,7 +263,7 @@ export function AdminDeveloperPanel({
                         <SelectField
                           label="proxy"
                           value={source.proxy}
-                          options={proxyReferenceOptions(networkDraft, source.proxy, true)}
+                          options={proxyReferenceOptions(savedNetwork, source.proxy, true)}
                           onChange={(value) => setSourceProxy(source.source, value)}
                         />
                       </div>
@@ -402,9 +434,32 @@ function SelectField({
   );
 }
 
+function ProxyRowActions({
+  saveLabel,
+  removeLabel,
+  saveDisabled,
+  onSave,
+  onRemove,
+}: {
+  saveLabel: string;
+  removeLabel: string;
+  saveDisabled: boolean;
+  onSave: () => unknown;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="mt-6 flex gap-2">
+      <Button type="button" variant="outline" size="icon" title={saveLabel} aria-label={saveLabel} disabled={saveDisabled} onClick={onSave}>
+        <Save className="h-4 w-4" />
+      </Button>
+      <IconButton label={removeLabel} onClick={onRemove} />
+    </div>
+  );
+}
+
 function IconButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
-    <Button type="button" variant="outline" size="icon" className="mt-6" title={label} aria-label={label} onClick={onClick}>
+    <Button type="button" variant="outline" size="icon" title={label} aria-label={label} onClick={onClick}>
       <Trash2 className="h-4 w-4" />
     </Button>
   );

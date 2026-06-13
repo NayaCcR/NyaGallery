@@ -17,7 +17,7 @@ import sys
 import time
 from typing import Any, Callable, Iterable, Protocol
 from urllib.error import HTTPError
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qs, unquote, urlencode, urlparse, urlunparse
 from urllib.request import ProxyHandler, Request, build_opener, urlopen
 
 from nyagallery.metadata import (
@@ -1185,7 +1185,7 @@ def _pixiv_oauth_callback_from_cookie_browser(
     launch_kwargs: dict[str, object] = {"headless": headless}
     proxy = _effective_pixiv_proxy(proxy_url)
     if proxy:
-        launch_kwargs["proxy"] = {"server": proxy}
+        launch_kwargs["proxy"] = _playwright_proxy_config(proxy)
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(**launch_kwargs)
@@ -1201,6 +1201,26 @@ def _pixiv_oauth_callback_from_cookie_browser(
         raise PixivOAuthError("Pixiv cookie OAuth timed out before callback URL was reached") from exc
     except PlaywrightError as exc:
         raise PixivOAuthError(f"Pixiv cookie OAuth browser failed: {exc}") from exc
+
+
+def _playwright_proxy_config(proxy_url: str) -> dict[str, str]:
+    try:
+        parsed = urlparse(proxy_url)
+        host = parsed.hostname or ""
+        port = parsed.port
+    except ValueError:
+        return {"server": proxy_url}
+    if not parsed.scheme or not parsed.netloc or not host:
+        return {"server": proxy_url}
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    server = urlunparse((parsed.scheme, f"{host}{f':{port}' if port is not None else ''}", parsed.path, parsed.params, parsed.query, parsed.fragment))
+    config = {"server": server}
+    if parsed.username is not None:
+        config["username"] = unquote(parsed.username)
+    if parsed.password is not None:
+        config["password"] = unquote(parsed.password)
+    return config
 
 
 def _wait_for_pixiv_oauth_callback(page: Any, *, timeout_seconds: int) -> str:

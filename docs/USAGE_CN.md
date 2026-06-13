@@ -206,6 +206,9 @@ default_proxy = "direct"
 [[network.proxies]]
 name = "direct"
 url = ""
+auth_enabled = false
+username = ""
+password = ""
 
 [network.sources.pixiv]
 proxy = "direct"

@@ -70,7 +70,7 @@ cd ..
 nyagallery --storage storage setup --username admin --role admin --password 123123
 ```
 
-`setup` 也会创建或更新 `nyagallery.toml`，并预生成唯一的 `[security].secret_key`，用于加密保存 Pixiv、网络代理和云储存凭据。复制配置后如果空 key 直接启动，后端也会自动补齐。
+`setup` 也会创建或更新 `nyagallery.toml`，并预生成唯一的 `[security].secret_key`，用于加密保存 Pixiv 凭据、代理密码和云储存凭据。复制配置后如果空 key 直接启动，后端也会自动补齐。
 
 启动后端：
 
@@ -115,9 +115,9 @@ nyagallery --config nyagallery.toml serve
 
 上传和 Pixiv 同步都可以选择已配置的储存策略。`local` 始终可用；远端原图在生成媒体缓存或访问原图时会按需落到 `storage/remote-cache`。
 
-从后台保存的可复用第三方凭据，包括 Pixiv Token/Cookie、网络代理 URL 和云储存密钥，在存在 `[security].secret_key` 时会加密落盘。界面仍只显示脱敏摘要。请保持这把密钥在重启和多后端实例之间一致；丢失后已加密的第三方凭据需要重新填写。
+从后台保存的可复用第三方凭据，包括 Pixiv Token/Cookie、代理密码和云储存密钥，在存在 `[security].secret_key` 时会加密落盘。界面仍只对秘密值显示脱敏摘要。请保持这把密钥在重启和多后端实例之间一致；丢失后已加密的第三方凭据需要重新填写。
 
-如果后端不能直连某个来源，可在 `[[network.proxies]]` 定义代理档案，再通过 `[network.sources.pixiv]`、`[network.sources.x]`、`[network.sources.fanbox]` 等来源规则选择。`NYAGALLERY_NETWORK_PROXY` 或 `nyagallery --network-proxy ... serve` 可设置部署级默认代理。
+如果后端不能直连某个来源，可在 `[[network.proxies]]` 定义代理档案，再通过 `[network.sources.pixiv]`、`[network.sources.x]`、`[network.sources.fanbox]` 等来源规则选择。代理档案里的 `url` 会作为服务器地址明文保存；需要认证时打开 `auth_enabled` 并填写 `username`/`password`。`NYAGALLERY_NETWORK_PROXY` 或 `nyagallery --network-proxy ... serve` 可设置部署级默认代理。
 
 ## 常用命令
 

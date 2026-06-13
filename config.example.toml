@@ -104,17 +104,27 @@ default_proxy = "direct"
 [[network.proxies]]
 name = "direct"
 url = ""
+auth_enabled = false
+username = ""
+password = ""
 
-# Proxy URLs may contain credentials and are encrypted when security.secret_key
-# is present. Keep real values in nyagallery.toml, not in git.
+# Proxy URLs are saved as plain server addresses. If the proxy requires
+# authentication, enable auth_enabled and put credentials in username/password;
+# password is encrypted when security.secret_key is present.
 #
 # [[network.proxies]]
 # name = "local"
 # url = "http://127.0.0.1:7890"
+# auth_enabled = false
+# username = ""
+# password = ""
 #
 # [[network.proxies]]
 # name = "jp"
-# url = "http://user:password@example.com:8080"
+# url = "http://example.com:8080"
+# auth_enabled = true
+# username = "user"
+# password = ""
 
 [network.sources.pixiv]
 # The table name matches the backend source key used by a fetcher, not a URL or
@@ -142,7 +152,7 @@ security_limiter = false
 
 [security]
 # Deployment secret used to encrypt reusable third-party credentials such as
-# Pixiv Token/Cookie, network proxy URLs and cloud storage password/token/access_key_secret.
+# Pixiv Token/Cookie, proxy passwords and cloud storage password/token/access_key_secret.
 # `nyagallery setup`, backend startup with this config file, and the developer
 # config editor generate one automatically when this is empty. Keep the same
 # value across restarts and backend instances.

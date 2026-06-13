@@ -60,6 +60,10 @@ export interface NetworkProxyConfig {
   name: string;
   url: string;
   url_configured?: boolean;
+  auth_enabled: boolean;
+  username: string;
+  password: string;
+  password_configured?: boolean;
 }
 
 export interface NetworkSourceConfig {

@@ -864,7 +864,7 @@ def create_app(
                 "security.secret_key",
                 "pixiv.refresh_token",
                 "pixiv.cookie",
-                "network.proxies.url",
+                "network.proxies.password",
                 "original_storage.strategies.password",
                 "original_storage.strategies.token",
                 "original_storage.strategies.access_key_secret",
@@ -901,7 +901,7 @@ def create_app(
                 "security.secret_key",
                 "pixiv.refresh_token",
                 "pixiv.cookie",
-                "network.proxies.url",
+                "network.proxies.password",
                 "original_storage.strategies.password",
                 "original_storage.strategies.token",
                 "original_storage.strategies.access_key_secret",
@@ -1675,15 +1675,19 @@ def _developer_config_payload_with_preserved_secrets(
     network = data.setdefault("network", {})
     proxies = network.get("proxies")
     if isinstance(proxies, list):
-        for item in proxies:
+        for index, item in enumerate(proxies):
             if not isinstance(item, dict):
                 continue
             saved = saved_proxies_by_name.get(str(item.get("name") or "").strip())
+            if not saved and index < len(file_proxies) and isinstance(file_proxies[index], dict):
+                saved = file_proxies[index]
             if not saved:
                 continue
-            value = item.get("url")
+            if item.get("auth_enabled") is not True:
+                continue
+            value = item.get("password")
             if value is None or str(value).strip() == "":
-                item["url"] = str(saved.get("url") or "")
+                item["password"] = str(saved.get("password") or "")
     file_original_storage = file_data.get("original_storage") if isinstance(file_data.get("original_storage"), dict) else {}
     file_strategies = file_original_storage.get("strategies") if isinstance(file_original_storage.get("strategies"), list) else []
     saved_by_name = {
