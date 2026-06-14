@@ -125,7 +125,6 @@ export function AppShell({ children }: AppShellProps) {
             </span>
           </Link>
           <div className="mt-4 flex items-center justify-center gap-2 rounded-md border border-border bg-muted/35 p-2">
-            <ThemeToggle />
             <LanguageSelect />
             <UserMenu />
           </div>
@@ -180,6 +179,9 @@ export function AppShell({ children }: AppShellProps) {
                 <span className="block text-sm font-medium leading-5">{currentSectionLabel(pathname, adminSection, t)}</span>
                 <span className="block text-[11px] text-muted-foreground">{t("layout.header.workspace")}</span>
               </span>
+            </div>
+            <div className="hidden lg:absolute lg:right-5 lg:flex lg:items-center">
+              <ThemeToggle />
             </div>
             <div className="ml-auto flex items-center gap-1 lg:absolute lg:right-5 lg:hidden">
               <ThemeToggle />
