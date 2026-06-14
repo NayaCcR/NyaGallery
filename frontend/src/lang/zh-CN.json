@@ -463,9 +463,8 @@
   },
   "layout": {
     "footer": {
-      "byNaya": "NayaCcR 制作",
+      "credit": "{app} 由 {author} 制作",
       "inspiredBy": "灵感来自",
-      "poweredBy": "由",
       "repoLabel": "NyaGallery GitHub 仓库",
       "thanksTo": "感谢"
     },

@@ -463,9 +463,8 @@
   },
   "layout": {
     "footer": {
-      "byNaya": "By NayaCcR",
+      "credit": "{app} by {author}",
       "inspiredBy": "Inspired by",
-      "poweredBy": "Powered by",
       "repoLabel": "NyaGallery GitHub repository",
       "thanksTo": "Thanks to"
     },

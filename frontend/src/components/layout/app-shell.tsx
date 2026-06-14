@@ -206,9 +206,10 @@ export function AppShell({ children }: AppShellProps) {
         <footer className="border-t border-border bg-background px-4 py-5 text-xs text-muted-foreground lg:border-l">
           <div className="mx-auto grid w-full max-w-6xl gap-4 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:items-center">
             <div className="flex flex-wrap items-center justify-center gap-2 md:justify-start">
-              <span>{"\uD83D\uDC3E "}{t("layout.footer.poweredBy")}</span>
-              <span className="font-medium text-foreground">NyaGallery</span>
-              <span>{t("layout.footer.byNaya")}</span>
+              <span>
+                {"\uD83D\uDC3E "}
+                {t("layout.footer.credit", { app: "NyaGallery", author: "NayaCcR" })}
+              </span>
               <FooterIconLink href={repositoryUrl} label={t("layout.footer.repoLabel")}>
                 <Github className="h-4 w-4" />
               </FooterIconLink>
