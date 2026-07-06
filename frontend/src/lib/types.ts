@@ -240,6 +240,7 @@ export interface PixivSyncOptions {
   retry_max_seconds?: number;
   concurrency?: number;
   dry_run?: boolean;
+  restrict?: string;
 }
 
 export interface PixivSyncResponse {

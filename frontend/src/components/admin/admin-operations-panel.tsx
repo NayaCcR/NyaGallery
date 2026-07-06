@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Gauge, History, ListChecks, RefreshCw } from "lucide-react";
+import { Activity, Ban, Gauge, History, ListChecks, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyLine } from "@/components/admin/admin-fields";
 import {
@@ -25,6 +25,7 @@ type AdminOperationsPanelProps = {
   uploadLogs: UploadLogItem[];
   onRefresh: () => unknown;
   onStartTranscode: (assetKey: string) => unknown;
+  onCancelAllTranscode: () => unknown;
 };
 
 export function AdminOperationsPanel({
@@ -38,6 +39,7 @@ export function AdminOperationsPanel({
   uploadLogs,
   onRefresh,
   onStartTranscode,
+  onCancelAllTranscode,
 }: AdminOperationsPanelProps) {
   const { t } = useI18n();
 
@@ -80,6 +82,16 @@ export function AdminOperationsPanel({
         <div className="space-y-2">
           <h3 className="flex items-center gap-2 text-xs font-medium uppercase text-muted-foreground">
             <Gauge className="h-3.5 w-3.5" /> {t("admin.ops.transcodeJobs")}
+            {transcodeJobs.some((j) => j.status === "queued" || j.status === "running") && (
+              <button
+                type="button"
+                disabled={busy === "cancel-all-transcode"}
+                onClick={onCancelAllTranscode}
+                className="ml-auto inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] font-normal normal-case text-destructive hover:bg-destructive/5 disabled:opacity-50"
+              >
+                <Ban className="h-3 w-3" /> {t("admin.ops.cancelAll")}
+              </button>
+            )}
           </h3>
           <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
             {transcodeJobs.map((job) => (

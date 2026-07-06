@@ -76,6 +76,7 @@ from nyagallery.db import (
     mark_asset_pending_cleanup,
     normalize_asset_sort,
     normalize_sort_order,
+    now_utc,
     purge_pending_asset,
     random_asset,
     rebuild_database,
@@ -250,6 +251,7 @@ class PixivSyncRequest(BaseModel):
     retry_max_seconds: int = Field(default=300, ge=1, le=7200)
     concurrency: int = Field(default=1, ge=1, le=3)
     dry_run: bool = False
+    restrict: str = "public"
 
 
 class PixivOAuthStartRequest(BaseModel):
@@ -783,6 +785,27 @@ def create_app(
             offset=offset,
         )
         return {"items": [transcode_job_to_dict(job) for job in jobs], "limit": limit, "offset": offset}
+
+    @app.post("/api/transcode/cancel-all")
+    def api_cancel_all_transcode(
+        db: DbSession,
+        _principal: UploadPrincipal,
+    ) -> dict[str, object]:
+        now = now_utc()
+        rows = db.execute(
+            select(TranscodeJobModel)
+            .where(TranscodeJobModel.status.in_(("queued", "running")))
+        ).scalars().all()
+        count = len(rows)
+        for job in rows:
+            job.status = "error"
+            job.error = "cancelled by user"
+            job.stage = "cancelled"
+            job.message = "cancelled by user"
+            job.finished_at = now
+            job.updated_at = now
+        db.commit()
+        return {"cancelled": count}
 
     @app.post("/api/transcode/assets/{asset_key}/start")
     def api_start_transcode(
@@ -1426,6 +1449,79 @@ def create_app(
             db.commit()
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.post("/api/sync/pixiv/bookmarks/{uid}")
+    def api_sync_pixiv_bookmarks(
+        uid: str,
+        request: PixivSyncRequest,
+        db: DbSession,
+        principal: UploadPrincipal,
+        http_request: Request,
+    ) -> dict[str, object]:
+        mode = _normalize_pixiv_auth_mode(request.auth_mode)
+        restrict = request.restrict or "public"
+        try:
+            _apply_pixiv_proxy_config(request, http_request.app.state.nyagallery.config)
+            _resolve_saved_pixiv_token(request, db, principal, http_request)
+            _resolve_saved_pixiv_cookie(request, db, principal, http_request)
+            if request.dry_run:
+                client, _downloader = _pixiv_sync_components(request)
+                artworks = []
+                for index, artwork in enumerate(client.iter_user_bookmarks(uid, restrict=restrict)):
+                    if request.limit is not None and index >= request.limit:
+                        break
+                    artworks.append(_pixiv_artwork_preview(artwork))
+                _create_pixiv_log(
+                    db,
+                    principal=principal,
+                    target=uid,
+                    mode=mode,
+                    status="success",
+                    message="dry run completed",
+                    extra={"artworks": artworks, "options": _pixiv_options_log(request)},
+                )
+                db.commit()
+                return {"sync": [], "media": [], "rebuild": None, "jobs": [], "preview": artworks}
+            return _queue_pixiv_sync_job(
+                storage,
+                catalog,
+                session_factory=session_factory,
+                db=db,
+                principal=principal,
+                target=uid,
+                kind="bookmarks",
+                request=request,
+                mode=mode,
+            )
+        except PixivRateLimitError as exc:
+            retry_after = exc.retry_after_seconds or request.retry_base_seconds
+            _create_pixiv_log(
+                db,
+                principal=principal,
+                target=uid,
+                mode=mode,
+                status="error",
+                message="pixiv rate limited",
+                extra={"retry_after_seconds": retry_after, "options": _pixiv_options_log(request)},
+            )
+            db.commit()
+            raise HTTPException(
+                status_code=429,
+                detail=f"Pixiv rate limited; retry after {retry_after} seconds",
+                headers={"Retry-After": str(retry_after)},
+            ) from exc
+        except RuntimeError as exc:
+            _create_pixiv_log(
+                db,
+                principal=principal,
+                target=uid,
+                mode=mode,
+                status="error",
+                message=str(exc),
+                extra={"options": _pixiv_options_log(request)},
+            )
+            db.commit()
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.post("/api/users")
     def api_create_user(user: UserCreate, db: DbSession, principal: AdminPrincipal) -> dict[str, object]:
         role = validate_role(user.role)
@@ -1987,6 +2083,44 @@ def _run_pixiv_sync_job(
             current_result_base = 0
             results.extend(service.sync_artwork(artwork))
             cumulative_results = len(results)
+        elif kind == "bookmarks":
+            restrict = request.restrict or "public"
+            update("running", "fetching pixiv bookmarks", {"stage": "fetching_user_bookmarks", "progress": 0})
+            for index, artwork in enumerate(client.iter_user_bookmarks(target, restrict=restrict)):
+                if request.limit is not None and index >= request.limit:
+                    break
+                current_artwork_index = index + 1
+                current_result_base = len(results)
+                update(
+                    "running",
+                    "pixiv artwork queued",
+                    {
+                        "stage": "artwork_queued",
+                        "current_artwork_index": current_artwork_index,
+                        "pixiv_id": artwork.pixiv_id,
+                        "title": artwork.title,
+                        "artist_name": artwork.artist_name,
+                        "page_count": len(artwork.pages),
+                        "sync_count": len(results),
+                        "progress": 0,
+                    },
+                )
+                results.extend(service.sync_artwork(artwork))
+                artworks_done = index + 1
+                cumulative_results = len(results)
+                update(
+                    "running",
+                    "pixiv artwork completed",
+                    {
+                        "stage": "artwork_done",
+                        "artworks_done": artworks_done,
+                        "current_artwork_index": current_artwork_index,
+                        "pixiv_id": artwork.pixiv_id,
+                        "title": artwork.title,
+                        "sync_count": len(results),
+                        "progress": 100,
+                    },
+                )
         else:
             update("running", "fetching pixiv user artworks", {"stage": "fetching_user_artworks", "progress": 0})
             for index, artwork in enumerate(client.iter_user_illusts(target)):
@@ -2264,6 +2398,16 @@ class _PublicFirstPixivClient:
             if yielded:
                 raise
             yield from self._private().iter_user_illusts(user_id)
+
+    def iter_user_bookmarks(self, user_id: str, restrict: str = "public"):
+        for pixiv_id in self._private().iter_user_bookmark_ids(user_id, restrict=restrict):
+            try:
+                yield self.get_illust(pixiv_id)
+            except RuntimeError:
+                continue
+
+    def iter_user_bookmark_ids(self, user_id: str, restrict: str = "public"):
+        yield from self._private().iter_user_bookmark_ids(user_id, restrict=restrict)
 
 
 class _PublicFirstDownloader:

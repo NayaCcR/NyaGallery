@@ -77,49 +77,39 @@ export function InfiniteGallery({
     visibleItemCount,
   ]);
 
-  if (!enabled || isPending) {
-    return (
-      <div
-        className="grid gap-3"
-        style={{ gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))" }}
-      >
-        {Array.from({ length: 12 }).map((_, i) => (
-          <AssetCardSkeleton key={i} />
-        ))}
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-10 text-center">
-        <ImageOff className="h-8 w-8 text-destructive" />
-        <p className="text-sm text-destructive">{error.message}</p>
-        <Button variant="outline" size="sm" onClick={() => refetch()}>
-          {t("common.retry")}
-        </Button>
-      </div>
-    );
-  }
-
-  if (items.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border p-12 text-center">
-        <ImageOff className="h-8 w-8 text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">{t("gallery.emptyTitle")}</p>
-        <p className="text-xs text-muted-foreground/80">{t("gallery.emptyDescription")}</p>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
-      <MasonryGrid
-        assets={items}
-        activeTags={activeTags}
-        onTagClick={onTagClick}
-        collapseWorks={collapseWorks}
-      />
+      {!enabled || isPending ? (
+        <div
+          className="grid gap-3"
+          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))" }}
+        >
+          {Array.from({ length: 12 }).map((_, i) => (
+            <AssetCardSkeleton key={i} />
+          ))}
+        </div>
+      ) : error ? (
+        <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-10 text-center">
+          <ImageOff className="h-8 w-8 text-destructive" />
+          <p className="text-sm text-destructive">{error.message}</p>
+          <Button variant="outline" size="sm" onClick={() => refetch()}>
+            {t("common.retry")}
+          </Button>
+        </div>
+      ) : items.length === 0 ? (
+        <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border p-12 text-center">
+          <ImageOff className="h-8 w-8 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">{t("gallery.emptyTitle")}</p>
+          <p className="text-xs text-muted-foreground/80">{t("gallery.emptyDescription")}</p>
+        </div>
+      ) : (
+        <MasonryGrid
+          assets={items}
+          activeTags={activeTags}
+          onTagClick={onTagClick}
+          collapseWorks={collapseWorks}
+        />
+      )}
       <div ref={sentinelRef} className="flex h-16 items-center justify-center">
         {isFetchingNextPage && <Spinner />}
         {!hasNextPage && (

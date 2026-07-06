@@ -239,8 +239,10 @@ export const NyaApi = {
   startTranscode: (assetKey: string) =>
     api<{ job: TranscodeJob | null; status: string }>(
       `/api/transcode/assets/${encodeURIComponent(assetKey)}/start`,
-      { method: "POST", body: {} }
+      { method: "POST" }
     ),
+  cancelAllTranscode: () =>
+    api<{ cancelled: number }>("/api/transcode/cancel-all", { method: "POST" }),
 
   securitySettings: () => api<SecuritySettings>("/api/security/settings"),
 
@@ -313,6 +315,12 @@ export const NyaApi = {
   syncPixivUser: (uid: string, options: PixivSyncOptions = {}) =>
     api<PixivSyncResponse>(
       `/api/sync/pixiv/user/${encodeURIComponent(uid)}`,
+      { method: "POST", body: options }
+    ),
+
+  syncPixivBookmarks: (uid: string, options: PixivSyncOptions = {}) =>
+    api<PixivSyncResponse>(
+      `/api/sync/pixiv/bookmarks/${encodeURIComponent(uid)}`,
       { method: "POST", body: options }
     ),
 

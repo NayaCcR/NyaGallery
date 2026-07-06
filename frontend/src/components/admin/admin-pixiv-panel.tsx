@@ -1,6 +1,6 @@
 "use client";
 
-import type { Dispatch, SetStateAction } from "react";
+import { useEffect, type Dispatch, type SetStateAction } from "react";
 import { Copy, ExternalLink, FolderInput, Globe2, KeyRound, ListChecks, RefreshCw, ShieldAlert, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -88,6 +88,8 @@ type AdminPixivPanelProps = {
   onPixivLimitChange: (value: number) => void;
   pixivSourceMode: PixivSourceMode;
   onPixivSourceModeChange: (value: PixivSourceMode) => void;
+  pixivRestrict: string;
+  onPixivRestrictChange: (value: string) => void;
   pixivRebuildDb: boolean;
   onPixivRebuildDbChange: (value: boolean) => void;
   pixivGenerateCache: boolean;
@@ -174,6 +176,8 @@ export function AdminPixivPanel({
   onPixivLimitChange,
   pixivSourceMode,
   onPixivSourceModeChange,
+  pixivRestrict,
+  onPixivRestrictChange,
   pixivRebuildDb,
   onPixivRebuildDbChange,
   pixivGenerateCache,
@@ -556,11 +560,24 @@ export function AdminPixivPanel({
             onChange={(e) => onPixivSourceModeChange(e.target.value as PixivSourceMode)}
           >
             <option value="artist_works">{t("admin.pixiv.scopeArtistWorks")}</option>
-            <option value="bookmarks" disabled>{t("admin.pixiv.scopeBookmarks")}</option>
+            <option value="bookmarks">{t("admin.pixiv.scopeBookmarks")}</option>
             <option value="following" disabled>{t("admin.pixiv.scopeFollowing")}</option>
             <option value="search_tag" disabled>{t("admin.pixiv.scopeSearchTag")}</option>
             <option value="ranking" disabled>{t("admin.pixiv.scopeRanking")}</option>
           </select>
+          {pixivSourceMode === "bookmarks" && (
+            <div className="mt-2 flex items-center gap-2">
+              <Label className="text-xs text-muted-foreground">{t("admin.pixiv.restrictLabel")}</Label>
+              <select
+                className="flex h-8 flex-1 rounded-md border border-input bg-transparent px-2 text-xs focus-ring"
+                value={pixivRestrict}
+                onChange={(e) => onPixivRestrictChange(e.target.value)}
+              >
+                <option value="public">{t("admin.pixiv.restrictPublic")}</option>
+                <option value="private">{t("admin.pixiv.restrictPrivate")}</option>
+              </select>
+            </div>
+          )}
         </div>
 
         <div className="space-y-1.5">

@@ -37,6 +37,7 @@ PIXIV_AJAX_ILLUST_URL = "https://www.pixiv.net/ajax/illust/{pid}"
 PIXIV_AJAX_PAGES_URL = "https://www.pixiv.net/ajax/illust/{pid}/pages"
 PIXIV_AJAX_UGOIRA_URL = "https://www.pixiv.net/ajax/illust/{pid}/ugoira_meta"
 PIXIV_AJAX_USER_ALL_URL = "https://www.pixiv.net/ajax/user/{uid}/profile/all"
+PIXIV_AJAX_BOOKMARKS_URL = "https://www.pixiv.net/ajax/user/{uid}/illusts/bookmarks"
 PIXIV_OAUTH_LOGIN_URL = "https://app-api.pixiv.net/web/v1/login"
 PIXIV_OAUTH_TOKEN_URL = "https://oauth.secure.pixiv.net/auth/token"
 PIXIV_OAUTH_CALLBACK_URL = "https://app-api.pixiv.net/web/v1/users/auth/pixiv/callback"
@@ -70,6 +71,12 @@ class PixivClient(Protocol):
         ...
 
     def iter_user_illusts(self, user_id: str) -> Iterable["PixivArtwork"]:
+        ...
+
+    def iter_user_bookmarks(self, user_id: str, restrict: str = "public") -> Iterable["PixivArtwork"]:
+        ...
+
+    def iter_user_bookmark_ids(self, user_id: str, restrict: str = "public") -> Iterable[str]:
         ...
 
 
@@ -535,6 +542,16 @@ class PixivSyncService:
             results.extend(self.sync_artwork(artwork))
         return results
 
+    def sync_user_bookmarks(self, user_id: str, *, restrict: str = "public", limit: int | None = None) -> list[SyncAssetResult]:
+        if self.client is None:
+            raise RuntimeError("Pixiv client is required for sync_user_bookmarks")
+        results: list[SyncAssetResult] = []
+        for index, artwork in enumerate(self.client.iter_user_bookmarks(str(user_id), restrict=restrict)):
+            if limit is not None and index >= limit:
+                break
+            results.extend(self.sync_artwork(artwork))
+        return results
+
     def sync_artwork(self, artwork: PixivArtwork) -> list[SyncAssetResult]:
         if not artwork.pages:
             raise ValueError(f"Pixiv artwork has no pages: {artwork.pixiv_id}")
@@ -782,6 +799,26 @@ class PixivPyClient:
             next_qs = self.api.parse_qs(next_url)
             response = self._call_api(self.api.user_illusts, **next_qs)
 
+    def iter_user_bookmarks(self, user_id: str, restrict: str = "public") -> Iterable[PixivArtwork]:
+        for pixiv_id in self.iter_user_bookmark_ids(user_id, restrict=restrict):
+            try:
+                yield self.get_illust(pixiv_id)
+            except RuntimeError:
+                continue
+
+    def iter_user_bookmark_ids(self, user_id: str, restrict: str = "public") -> Iterable[str]:
+        response = self._call_api(self.api.user_bookmarks_illust, str(user_id), restrict=restrict)
+        while True:
+            for item in _get(response, "illusts", []) or []:
+                pixiv_id = str(_get(item, "id"))
+                if pixiv_id:
+                    yield pixiv_id
+            next_url = _get(response, "next_url")
+            if not next_url:
+                break
+            next_qs = self.api.parse_qs(next_url)
+            response = self._call_api(self.api.user_bookmarks_illust, **next_qs)
+
     def _call_api(self, fn, *args, **kwargs):
         _wait_for_pixiv_delay(self)
         try:
@@ -947,6 +984,35 @@ class PixivCookieClient:
         ids = _pixiv_user_artwork_ids(body)
         for pixiv_id in ids:
             yield self.get_illust(pixiv_id)
+
+    def iter_user_bookmarks(self, user_id: str, restrict: str = "public") -> Iterable[PixivArtwork]:
+        for pixiv_id in self.iter_user_bookmark_ids(user_id, restrict=restrict):
+            try:
+                yield self.get_illust(pixiv_id)
+            except RuntimeError:
+                continue
+
+    def iter_user_bookmark_ids(self, user_id: str, restrict: str = "public") -> Iterable[str]:
+        offset = 0
+        limit = 48
+        while True:
+            url = PIXIV_AJAX_BOOKMARKS_URL.format(uid=str(user_id))
+            url += f"?tag=&offset={offset}&limit={limit}"
+            if restrict:
+                url += f"&restrict={restrict}"
+            response = self.http.get_json(url)
+            body = _pixiv_ajax_body(response)
+            works = _get(body, "works", []) or []
+            if not works:
+                break
+            for item in works:
+                pixiv_id = str(_get(item, "id"))
+                if pixiv_id:
+                    yield pixiv_id
+            has_next = _get(body, "hasNext", False)
+            if not has_next:
+                break
+            offset += limit
 
     def _convert_illust(self, illust: Any) -> PixivArtwork:
         pixiv_id = str(_get(illust, "id") or _get(illust, "illustId"))

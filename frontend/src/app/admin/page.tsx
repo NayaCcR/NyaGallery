@@ -83,6 +83,7 @@ export default function AdminPage() {
   const [pixivUid, setPixivUid] = useState("");
   const [pixivMode, setPixivMode] = useState<PixivMode>("pid");
   const [pixivSourceMode, setPixivSourceMode] = useState<PixivSourceMode>("artist_works");
+  const [pixivRestrict, setPixivRestrict] = useState<string>("public");
   const [pixivAuthMode, setPixivAuthMode] = useState<PixivAuthMode>("public");
   const {
     logs: pixivLogs,
@@ -341,6 +342,16 @@ export default function AdminPage() {
     await refreshOperations(false);
   }
 
+  async function cancelAllTranscode() {
+    if (!window.confirm(t("admin.page.cancelAllTranscodeConfirm"))) return;
+    await run(
+      "cancel-all-transcode",
+      () => NyaApi.cancelAllTranscode(),
+      (result) => t("admin.page.cancelAllTranscodeDone", { count: result.cancelled })
+    );
+    await refreshOperations(false);
+  }
+
   async function syncPixiv() {
     const auth_mode = pixivAuthMode;
     if (auth_mode === "local_import") {
@@ -377,12 +388,15 @@ export default function AdminPage() {
       retry_max_seconds: pixivRetryMax,
       concurrency: pixivConcurrency,
       dry_run: pixivDryRun,
+      restrict: pixivSourceMode === "bookmarks" ? pixivRestrict : undefined,
     };
     const result = await run(
       "pixiv",
-      () => pixivMode === "pid"
-        ? NyaApi.syncPixivPid(pid.trim(), options)
-        : NyaApi.syncPixivUser(pixivUid.trim(), options),
+      () => {
+        if (pixivMode === "pid") return NyaApi.syncPixivPid(pid.trim(), options);
+        if (pixivSourceMode === "bookmarks") return NyaApi.syncPixivBookmarks(pixivUid.trim(), options);
+        return NyaApi.syncPixivUser(pixivUid.trim(), options);
+      },
       (response) => pixivDryRun
         ? t("admin.page.dryRunDone", { count: response.preview?.length ?? 0 })
         : response.status === "queued"
@@ -479,6 +493,8 @@ export default function AdminPage() {
             onPixivLimitChange={setPixivLimit}
             pixivSourceMode={pixivSourceMode}
             onPixivSourceModeChange={setPixivSourceMode}
+            pixivRestrict={pixivRestrict}
+            onPixivRestrictChange={setPixivRestrict}
             pixivRebuildDb={pixivRebuildDb}
             onPixivRebuildDbChange={setPixivRebuildDb}
             pixivGenerateCache={pixivGenerateCache}
@@ -520,6 +536,7 @@ export default function AdminPage() {
             uploadLogs={uploadLogs}
             onRefresh={() => run("ops-refresh", () => refreshOperations(), () => t("admin.page.opsRefreshed"))}
             onStartTranscode={startTranscode}
+            onCancelAllTranscode={cancelAllTranscode}
           />
         )}
 

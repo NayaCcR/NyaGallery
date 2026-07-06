@@ -55,6 +55,7 @@
       "animated": "动图",
       "sizeUnknown": "尺寸未知",
       "startTranscode": "开始转码",
+      "cancelAll": "全部取消",
       "title": "上传与转码",
       "transcodeJobs": "转码任务",
       "uploadHistory": "上传历史"
@@ -83,7 +84,9 @@
       "tagsRefreshed": "标签已刷新",
       "tokenRequired": "未检测到 PIXIV_REFRESH_TOKEN，请填入 OAuth/Token，或切换 Cookie 临时抓取。",
       "transcodeAlreadyRunning": "已有转码任务在运行",
-      "transcodeQueued": "已加入转码队列"
+      "transcodeQueued": "已加入转码队列",
+      "cancelAllTranscodeConfirm": "确定要取消所有正在运行和等待中的转码任务？",
+      "cancelAllTranscodeDone": "已取消 {count} 个转码任务"
     },
     "sections": {
       "accounts": "账户",
@@ -341,10 +344,13 @@
       "savedTokenLabel": "使用已保存的 Pixiv Token",
       "savedTokenNone": "不使用保存项，改用上方临时 Token / 环境变量",
       "scopeArtistWorks": "用户作品 / 单作品",
-      "scopeBookmarks": "收藏夹（预留）",
+      "scopeBookmarks": "收藏夹",
       "scopeFollowing": "关注新作（预留）",
       "scopeRanking": "排行榜（预留）",
       "scopeSearchTag": "标签搜索（预留）",
+      "restrictLabel": "收藏范围",
+      "restrictPublic": "公开收藏",
+      "restrictPrivate": "私有收藏",
       "sessionStatus": "会话状态：",
       "sourceScope": "来源范围",
       "startDryRun": "开始预检",
