@@ -37,6 +37,10 @@ NyaGallery 的位置介于下载脚本、普通文件浏览器和完整 booru �
 | [READMORE_CN.md](READMORE_CN.md) | 中文完整后端、存储、标签、Pixiv、API 与测试说明。 |
 | [QUICKSTART_CN.md](QUICKSTART_CN.md) | 中文简洁部署步骤和常用命令。 |
 | [USAGE_CN.md](USAGE_CN.md) | 中文完整使用手册、API 示例、维护流程和 FAQ。 |
+| [PRODUCTION_DEPLOYMENT_CN.md](PRODUCTION_DEPLOYMENT_CN.md) | Linux/Windows 生产部署、systemd、反向代理、HTTPS、备份和升级。 |
+| [CONFIGURATION_CN.md](CONFIGURATION_CN.md) | TOML、环境变量、覆盖优先级、存储策略和秘密管理。 |
+| [API_CN.md](API_CN.md) | HTTP API、鉴权、权限、请求示例和接口目录。 |
+| [DEVELOPMENT_CN.md](DEVELOPMENT_CN.md) | 后端/前端结构、开发环境、测试和提交约定。 |
 | [summary.md](summary.md) | 中文当前实现、模块边界和后续方向总结。 |
 | [../frontend/README.md](../frontend/README.md) | 前端结构、页面、hooks、API 对照和构建说明。 |
 | [../config.example.toml](../config.example.toml) | 后端部署配置模板。 |
@@ -106,8 +110,9 @@ nyagallery --config nyagallery.toml serve
 - `[core]`：存储根目录、数据库 URL、标签目录路径
 - `[server]`：监听地址、端口、访问日志、安全 Cookie
 - `[site]`：项目主页、仓库地址、可选 ICP 备案号
-- `[original_storage]`：原图储存策略列表，支持 local、WebDAV、又拍云、阿里云 OSS 和 OneDrive
+- `[original_storage]`：原图储存策略列表，支持 local、WebDAV、又拍云、阿里云 OSS、S3 兼容对象存储（AWS S3 / MinIO / Cloudflare R2）和 OneDrive
 - `[pixiv]`：可选 Pixiv 默认凭据和同步默认参数
+- `[misskey]`：可选 Misskey 令牌、实例地址、每页条数和同步限速默认参数
 - `[network]`：可复用代理档案和按来源选择代理的规则
 - `[redis]`：可选 Redis URL 和共享安全限流
 - `[security]`：用于第三方凭据可逆加密的部署密钥
@@ -144,6 +149,14 @@ nyagallery --storage storage pixiv-sync-pid 123456 --generate-cache --rebuild-db
 ```powershell
 nyagallery --storage storage pixiv-sync-pid 123456 --storage-strategy webdav-main
 ```
+
+归档 Misskey 用户。帖子里的图片会作为普通图库资产入库，正文保存为帖子并显示在帖子页：
+
+```powershell
+nyagallery --storage storage misskey-sync-user noa --limit 200 --page-size 50 --generate-cache
+```
+
+重复执行只会抓取比已归档更新的帖子，并继续向更旧的方向补档，可安全断点续爬。
 
 手动生成部署密钥：
 

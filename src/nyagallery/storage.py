@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import time
 from typing import Any
 from urllib.error import HTTPError
 from urllib.parse import quote, unquote, urlparse
@@ -34,6 +35,7 @@ class MetadataNotFoundError(StorageError):
 
 
 REMOTE_ORIGINAL_PREFIX = "remote"
+LOCAL_ORIGINAL_PREFIX = "local-original"
 LOCAL_STORAGE_STRATEGY = "local"
 ORIGINAL_STORAGE_SECRET_FIELDS = {"password", "token", "access_key_secret"}
 
@@ -112,12 +114,24 @@ class OriginalStorageBackend:
     def stat_size(self, object_key: str) -> int | None:
         raise NotImplementedError
 
+    def to_config(self) -> dict[str, object]:
+        return {
+            "name": self.name,
+            "type": self.type,
+            "prefix": self.prefix,
+            "timeout_seconds": self.timeout_seconds,
+        }
+
 
 class LocalOriginalStorageBackend(OriginalStorageBackend):
     is_remote = False
 
-    def __init__(self, name: str = LOCAL_STORAGE_STRATEGY) -> None:
+    def __init__(self, name: str = LOCAL_STORAGE_STRATEGY, root_path: str = "") -> None:
         super().__init__(name, "local", prefix="original")
+        self.root_path = Path(root_path).expanduser().resolve() if root_path.strip() else None
+
+    def to_config(self) -> dict[str, object]:
+        return {**super().to_config(), "root_path": str(self.root_path) if self.root_path else ""}
 
 
 class WebDAVOriginalStorageBackend(OriginalStorageBackend):
@@ -181,6 +195,15 @@ class WebDAVOriginalStorageBackend(OriginalStorageBackend):
     def _url(self, object_key: str) -> str:
         return self.endpoint + quote_object_key(object_key)
 
+    def to_config(self) -> dict[str, object]:
+        return {
+            **super().to_config(),
+            "endpoint": self.endpoint.rstrip("/"),
+            "username": self.username,
+            "password": self.password,
+            "token": self.token,
+        }
+
 
 class UpyunOriginalStorageBackend(OriginalStorageBackend):
     def __init__(self, config: Any) -> None:
@@ -222,6 +245,15 @@ class UpyunOriginalStorageBackend(OriginalStorageBackend):
 
     def _url(self, object_key: str) -> str:
         return f"{self.endpoint}/{quote(self.bucket.strip('/'), safe='')}/{quote_object_key(object_key)}"
+
+    def to_config(self) -> dict[str, object]:
+        return {
+            **super().to_config(),
+            "endpoint": self.endpoint,
+            "bucket": self.bucket,
+            "username": self.username,
+            "password": self.password,
+        }
 
 
 class AliyunOSSOriginalStorageBackend(OriginalStorageBackend):
@@ -303,6 +335,144 @@ class AliyunOSSOriginalStorageBackend(OriginalStorageBackend):
             headers["Content-Type"] = content_type
         return headers
 
+    def to_config(self) -> dict[str, object]:
+        return {
+            **super().to_config(),
+            "endpoint": self.endpoint,
+            "bucket": self.bucket,
+            "access_key_id": self.access_key_id,
+            "access_key_secret": self.access_key_secret,
+        }
+
+
+class S3OriginalStorageBackend(OriginalStorageBackend):
+    """Amazon S3 and S3-compatible services (MinIO, Cloudflare R2, ...) via AWS Signature V4."""
+
+    def __init__(self, config: Any) -> None:
+        super().__init__(
+            _strategy_value(config, "name", "s3"),
+            "s3",
+            prefix=_strategy_value(config, "prefix", "original"),
+            timeout_seconds=_strategy_int(config, "timeout_seconds", 60),
+        )
+        self.bucket = _strategy_value(config, "bucket", "")
+        self.access_key_id = _strategy_value(config, "access_key_id", "")
+        self.access_key_secret = _strategy_value(config, "access_key_secret", "")
+        if not self.bucket or not self.access_key_id or not self.access_key_secret:
+            raise StorageError(
+                f"S3 storage strategy {self.name!r} requires bucket, access_key_id, and access_key_secret"
+            )
+        endpoint = _with_scheme(_strategy_value(config, "endpoint", ""))
+        self.region = _strategy_value(config, "region", "") or _s3_region_from_endpoint(endpoint) or "us-east-1"
+        if not endpoint:
+            endpoint = f"https://s3.{self.region}.amazonaws.com"
+        self.endpoint = endpoint
+        parsed = urlparse(self.endpoint)
+        host = (parsed.netloc or parsed.path).rstrip("/")
+        scheme = parsed.scheme or "https"
+        hostname = host.split(":")[0]
+        if hostname.startswith(f"{self.bucket}."):
+            self.host = host
+            self._path_prefix = ""
+        elif hostname.endswith(".amazonaws.com"):
+            self.host = f"{self.bucket}.{host}"
+            self._path_prefix = ""
+        else:
+            self.host = host
+            self._path_prefix = f"/{quote(self.bucket, safe='')}"
+        self.base_url = f"{scheme}://{self.host}"
+
+    def exists(self, object_key: str) -> bool:
+        response = self._request("HEAD", object_key, allow_404=True)
+        return response is not None
+
+    def get_bytes(self, object_key: str) -> bytes:
+        return self._request("GET", object_key).body
+
+    def put_bytes(self, object_key: str, content: bytes, *, content_type: str | None = None) -> None:
+        self._request("PUT", object_key, data=content, content_type=content_type or "application/octet-stream")
+
+    def delete(self, object_key: str) -> None:
+        self._request("DELETE", object_key, allow_404=True)
+
+    def stat_size(self, object_key: str) -> int | None:
+        response = self._request("HEAD", object_key, allow_404=True)
+        return _content_length(response.headers) if response is not None else None
+
+    def _request(
+        self,
+        method: str,
+        object_key: str,
+        *,
+        data: bytes | None = None,
+        content_type: str = "",
+        allow_404: bool = False,
+    ) -> "_HTTPResponse | None":
+        canonical_path = f"{self._path_prefix}/{quote_object_key(object_key)}"
+        headers = self._signed_headers(method, canonical_path, payload=data or b"", content_type=content_type)
+        return _http_request(
+            f"{self.base_url}{canonical_path}",
+            method,
+            headers=headers,
+            data=data,
+            timeout=self.timeout_seconds,
+            allow_404=allow_404,
+        )
+
+    def _signed_headers(self, method: str, canonical_path: str, *, payload: bytes, content_type: str = "") -> dict[str, str]:
+        amz_date = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+        date_stamp = amz_date[:8]
+        payload_hash = hashlib.sha256(payload).hexdigest()
+        headers = {
+            "Host": self.host,
+            "x-amz-content-sha256": payload_hash,
+            "x-amz-date": amz_date,
+        }
+        if content_type:
+            headers["Content-Type"] = content_type
+        header_items = sorted((key.lower(), " ".join(str(value).split())) for key, value in headers.items())
+        canonical_headers = "".join(f"{key}:{value}\n" for key, value in header_items)
+        signed_headers = ";".join(key for key, _ in header_items)
+        canonical_request = "\n".join(
+            [
+                method.upper(),
+                canonical_path,
+                "",
+                canonical_headers,
+                signed_headers,
+                payload_hash,
+            ]
+        )
+        credential_scope = f"{date_stamp}/{self.region}/s3/aws4_request"
+        string_to_sign = "\n".join(
+            [
+                "AWS4-HMAC-SHA256",
+                amz_date,
+                credential_scope,
+                hashlib.sha256(canonical_request.encode("utf-8")).hexdigest(),
+            ]
+        )
+        signature = hmac.new(
+            _sigv4_signing_key(self.access_key_secret, date_stamp, self.region, "s3"),
+            string_to_sign.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        headers["Authorization"] = (
+            f"AWS4-HMAC-SHA256 Credential={self.access_key_id}/{credential_scope}, "
+            f"SignedHeaders={signed_headers}, Signature={signature}"
+        )
+        return headers
+
+    def to_config(self) -> dict[str, object]:
+        return {
+            **super().to_config(),
+            "endpoint": self.endpoint,
+            "bucket": self.bucket,
+            "region": self.region,
+            "access_key_id": self.access_key_id,
+            "access_key_secret": self.access_key_secret,
+        }
+
 
 class OneDriveOriginalStorageBackend(OriginalStorageBackend):
     def __init__(self, config: Any) -> None:
@@ -375,6 +545,15 @@ class OneDriveOriginalStorageBackend(OriginalStorageBackend):
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.token}"}
+
+    def to_config(self) -> dict[str, object]:
+        return {
+            **super().to_config(),
+            "endpoint": self.endpoint,
+            "token": self.token,
+            "drive_id": self.drive_id,
+            "root_path": self.root_path,
+        }
 
     def _item_url(self, object_key: str) -> str:
         return f"{self._root_url()}:{quote_drive_path(self._drive_path(object_key))}"
@@ -456,9 +635,46 @@ def _content_length(headers: dict[str, str]) -> int | None:
     return None
 
 
+def _sigv4_signing_key(secret: str, date_stamp: str, region: str, service: str) -> bytes:
+    key = hmac.new(f"AWS4{secret}".encode("utf-8"), date_stamp.encode("utf-8"), hashlib.sha256).digest()
+    key = hmac.new(key, region.encode("utf-8"), hashlib.sha256).digest()
+    key = hmac.new(key, service.encode("utf-8"), hashlib.sha256).digest()
+    return hmac.new(key, b"aws4_request", hashlib.sha256).digest()
+
+
+def _s3_region_from_endpoint(endpoint: str) -> str:
+    host = (urlparse(endpoint).hostname or "") if endpoint else ""
+    if not host.endswith(".amazonaws.com"):
+        return ""
+    labels = host.split(".")
+    for label in labels:
+        if label.startswith("s3-") and len(label) > 3:
+            return label[3:]
+    try:
+        index = labels.index("s3")
+    except ValueError:
+        return ""
+    if index + 4 == len(labels):
+        return labels[index + 1]
+    return ""
+
+
 def _basic_auth(username: str, password: str) -> str:
     token = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
     return f"Basic {token}"
+
+
+def atomic_write_json(path: Path, data: dict) -> None:
+    content = json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True)
+    atomic_write_bytes(path, f"{content}\n".encode("utf-8"))
+
+
+def atomic_write_bytes(path: Path, content: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile("wb", delete=False, dir=path.parent) as tmp:
+        tmp.write(content)
+        tmp_path = Path(tmp.name)
+    os.replace(tmp_path, path)
 
 
 def _with_scheme(value: str) -> str:
@@ -534,6 +750,7 @@ class GalleryStorage:
         self.preview_dir = self.root / "preview"
         self.thumbs_dir = self.root / "thumbs"
         self.metadata_dir = self.root / "metadata"
+        self.posts_dir = self.root / "posts"
         self.tags_dir = self.root / "tags"
         self.remote_cache_dir = self.root / "remote-cache"
         self.default_strategy_name = normalize_strategy_name(default_strategy)
@@ -548,6 +765,7 @@ class GalleryStorage:
             self.preview_dir,
             self.thumbs_dir,
             self.metadata_dir,
+            self.posts_dir,
             self.tags_dir,
             self.remote_cache_dir,
         ):
@@ -573,6 +791,13 @@ class GalleryStorage:
             available = ", ".join(sorted(self._original_backends))
             raise StorageError(f"unknown storage strategy {name!r}; available: {available}")
         return name
+
+    def original_strategy_configs(self) -> list[dict[str, object]]:
+        return [
+            backend.to_config()
+            for name, backend in sorted(self._original_backends.items())
+            if name != LOCAL_STORAGE_STRATEGY
+        ]
 
     def original_path(self, asset_key: str, source_filename: str) -> Path:
         suffix = archival_suffix(source_filename)
@@ -601,6 +826,9 @@ class GalleryStorage:
         if remote is not None:
             strategy_name, object_key = remote
             return self._cached_remote_original(strategy_name, object_key)
+        local = self._local_location(relative_path)
+        if local is not None:
+            return local
         root = self.root.resolve()
         resolved = (self.root / relative_path).resolve()
         if not resolved.is_relative_to(root):
@@ -645,7 +873,7 @@ class GalleryStorage:
         backend = self._original_backends[strategy]
         if backend.is_remote:
             return self._write_remote_original(backend, asset_key, source_filename, content, content_type=content_type)
-        return self._write_local_original(asset_key, source_filename, content, strategy=backend.name)
+        return self._write_local_original(asset_key, source_filename, content, strategy=backend.name, backend=backend)
 
     def _write_local_original(
         self,
@@ -654,8 +882,12 @@ class GalleryStorage:
         content: bytes,
         *,
         strategy: str = LOCAL_STORAGE_STRATEGY,
+        backend: OriginalStorageBackend | None = None,
     ) -> StoredOriginal:
         final_path = self.original_path(asset_key, source_filename)
+        if isinstance(backend, LocalOriginalStorageBackend) and backend.root_path is not None:
+            final_path = backend.root_path / f"{asset_key}{archival_suffix(source_filename)}"
+            final_path.parent.mkdir(parents=True, exist_ok=True)
         new_sha = sha256_bytes(content)
 
         try:
@@ -668,7 +900,7 @@ class GalleryStorage:
                 ) from None
             return StoredOriginal(
                 path=final_path,
-                relative_path=self._relative(final_path),
+                relative_path=self._local_relative_path(strategy, final_path),
                 filename=final_path.name,
                 sha256=existing_sha,
                 size=final_path.stat().st_size,
@@ -681,7 +913,7 @@ class GalleryStorage:
 
         return StoredOriginal(
             path=final_path,
-            relative_path=self._relative(final_path),
+            relative_path=self._local_relative_path(strategy, final_path),
             filename=final_path.name,
             sha256=new_sha,
             size=len(content),
@@ -848,13 +1080,15 @@ class GalleryStorage:
         name = normalize_strategy_name(_strategy_value(config, "name", LOCAL_STORAGE_STRATEGY))
         backend_type = _strategy_value(config, "type", "local").casefold().replace("-", "_")
         if backend_type == "local":
-            return LocalOriginalStorageBackend(name)
+            return LocalOriginalStorageBackend(name, _strategy_value(config, "root_path", ""))
         if backend_type == "webdav":
             return WebDAVOriginalStorageBackend(config)
         if backend_type in {"upyun", "upai"}:
             return UpyunOriginalStorageBackend(config)
         if backend_type in {"aliyun_oss", "ali_oss", "oss"}:
             return AliyunOSSOriginalStorageBackend(config)
+        if backend_type in {"s3", "aws_s3", "amazon_s3", "minio", "r2"}:
+            return S3OriginalStorageBackend(config)
         if backend_type in {"onedrive", "one_drive", "graph"}:
             return OneDriveOriginalStorageBackend(config)
         raise StorageError(f"unsupported storage strategy type {backend_type!r} for {name!r}")
@@ -869,6 +1103,25 @@ class GalleryStorage:
         if not object_key:
             raise StorageError(f"remote original path is missing object key: {relative_path}")
         return strategy_name, object_key
+
+    def _local_relative_path(self, strategy_name: str, path: Path) -> str:
+        if strategy_name == LOCAL_STORAGE_STRATEGY:
+            return self._relative(path)
+        return f"{LOCAL_ORIGINAL_PREFIX}/{normalize_strategy_name(strategy_name)}/{path.name}"
+
+    def _local_location(self, relative_path: str | None) -> Path | None:
+        text = str(relative_path or "").replace("\\", "/").strip("/")
+        parts = text.split("/", 2)
+        if len(parts) != 3 or parts[0] != LOCAL_ORIGINAL_PREFIX:
+            return None
+        strategy_name = normalize_strategy_name(parts[1])
+        backend = self._original_backends.get(strategy_name)
+        if not isinstance(backend, LocalOriginalStorageBackend) or backend.root_path is None:
+            raise StorageError(f"unknown local storage strategy {strategy_name!r}")
+        filename = Path(parts[2]).name
+        if filename != parts[2] or not filename:
+            raise StorageError(f"invalid local original path: {relative_path}")
+        return backend.root_path / filename
 
     def _remote_relative_path(self, strategy_name: str, object_key: str) -> str:
         return f"{REMOTE_ORIGINAL_PREFIX}/{normalize_strategy_name(strategy_name)}/{join_object_key(object_key)}"
@@ -984,17 +1237,7 @@ class GalleryStorage:
                 path.unlink()
 
     def _atomic_write_json(self, path: Path, data: dict) -> None:
-        content = json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True)
-        content_bytes = f"{content}\n".encode("utf-8")
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile("wb", delete=False, dir=path.parent) as tmp:
-            tmp.write(content_bytes)
-            tmp_path = Path(tmp.name)
-        os.replace(tmp_path, path)
+        atomic_write_json(path, data)
 
     def _atomic_write_bytes(self, path: Path, content: bytes) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile("wb", delete=False, dir=path.parent) as tmp:
-            tmp.write(content)
-            tmp_path = Path(tmp.name)
-        os.replace(tmp_path, path)
+        atomic_write_bytes(path, content)

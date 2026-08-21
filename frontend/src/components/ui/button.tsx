@@ -9,22 +9,22 @@ type Size = "sm" | "md" | "lg" | "icon";
 
 const VARIANT: Record<Variant, string> = {
   default:
-    "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm",
+    "button-glow-primary bg-primary text-primary-foreground hover:-translate-y-px hover:bg-primary/90 shadow-sm",
   secondary:
-    "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+    "button-glow-secondary bg-secondary text-secondary-foreground hover:-translate-y-px hover:bg-secondary/80",
   outline:
-    "border border-input bg-transparent hover:bg-accent hover:text-accent-foreground",
-  ghost: "hover:bg-accent hover:text-accent-foreground",
+    "button-glow-secondary border border-input bg-transparent hover:-translate-y-px hover:bg-accent hover:text-accent-foreground",
+  ghost: "control-glow hover:bg-accent hover:text-accent-foreground",
   destructive:
     "bg-destructive text-destructive-foreground hover:bg-destructive/90 shadow-sm",
   link: "text-primary underline-offset-4 hover:underline",
 };
 
 const SIZE: Record<Size, string> = {
-  sm: "h-8 px-3 text-sm rounded-md",
-  md: "h-9 px-4 text-sm rounded-md",
-  lg: "h-10 px-5 text-sm rounded-md",
-  icon: "h-9 w-9 rounded-md",
+  sm: "h-8 px-3 text-sm rounded-lg",
+  md: "h-9 px-4 text-sm rounded-lg",
+  lg: "h-10 px-5 text-sm rounded-lg",
+  icon: "h-9 w-9 rounded-lg",
 };
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -40,7 +40,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       <Comp
         ref={ref as never}
         className={cn(
-          "inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium transition-colors focus-ring disabled:pointer-events-none disabled:opacity-50",
+    "inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,border-color,box-shadow,transform,color] focus-ring disabled:pointer-events-none disabled:opacity-50",
           VARIANT[variant],
           SIZE[size],
           className

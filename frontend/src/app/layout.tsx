@@ -14,14 +14,16 @@ export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
   applicationName: "NyaGallery",
   icons: {
-    icon: "/favicon.svg",
+    icon: "/favicon.ico",
+    shortcut: "/favicon.ico",
+    apple: "/logo.png",
   },
 };
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#0b0b10" },
+    { media: "(prefers-color-scheme: light)", color: "#f3f8fb" },
+    { media: "(prefers-color-scheme: dark)", color: "#0f141b" },
   ],
   width: "device-width",
   initialScale: 1,
@@ -29,10 +31,10 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="zh" suppressHydrationWarning>
+    <html lang="zh-CN" suppressHydrationWarning>
       <head>
         <script
-          // Sync theme before paint to avoid flash.
+          // Sync theme before paint to avoid a flash.
           dangerouslySetInnerHTML={{
             __html: `(()=>{try{const k='nya.theme';const v=localStorage.getItem(k)||'system';const m=window.matchMedia('(prefers-color-scheme: dark)').matches;const dark=v==='dark'||(v==='system'&&m);document.documentElement.classList.toggle('dark',dark);}catch(e){}})()`,
           }}

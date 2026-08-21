@@ -1,14 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
+  AtSign,
+  BadgeDollarSign,
   ChevronRight,
   Database,
   Globe2,
+  Hash,
   KeyRound,
   LayoutDashboard,
   Shield,
@@ -20,6 +23,9 @@ import { Button } from "@/components/ui/button";
 import { AdminAccountsPanel } from "@/components/admin/admin-accounts-panel";
 import { AdminDeveloperPanel } from "@/components/admin/admin-developer-panel";
 import { AdminMaintenancePanel } from "@/components/admin/admin-maintenance-panel";
+import { AdminMisskeyPanel } from "@/components/admin/admin-misskey-panel";
+import { AdminXPanel } from "@/components/admin/admin-x-panel";
+import { AdminFanboxPanel } from "@/components/admin/admin-fanbox-panel";
 import { AdminOperationsPanel } from "@/components/admin/admin-operations-panel";
 import { AdminPixivPanel } from "@/components/admin/admin-pixiv-panel";
 import { AdminSecurityPanel } from "@/components/admin/admin-security-panel";
@@ -43,9 +49,14 @@ import { useAdminOperations } from "@/hooks/admin/use-admin-operations";
 import { useAdminPixivCredentials } from "@/hooks/admin/use-admin-pixiv-credentials";
 import { useAdminPixivLogs } from "@/hooks/admin/use-admin-pixiv-logs";
 import { useAdminPixivOAuth } from "@/hooks/admin/use-admin-pixiv-oauth";
+import { useAdminMisskey } from "@/hooks/admin/use-admin-misskey";
+import { useAdminX } from "@/hooks/admin/use-admin-x";
+import { useAdminFanbox } from "@/hooks/admin/use-admin-fanbox";
 import { useAdminPixivSettings } from "@/hooks/admin/use-admin-pixiv-settings";
+import { useAdminSyncLogs } from "@/hooks/admin/use-admin-sync-logs";
 import { useAdminSecurity } from "@/hooks/admin/use-admin-security";
 import { useAdminTags } from "@/hooks/admin/use-admin-tags";
+import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
 import type { PixivAuthMode, Role } from "@/lib/types";
 
 type PixivMode = "pid" | "user";
@@ -54,6 +65,9 @@ type PixivSourceMode = "artist_works" | "bookmarks" | "following" | "search_tag"
 const ADMIN_SECTION_ICONS: Record<AdminSection, LucideIcon> = {
   dashboard: LayoutDashboard,
   pixiv: Globe2,
+  misskey: AtSign,
+  x: Hash,
+  fanbox: BadgeDollarSign,
   operations: Activity,
   security: Shield,
   tags: Tags,
@@ -72,6 +86,9 @@ export default function AdminPage() {
   const isAdmin = Boolean(me?.permissions?.includes("admin"));
   const isDeveloper = Boolean(me?.permissions?.includes("developer"));
   const canPixivSync = canAccessAdminSection(me?.role, "pixiv");
+  const canMisskeySync = canAccessAdminSection(me?.role, "misskey");
+  const canXSync = canAccessAdminSection(me?.role, "x");
+  const canFanboxSync = canAccessAdminSection(me?.role, "fanbox");
   const rawSection = searchParams?.get("section");
   const requestedSection = normalizeAdminSection(rawSection);
   const activeSection = getVisibleAdminSection(me?.role, requestedSection);
@@ -203,6 +220,39 @@ export default function AdminPage() {
     changePassword,
     resetUserPassword,
   } = useAdminAccounts({ run, onError: toast.error });
+  const misskey = useAdminMisskey({ run, onError: toast.error, username: me?.username ?? "" });
+  const {
+    logs: misskeyLogs,
+    pollingMode: misskeyPollingMode,
+    lastUpdatedAt: misskeyLastUpdatedAt,
+    refresh: refreshMisskeyLogs,
+  } = useAdminSyncLogs({
+    enabled: !!token && canMisskeySync && activeSection === "misskey",
+    onError: toast.error,
+    loader: (limit) => NyaApi.misskeyLogs(limit),
+  });
+  const x = useAdminX({ run, onError: toast.error, username: me?.username ?? "" });
+  const {
+    logs: xLogs,
+    pollingMode: xPollingMode,
+    lastUpdatedAt: xLastUpdatedAt,
+    refresh: refreshXLogs,
+  } = useAdminSyncLogs({
+    enabled: !!token && canXSync && activeSection === "x",
+    onError: toast.error,
+    loader: (limit) => NyaApi.xLogs(limit),
+  });
+  const fanbox = useAdminFanbox({ run, onError: toast.error, username: me?.username ?? "" });
+  const {
+    logs: fanboxLogs,
+    pollingMode: fanboxPollingMode,
+    lastUpdatedAt: fanboxLastUpdatedAt,
+    refresh: refreshFanboxLogs,
+  } = useAdminSyncLogs({
+    enabled: !!token && canFanboxSync && activeSection === "fanbox",
+    onError: toast.error,
+    loader: (limit) => NyaApi.fanboxLogs(limit),
+  });
   const {
     filteredTags,
     tagFilter,
@@ -254,6 +304,17 @@ export default function AdminPage() {
     setConsolePasswordDraft,
     resetConsolePassword,
   } = useAdminDeveloper({ run, onError: toast.error });
+  const hasUnsavedConfig = Boolean(
+    configDraft && configResponse && JSON.stringify(configDraft) !== JSON.stringify(configResponse.config),
+  );
+  const discardConfigDraft = useCallback(() => {
+    setConfigDraft(configResponse?.config ?? null);
+  }, [configResponse, setConfigDraft]);
+  const confirmDiscardConfig = useUnsavedChangesGuard({
+    dirty: hasUnsavedConfig,
+    message: t("admin.page.unsavedConfigConfirm"),
+    onDiscard: discardConfigDraft,
+  });
 
   useEffect(() => {
     if (!ready || !token || !activeSection) return;
@@ -294,6 +355,27 @@ export default function AdminPage() {
     if (!token || !canPixivSync || activeSection !== "pixiv") return;
     void loadPixivConfig();
   }, [activeSection, canPixivSync, loadPixivConfig, token]);
+
+  useEffect(() => {
+    if (!token || !canMisskeySync || activeSection !== "misskey") return;
+    void misskey.loadConfig();
+    if (me?.username) void misskey.loadTokensFor(me.username, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSection, canMisskeySync, me?.username, token]);
+
+  useEffect(() => {
+    if (!token || !canXSync || activeSection !== "x") return;
+    void x.loadConfig();
+    if (me?.username) void x.loadTokensFor(me.username, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSection, canXSync, me?.username, token]);
+
+  useEffect(() => {
+    if (!token || !canFanboxSync || activeSection !== "fanbox") return;
+    void fanbox.loadConfig();
+    if (me?.username) void fanbox.loadSessionsFor(me.username, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSection, canFanboxSync, me?.username, token]);
 
   useEffect(() => {
     if (!token || !me || me.role === "guest") return;
@@ -411,6 +493,96 @@ export default function AdminPage() {
     }
   }
 
+  async function syncMisskey() {
+    const result = await run(
+      "misskey",
+      () => NyaApi.syncMisskeyUser(misskey.target.trim(), misskey.buildOptions()),
+      (response) => misskey.dryRun
+        ? t("admin.page.dryRunDone", { count: response.preview?.length ?? 0 })
+        : response.status === "queued"
+          ? t("admin.page.queued", { id: response.sync_job_id ?? "queued" })
+          : t("admin.page.syncDone", { files: response.sync.length, jobs: response.jobs?.length ?? 0 })
+    );
+    if (result) {
+      setRebuildResult(JSON.stringify(result, null, 2));
+      qc.invalidateQueries({ queryKey: ["search"] });
+      qc.invalidateQueries({ queryKey: ["posts"] });
+      await refreshMisskeyLogs(false);
+    }
+  }
+
+  async function syncX() {
+    const result = await run(
+      "x",
+      () => x.mode === "user"
+        ? NyaApi.syncXUser(x.target.trim(), x.buildOptions())
+        : NyaApi.syncXPosts([x.targets], x.buildOptions()),
+      (response) => x.dryRun
+        ? t("admin.page.dryRunDone", { count: response.preview?.length ?? 0 })
+        : response.status === "queued"
+          ? t("admin.page.queued", { id: response.sync_job_id ?? "queued" })
+          : t("admin.page.syncDone", { files: response.sync.length, jobs: response.jobs?.length ?? 0 })
+    );
+    if (result) {
+      setRebuildResult(JSON.stringify(result, null, 2));
+      qc.invalidateQueries({ queryKey: ["search"] });
+      qc.invalidateQueries({ queryKey: ["posts"] });
+      await refreshXLogs(false);
+    }
+  }
+
+  async function retryXFailed(targets: string[]) {
+    if (targets.length === 0) return;
+    const result = await run(
+      "x",
+      () => NyaApi.syncXPosts(targets, { ...x.buildOptions(), dry_run: false }),
+      (response) => response.status === "queued"
+        ? t("admin.page.queued", { id: response.sync_job_id ?? "queued" })
+        : t("admin.page.syncDone", { files: response.sync.length, jobs: response.jobs?.length ?? 0 })
+    );
+    if (result) {
+      qc.invalidateQueries({ queryKey: ["search"] });
+      qc.invalidateQueries({ queryKey: ["posts"] });
+      await refreshXLogs(false);
+    }
+  }
+
+  async function retryFanboxFailed(targets: string[]) {
+    if (targets.length === 0) return;
+    const result = await run(
+      "fanbox",
+      () => NyaApi.syncFanboxPosts(targets, { ...fanbox.buildOptions(), dry_run: false }),
+      (response) => response.status === "queued"
+        ? t("admin.page.queued", { id: response.sync_job_id ?? "queued" })
+        : t("admin.page.syncDone", { files: response.sync.length, jobs: response.jobs?.length ?? 0 })
+    );
+    if (result) {
+      qc.invalidateQueries({ queryKey: ["search"] });
+      qc.invalidateQueries({ queryKey: ["posts"] });
+      await refreshFanboxLogs(false);
+    }
+  }
+
+  async function syncFanbox() {
+    const result = await run(
+      "fanbox",
+      () => fanbox.mode === "creator"
+        ? NyaApi.syncFanboxCreator(fanbox.target.trim(), fanbox.buildOptions())
+        : NyaApi.syncFanboxPosts([fanbox.targets], fanbox.buildOptions()),
+      (response) => fanbox.dryRun
+        ? t("admin.page.dryRunDone", { count: response.preview?.length ?? 0 })
+        : response.status === "queued"
+          ? t("admin.page.queued", { id: response.sync_job_id ?? "queued" })
+          : t("admin.page.syncDone", { files: response.sync.length, jobs: response.jobs?.length ?? 0 })
+    );
+    if (result) {
+      setRebuildResult(JSON.stringify(result, null, 2));
+      qc.invalidateQueries({ queryKey: ["search"] });
+      qc.invalidateQueries({ queryKey: ["posts"] });
+      await refreshFanboxLogs(false);
+    }
+  }
+
   return (
     <div className="container max-w-6xl space-y-6 py-10">
       <header className="flex items-center gap-3">
@@ -523,6 +695,175 @@ export default function AdminPage() {
           />
         )}
 
+        {activeSection === "misskey" && canMisskeySync && (
+          <AdminMisskeyPanel
+            busy={busy}
+            config={misskey.config}
+            target={misskey.target}
+            onTargetChange={misskey.setTarget}
+            host={misskey.host}
+            onHostChange={misskey.setHost}
+            limit={misskey.limit}
+            onLimitChange={misskey.setLimit}
+            pageSize={misskey.pageSize}
+            onPageSizeChange={misskey.setPageSize}
+            maxPages={misskey.maxPages}
+            onMaxPagesChange={misskey.setMaxPages}
+            delay={misskey.delay}
+            onDelayChange={misskey.setDelay}
+            downloadConcurrency={misskey.downloadConcurrency}
+            onDownloadConcurrencyChange={misskey.setDownloadConcurrency}
+            storageStrategy={misskey.storageStrategy}
+            onStorageStrategyChange={misskey.setStorageStrategy}
+            includeReplies={misskey.includeReplies}
+            onIncludeRepliesChange={misskey.setIncludeReplies}
+            backfill={misskey.backfill}
+            onBackfillChange={misskey.setBackfill}
+            downloadMedia={misskey.downloadMedia}
+            onDownloadMediaChange={misskey.setDownloadMedia}
+            rebuildDb={misskey.rebuildDb}
+            onRebuildDbChange={misskey.setRebuildDb}
+            generateCache={misskey.generateCache}
+            onGenerateCacheChange={misskey.setGenerateCache}
+            dryRun={misskey.dryRun}
+            onDryRunChange={misskey.setDryRun}
+            tokenDraft={misskey.tokenDraft}
+            onTokenDraftChange={misskey.setTokenDraft}
+            tokenLabel={misskey.tokenLabel}
+            onTokenLabelChange={misskey.setTokenLabel}
+            savedTokenId={misskey.savedTokenId}
+            onSavedTokenIdChange={misskey.setSavedTokenId}
+            savedTokens={misskey.savedTokens}
+            tokenLabelDrafts={misskey.tokenLabelDrafts}
+            onTokenLabelDraftsChange={misskey.setTokenLabelDrafts}
+            onSaveToken={misskey.saveCurrentToken}
+            onUpdateTokenLabel={misskey.updateTokenLabel}
+            onRevokeToken={misskey.revokeToken}
+            onSync={syncMisskey}
+            logs={misskeyLogs}
+            pollingMode={misskeyPollingMode}
+            lastUpdatedAt={misskeyLastUpdatedAt}
+            onRefreshLogs={() => run("misskey-log-refresh", () => refreshMisskeyLogs(), () => t("admin.misskey.logsRefreshed"))}
+          />
+        )}
+
+        {activeSection === "x" && canXSync && (
+          <AdminXPanel
+            busy={busy}
+            config={x.config}
+            mode={x.mode}
+            onModeChange={x.setMode}
+            target={x.target}
+            onTargetChange={x.setTarget}
+            targets={x.targets}
+            onTargetsChange={x.setTargets}
+            limit={x.limit}
+            onLimitChange={x.setLimit}
+            pageSize={x.pageSize}
+            onPageSizeChange={x.setPageSize}
+            maxPages={x.maxPages}
+            onMaxPagesChange={x.setMaxPages}
+            delay={x.delay}
+            onDelayChange={x.setDelay}
+            downloadConcurrency={x.downloadConcurrency}
+            onDownloadConcurrencyChange={x.setDownloadConcurrency}
+            storageStrategy={x.storageStrategy}
+            onStorageStrategyChange={x.setStorageStrategy}
+            includeReplies={x.includeReplies}
+            onIncludeRepliesChange={x.setIncludeReplies}
+            mediaOnly={x.mediaOnly}
+            onMediaOnlyChange={x.setMediaOnly}
+            backfill={x.backfill}
+            onBackfillChange={x.setBackfill}
+            downloadMedia={x.downloadMedia}
+            onDownloadMediaChange={x.setDownloadMedia}
+            rebuildDb={x.rebuildDb}
+            onRebuildDbChange={x.setRebuildDb}
+            generateCache={x.generateCache}
+            onGenerateCacheChange={x.setGenerateCache}
+            dryRun={x.dryRun}
+            onDryRunChange={x.setDryRun}
+            tokenDraft={x.tokenDraft}
+            onTokenDraftChange={x.setTokenDraft}
+            ct0Draft={x.ct0Draft}
+            onCt0DraftChange={x.setCt0Draft}
+            tokenLabel={x.tokenLabel}
+            onTokenLabelChange={x.setTokenLabel}
+            savedTokenId={x.savedTokenId}
+            onSavedTokenIdChange={x.setSavedTokenId}
+            savedTokens={x.savedTokens}
+            tokenLabelDrafts={x.tokenLabelDrafts}
+            onTokenLabelDraftsChange={x.setTokenLabelDrafts}
+            onSaveToken={x.saveCurrentToken}
+            onUpdateTokenLabel={x.updateTokenLabel}
+            onRevokeToken={x.revokeToken}
+            onSync={syncX}
+            onRetryFailed={retryXFailed}
+            logs={xLogs}
+            pollingMode={xPollingMode}
+            lastUpdatedAt={xLastUpdatedAt}
+            onRefreshLogs={() => run("x-log-refresh", () => refreshXLogs(), () => t("admin.x.logsRefreshed"))}
+          />
+        )}
+
+        {activeSection === "fanbox" && canFanboxSync && (
+          <AdminFanboxPanel
+            busy={busy}
+            config={fanbox.config}
+            mode={fanbox.mode}
+            onModeChange={fanbox.setMode}
+            target={fanbox.target}
+            onTargetChange={fanbox.setTarget}
+            targets={fanbox.targets}
+            onTargetsChange={fanbox.setTargets}
+            limit={fanbox.limit}
+            onLimitChange={fanbox.setLimit}
+            pageSize={fanbox.pageSize}
+            onPageSizeChange={fanbox.setPageSize}
+            maxPages={fanbox.maxPages}
+            onMaxPagesChange={fanbox.setMaxPages}
+            delay={fanbox.delay}
+            onDelayChange={fanbox.setDelay}
+            downloadConcurrency={fanbox.downloadConcurrency}
+            onDownloadConcurrencyChange={fanbox.setDownloadConcurrency}
+            storageStrategy={fanbox.storageStrategy}
+            onStorageStrategyChange={fanbox.setStorageStrategy}
+            backfill={fanbox.backfill}
+            onBackfillChange={fanbox.setBackfill}
+            downloadMedia={fanbox.downloadMedia}
+            onDownloadMediaChange={fanbox.setDownloadMedia}
+            downloadFiles={fanbox.downloadFiles}
+            onDownloadFilesChange={fanbox.setDownloadFiles}
+            rebuildDb={fanbox.rebuildDb}
+            onRebuildDbChange={fanbox.setRebuildDb}
+            generateCache={fanbox.generateCache}
+            onGenerateCacheChange={fanbox.setGenerateCache}
+            dryRun={fanbox.dryRun}
+            onDryRunChange={fanbox.setDryRun}
+            sessionDraft={fanbox.sessionDraft}
+            onSessionDraftChange={fanbox.setSessionDraft}
+            sessionLabel={fanbox.sessionLabel}
+            onSessionLabelChange={fanbox.setSessionLabel}
+            savedSessionId={fanbox.savedSessionId}
+            onSavedSessionIdChange={fanbox.setSavedSessionId}
+            savedSessions={fanbox.savedSessions}
+            sessionLabelDrafts={fanbox.sessionLabelDrafts}
+            onSessionLabelDraftsChange={fanbox.setSessionLabelDrafts}
+            pixivCookieDraft={fanbox.pixivCookieDraft}
+            onPixivCookieDraftChange={fanbox.setPixivCookieDraft}
+            onSaveSession={fanbox.saveCurrentSession}
+            onLoginWithPixivCookie={fanbox.loginWithPixivCookie}
+            onUpdateSessionLabel={fanbox.updateSessionLabel}
+            onRevokeSession={fanbox.revokeSession}
+            onSync={syncFanbox}
+            onRetryFailed={retryFanboxFailed}
+            logs={fanboxLogs}
+            pollingMode={fanboxPollingMode}
+            lastUpdatedAt={fanboxLastUpdatedAt}
+            onRefreshLogs={() => run("fanbox-log-refresh", () => refreshFanboxLogs(), () => t("admin.fanbox.logsRefreshed"))}
+          />
+        )}
+
         <main className="space-y-6">
         {activeSection === "operations" && (
           <AdminOperationsPanel
@@ -577,7 +918,9 @@ export default function AdminPage() {
             configResponse={configResponse}
             configDraft={configDraft}
             onConfigDraftChange={setConfigDraft}
-            onRefreshConfig={() => run("developer-config-refresh", loadDeveloperConfig, () => t("admin.page.cloudStorageRefreshed"))}
+            onRefreshConfig={() => confirmDiscardConfig()
+              ? run("developer-config-refresh", loadDeveloperConfig, () => t("admin.page.cloudStorageRefreshed"))
+              : null}
             onSaveConfig={saveDeveloperConfig}
             onRebuild={() =>
               run("rebuild", () => NyaApi.rebuild(false), (r) =>
@@ -614,7 +957,9 @@ export default function AdminPage() {
             configResponse={configResponse}
             configDraft={configDraft}
             onConfigDraftChange={setConfigDraft}
-            onRefreshConfig={() => run("developer-config-refresh", loadDeveloperConfig, () => t("admin.page.configRefreshed"))}
+            onRefreshConfig={() => confirmDiscardConfig()
+              ? run("developer-config-refresh", loadDeveloperConfig, () => t("admin.page.configRefreshed"))
+              : null}
             onSaveConfig={saveDeveloperConfig}
             consoleStatus={consoleStatus}
             onRefreshConsole={() => run("developer-console-refresh", loadDeveloperConsole, () => t("admin.page.consoleRefreshed"))}

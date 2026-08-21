@@ -2,7 +2,7 @@
 
 本文档总结当前已实现的主要功能与模块，不替代 README / 使用文档。
 
-文档导航：[中文首页](README_CN.md) | [中文完整说明](READMORE_CN.md) | [快速启动](QUICKSTART_CN.md) | [使用手册](USAGE_CN.md) | [前端说明](../frontend/README.md) | [英文首页](../README.md)。
+文档导航：[中文首页](README_CN.md) | [中文完整说明](READMORE_CN.md) | [快速启动](QUICKSTART_CN.md) | [使用手册](USAGE_CN.md) | [生产部署](PRODUCTION_DEPLOYMENT_CN.md) | [配置解析](CONFIGURATION_CN.md) | [API 参考](API_CN.md) | [开发指南](DEVELOPMENT_CN.md) | [前端说明](../frontend/README.md) | [英文首页](../README.md)。
 
 ## 项目定位
 

@@ -37,6 +37,10 @@ NyaGallery sits between a downloader script, a file browser, and a full booru-st
 | [docs/READMORE_CN.md](docs/READMORE_CN.md) | 中文完整后端、存储、标签、Pixiv、API 与测试说明。 |
 | [docs/QUICKSTART_CN.md](docs/QUICKSTART_CN.md) | 中文简洁部署步骤和常用命令。 |
 | [docs/USAGE_CN.md](docs/USAGE_CN.md) | 中文完整使用手册、API 示例、维护流程和 FAQ。 |
+| [docs/PRODUCTION_DEPLOYMENT_CN.md](docs/PRODUCTION_DEPLOYMENT_CN.md) | 中文 Linux/Windows 生产部署、反向代理、HTTPS、备份和升级。 |
+| [docs/CONFIGURATION_CN.md](docs/CONFIGURATION_CN.md) | 中文 TOML、环境变量、覆盖优先级、存储策略和秘密管理。 |
+| [docs/API_CN.md](docs/API_CN.md) | 中文 HTTP API、鉴权、权限、请求示例和接口目录。 |
+| [docs/DEVELOPMENT_CN.md](docs/DEVELOPMENT_CN.md) | 中文后端/前端开发环境、测试和提交约定。 |
 | [docs/summary.md](docs/summary.md) | 中文当前实现、模块边界和后续方向总结。 |
 | [frontend/README.md](frontend/README.md) | Frontend architecture, pages, hooks, API mapping, and build notes. |
 | [config.example.toml](config.example.toml) | Example backend deployment configuration. |
@@ -106,8 +110,9 @@ Important sections:
 - `[core]`: storage root, database URL, optional tag catalog path
 - `[server]`: host, port, access log, secure cookie mode
 - `[site]`: project homepage, repository link, optional ICP filing number
-- `[original_storage]`: original-file storage strategy list for local, WebDAV, Upyun, Aliyun OSS, and OneDrive
+- `[original_storage]`: original-file storage strategy list for local, WebDAV, Upyun, Aliyun OSS, S3-compatible object storage (AWS S3 / MinIO / Cloudflare R2), and OneDrive
 - `[pixiv]`: optional default Pixiv credentials and sync defaults
+- `[misskey]`: optional Misskey token, instance host, page size and sync throttling defaults
 - `[network]`: reusable proxy profiles plus per-source proxy rules
 - `[redis]`: optional Redis URL and shared security limiter
 - `[security]`: deployment secret key for reversible encryption of third-party credentials
@@ -144,6 +149,14 @@ Sync into a named original-storage strategy:
 ```powershell
 nyagallery --storage storage pixiv-sync-pid 123456 --storage-strategy webdav-main
 ```
+
+Archive a Misskey user. Note media becomes regular gallery assets, while note text is stored as posts and shown on the posts page:
+
+```powershell
+nyagallery --storage storage misskey-sync-user noa --limit 200 --page-size 50 --generate-cache
+```
+
+Re-running the command only fetches notes newer than the archive and keeps backfilling older ones, so it resumes safely.
 
 Generate a deployment secret key manually:
 

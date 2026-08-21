@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { ImageOff } from "lucide-react";
+import { ImageOff, Play } from "lucide-react";
 import type { Asset } from "@/lib/types";
 import { fileUrl } from "@/lib/api";
-import { cn, isHiddenTag, isTechnicalTag, tagCategory, tagLabel, truncate } from "@/lib/utils";
+import { cn, isAnimatedGifMedia, isHiddenTag, isTechnicalTag, isVideoMedia, tagCategory, tagLabel, truncate } from "@/lib/utils";
 import { useI18n } from "@/components/providers/locale-provider";
 
 const PLACEHOLDER_RATIO = 1.4;
@@ -33,6 +33,8 @@ export function AssetCard({
     asset.width && asset.height ? asset.height / asset.width : PLACEHOLDER_RATIO;
   const paddingTop = `${(ratio * 100).toFixed(2)}%`;
 
+  const isVideo = isVideoMedia(asset.mime_type);
+  const isGif = isAnimatedGifMedia(asset.source_type);
   const previewTags = asset.tags.filter((tag) => !isHiddenTag(tag) && !isTechnicalTag(tag)).slice(0, 3);
   const characterTag = asset.tags.find((tag) => tag.startsWith("character:"));
   const seriesTag = asset.tags.find((tag) => tag.startsWith("series:"));
@@ -49,7 +51,22 @@ export function AssetCard({
           className="relative w-full overflow-hidden bg-muted"
           style={{ paddingTop }}
         >
-          {!error ? (
+          {isVideo ? (
+            <video
+              src={isGif ? fileUrl.original(asset.asset_key) : `${fileUrl.original(asset.asset_key)}#t=0.1`}
+              autoPlay={isGif}
+              loop={isGif}
+              muted
+              playsInline
+              preload={isGif ? "auto" : "metadata"}
+              onLoadedData={() => setLoaded(true)}
+              onError={() => setError(true)}
+              className={cn(
+                "absolute inset-0 h-full w-full object-cover transition-all duration-500 group-hover:scale-[1.03]",
+                loaded ? "opacity-100" : "opacity-0"
+              )}
+            />
+          ) : !error ? (
             <img
               src={fileUrl.preview(asset.asset_key)}
               alt={asset.title || asset.asset_key}
@@ -68,6 +85,19 @@ export function AssetCard({
             </div>
           )}
           {!loaded && !error && <div className="absolute inset-0 skeleton" />}
+
+          {isVideo && !error && !isGif && (
+            <div className="pointer-events-none absolute inset-0 grid place-items-center">
+              <span className="grid h-12 w-12 place-items-center rounded-full bg-black/55 text-white shadow-lg backdrop-blur-sm transition-transform duration-200 group-hover:scale-110">
+                <Play className="h-5 w-5 translate-x-[1px] fill-current" />
+              </span>
+            </div>
+          )}
+          {isGif && !error && (
+            <div className="pointer-events-none absolute left-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-white backdrop-blur-sm">
+              GIF
+            </div>
+          )}
 
           <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent p-3 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
             <div className="text-xs font-medium text-white/90 line-clamp-2">

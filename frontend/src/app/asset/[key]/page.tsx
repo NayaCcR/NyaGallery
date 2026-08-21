@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useToast } from "@/components/providers/toast-provider";
-import { cn, isHiddenTag, sourceTagLabel, sourceTagQuery, sourceTagSecondaryLabel, tagCategory, tagLabel } from "@/lib/utils";
+import { cn, formatDateTime, isAnimatedGifMedia, isHiddenTag, isVideoMedia, sourceTagLabel, sourceTagQuery, sourceTagSecondaryLabel, tagCategory, tagLabel } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Asset } from "@/lib/types";
 import { useI18n } from "@/components/providers/locale-provider";
@@ -483,7 +483,9 @@ function AssetPageImage({
   index: number;
   current: boolean;
 }) {
+  const { t } = useI18n();
   const [loaded, setLoaded] = useState(false);
+  const isGif = isAnimatedGifMedia(asset.source_type);
   return (
     <section
       id={asset.asset_key}
@@ -513,16 +515,37 @@ function AssetPageImage({
             }}
           />
         )}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={fileUrl.preview(asset.asset_key)}
-          alt={asset.title || asset.asset_key}
-          onLoad={() => setLoaded(true)}
-          className={cn(
-            "h-auto w-full bg-muted",
-            loaded ? "block" : "absolute inset-0 opacity-0"
-          )}
-        />
+        {isVideoMedia(asset.mime_type) ? (
+          <video
+            src={fileUrl.original(asset.asset_key)}
+            controls={!isGif}
+            autoPlay={isGif}
+            loop={isGif}
+            muted={isGif}
+            playsInline
+            preload={isGif ? "auto" : "metadata"}
+            onLoadedMetadata={() => setLoaded(true)}
+            onError={() => setLoaded(true)}
+            className={cn(
+              "h-auto w-full",
+              isGif ? "bg-muted" : "bg-black",
+              loaded ? "block" : "absolute inset-0 opacity-0"
+            )}
+          >
+            {t("pages.asset.videoUnsupported")}
+          </video>
+        ) : (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={fileUrl.preview(asset.asset_key)}
+            alt={asset.title || asset.asset_key}
+            onLoad={() => setLoaded(true)}
+            className={cn(
+              "h-auto w-full bg-muted",
+              loaded ? "block" : "absolute inset-0 opacity-0"
+            )}
+          />
+        )}
       </div>
     </section>
   );
@@ -535,7 +558,7 @@ function ApiLinksSection({
   asset: Asset;
   pageLabel?: string;
 }) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const assetKey = asset.asset_key;
   const links = useMemo<ApiLink[]>(() => {
     const items: ApiLink[] = [
@@ -581,7 +604,17 @@ function ApiLinksSection({
   return (
     <section className="space-y-2">
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-medium">{t("pages.asset.resourceLinks")}</h2>
+        <div className="flex min-w-0 items-baseline gap-2">
+          <h2 className="text-sm font-medium">{t("pages.asset.resourceLinks")}</h2>
+          {asset.crawl_time && (
+            <span
+              className="truncate text-[11px] font-normal text-muted-foreground"
+              title={t("pages.asset.addedAt", { time: asset.crawl_time })}
+            >
+              {t("pages.asset.addedAt", { time: formatDateTime(asset.crawl_time, locale) })}
+            </span>
+          )}
+        </div>
         {pageLabel && (
           <span className="rounded-md border border-primary/30 bg-primary/10 px-2 py-0.5 text-[11px] text-primary">
             {t("pages.asset.currentPage", { page: pageLabel })}

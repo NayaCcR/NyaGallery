@@ -3,9 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { ApiError, NyaApi } from "./api";
-import type { Asset, MeResponse, SearchOrder, SearchResponse, SearchSort, SiteConfigResponse, TagSuggestResponse, TagSummaryResponse } from "./types";
+import type { Asset, MeResponse, PostListResponse, PostSort, SearchOrder, SearchResponse, SearchSort, SiteConfigResponse, TagSuggestResponse, TagSummaryResponse } from "./types";
 
 const PAGE_SIZE = 40;
+const POSTS_PAGE_SIZE = 20;
 
 export function useSearchAssets(
   query: string | string[],
@@ -78,6 +79,24 @@ function mergeSearchPages(
     order,
     hasMore: pages.some((page) => page.items.length >= PAGE_SIZE),
   };
+}
+
+export function usePosts(
+  source: string = "",
+  order: SearchOrder = "desc",
+  options: { q?: string; enabled?: boolean; sort?: PostSort } = {}
+) {
+  const query = options.q ?? "";
+  const sort = options.sort ?? "posted_at";
+  return useInfiniteQuery<PostListResponse, Error>({
+    queryKey: ["posts", source, sort, order, query],
+    queryFn: ({ pageParam = 0 }) =>
+      NyaApi.posts({ limit: POSTS_PAGE_SIZE, offset: pageParam as number, source, q: query, sort, order }),
+    enabled: options.enabled ?? true,
+    initialPageParam: 0,
+    getNextPageParam: (last) =>
+      last.has_more ? last.offset + POSTS_PAGE_SIZE : undefined,
+  });
 }
 
 export function useAsset(assetKey: string | null | undefined) {

@@ -12,5 +12,7 @@ storage/
 frontend/node_modules/
 frontend/.next/
 frontend/tsconfig.tsbuildinfo
-
 commit.md
+nyagallery.toml
+_sec_probe*.py
+/.vscode

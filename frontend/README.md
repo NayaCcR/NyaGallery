@@ -86,7 +86,7 @@ nyagallery --storage storage serve --host 127.0.0.1 --port 8001
 - 登录后使用 HttpOnly cookie；Bearer Token 保留给脚本、外部程序和旧客户端。
 - 详情页原图下载走 `/api/assets/{key}/original`，由后端流式返回原始字节。
 - Pixiv 无头登录和可见浏览器登录通过 `src/app/api/sync/pixiv/oauth/*` 代理，避免 Next 默认请求超时影响长耗时登录。
-- 全站使用 `components/layout/app-shell` 作为应用壳：桌面端左侧模块导航并在侧栏顶部承载主题/语言/账号，移动端使用顶部工具栏与横向导航；页脚位于内容区底部，左侧展示项目主页与 GitHub 仓库，中间按配置显示 ICP 备案号，右侧以说明型链接展示 ImageFlow 灵感和 Szurubooru 鸣谢。
+- 全站使用 `components/layout/app-shell` 作为应用壳：默认 glacier cyan + indigo 配色，桌面 sidebar 模式只保留侧栏和轻量右上角操作行，不渲染额外的 desktop top-shell；可通过布局控件切换 topbar，侧栏折叠状态和布局偏好分别保存在 `nya.gallery.sidebar-collapsed`、`nya.gallery.layout`。移动端使用顶部工具栏、抽屉导航和自定义语言浮层；主题、语言和真实账户菜单沿用现有 Provider，账户菜单只在存在鉴权能力时显示。页脚位于内容区底部，左侧展示项目主页与 GitHub 仓库，中间按配置显示 ICP 备案号，右侧以说明型链接展示 ImageFlow 灵感和 Szurubooru 鸣谢。
 - 页脚 ICP 备案号来自后端 `/api/site/config`；在后端 `nyagallery.toml` 的 `site.icp_beian` 留空时不显示，显示时链接到 `http://beian.miit.gov.cn`。
 
 ## 页面拆分现状

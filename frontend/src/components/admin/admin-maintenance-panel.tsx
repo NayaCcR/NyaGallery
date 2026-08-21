@@ -1,10 +1,11 @@
 "use client";
 
 import type { Dispatch, SetStateAction } from "react";
-import { Cloud, Plus, RefreshCw, Save, ShieldAlert, ShieldCheck, Trash2, Wand2 } from "lucide-react";
+import { Cloud, FileDigit, Film, ImageIcon, Plus, RefreshCw, Save, ShieldAlert, ShieldCheck, Trash2, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SwitchLabel } from "@/components/ui/switch-label";
 import { useI18n } from "@/components/providers/locale-provider";
 import type { BackendConfig, DeveloperConfigResponse, StorageStrategyConfig } from "@/lib/types";
 
@@ -22,7 +23,7 @@ type AdminMaintenancePanelProps = {
   onGenerateMedia: () => unknown;
 };
 
-const STRATEGY_TYPES = ["webdav", "upyun", "aliyun_oss", "onedrive"] as const;
+const STRATEGY_TYPES = ["local", "webdav", "upyun", "aliyun_oss", "s3", "onedrive"] as const;
 
 export function AdminMaintenancePanel({
   busy,
@@ -41,10 +42,31 @@ export function AdminMaintenancePanel({
   const originalStorage = configDraft?.original_storage ?? { default_strategy: "local", strategies: [] };
   const strategies = originalStorage.strategies ?? [];
   const defaultOptions = ["local", ...strategies.map((strategy) => strategy.name).filter(Boolean)];
+  const hasUnsavedChanges = Boolean(
+    configDraft && configResponse && JSON.stringify(configDraft) !== JSON.stringify(configResponse.config),
+  );
 
   function patchOriginalStorage(values: Partial<BackendConfig["original_storage"]>) {
     onConfigDraftChange((current) => current
       ? { ...current, original_storage: { ...ensureOriginalStorage(current), ...values } }
+      : current);
+  }
+
+  function patchSite(values: Partial<BackendConfig["site"]>) {
+    onConfigDraftChange((current) => current
+      ? { ...current, site: { ...current.site, ...values } }
+      : current);
+  }
+
+  function patchCore(values: Partial<BackendConfig["core"]>) {
+    onConfigDraftChange((current) => current
+      ? { ...current, core: { ...current.core, ...values } }
+      : current);
+  }
+
+  function patchMedia(values: Partial<BackendConfig["media"]>) {
+    onConfigDraftChange((current) => current
+      ? { ...current, media: { ...current.media, ...values } }
       : current);
   }
 
@@ -119,8 +141,8 @@ export function AdminMaintenancePanel({
               <Button variant="outline" size="sm" disabled={busy === "developer-config-refresh"} onClick={onRefreshConfig}>
                 {t("common.refresh")}
               </Button>
-              <Button size="sm" disabled={!configDraft || busy === "developer-config-save"} onClick={onSaveConfig}>
-                <Save className="h-4 w-4" /> {t("admin.maintenance.saveCloud")}
+              <Button size="sm" disabled={!configDraft || !hasUnsavedChanges || busy === "developer-config-save"} onClick={onSaveConfig}>
+                <Save className="h-4 w-4" /> {t("admin.maintenance.saveConfig")}
               </Button>
             </div>
           )}
@@ -145,6 +167,71 @@ export function AdminMaintenancePanel({
                   ? t("admin.maintenance.encryptionEnabled")
                   : t("admin.maintenance.encryptionDisabled")}
               </span>
+            </div>
+
+            <div className="space-y-3 rounded-md border border-border p-4">
+              <div>
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <ImageIcon className="h-4 w-4" /> {t("admin.maintenance.brandingTitle")}
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">{t("admin.maintenance.brandingDescription")}</p>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <TextField
+                  label={t("admin.maintenance.appName")}
+                  value={configDraft.site?.app_name ?? ""}
+                  onChange={(value) => patchSite({ app_name: value })}
+                />
+                <TextField
+                  label={t("admin.maintenance.logoUrl")}
+                  value={configDraft.site?.logo_url ?? ""}
+                  onChange={(value) => patchSite({ logo_url: value })}
+                />
+              </div>
+              <p className="text-[11px] text-muted-foreground">{t("admin.maintenance.logoUrlHint")}</p>
+            </div>
+
+            <div className="space-y-3 rounded-md border border-border p-4">
+              <div>
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <FileDigit className="h-4 w-4" /> {t("admin.maintenance.namingTitle")}
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">{t("admin.maintenance.namingDescription")}</p>
+              </div>
+              <SwitchLabel
+                label={t("admin.maintenance.namePostId")}
+                checked={configDraft.core?.name_media_by_post_id ?? true}
+                onChange={(checked) => patchCore({ name_media_by_post_id: checked })}
+              />
+              <p className="text-[11px] text-muted-foreground">
+                {configDraft.core?.name_media_by_post_id ?? true
+                  ? t("admin.maintenance.namePostIdOn")
+                  : t("admin.maintenance.namePostIdOff")}
+              </p>
+            </div>
+
+            <div className="space-y-3 rounded-md border border-border p-4">
+              <div>
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Film className="h-4 w-4" /> {t("admin.maintenance.videoTitle")}
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">{t("admin.maintenance.videoDescription")}</p>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label>{t("admin.maintenance.maxVideoSize")}</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={0}
+                      value={String(bytesToMiB(configDraft.media?.max_video_bytes))}
+                      onChange={(event) => patchMedia({ max_video_bytes: mibToBytes(event.target.value) })}
+                    />
+                    <span className="shrink-0 text-xs text-muted-foreground">MiB</span>
+                  </div>
+                </div>
+              </div>
+              <p className="text-[11px] text-muted-foreground">{t("admin.maintenance.maxVideoSizeHint")}</p>
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">
@@ -178,12 +265,21 @@ export function AdminMaintenancePanel({
               )}
               {strategies.map((strategy, index) => (
                 <StrategyEditor
-                  key={`${strategy.name}-${index}`}
+                  key={index}
                   strategy={strategy}
                   onChange={(patch) => updateStrategy(index, patch)}
                   onRemove={() => removeStrategy(index)}
                 />
               ))}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-primary/25 bg-primary/5 p-4">
+              <p className="text-xs text-muted-foreground">
+                {hasUnsavedChanges ? t("admin.maintenance.unsavedChanges") : t("admin.maintenance.configSaved")}
+              </p>
+              <Button size="sm" disabled={!hasUnsavedChanges || busy === "developer-config-save"} onClick={onSaveConfig}>
+                <Save className="h-4 w-4" /> {t("admin.maintenance.saveConfig")}
+              </Button>
             </div>
           </div>
         )}
@@ -213,55 +309,71 @@ function StrategyEditor({
       </div>
 
       <div className="grid gap-3 md:grid-cols-3">
-        <TextField label="name" value={strategy.name} onChange={(value) => onChange({ name: value })} />
-        <SelectField label="type" value={strategy.type} options={STRATEGY_TYPES} onChange={(value) => onChange({ type: value })} />
-        <TextField label="prefix" value={strategy.prefix} onChange={(value) => onChange({ prefix: value })} />
-        {commonFields(strategy, onChange)}
-        <NumberField label="timeout_seconds" value={strategy.timeout_seconds} onChange={(value) => onChange({ timeout_seconds: value })} />
+        <TextField label={t("admin.maintenance.storageStrategy.name")} description={t("admin.maintenance.storageStrategy.nameHint")} value={strategy.name} onChange={(value) => onChange({ name: value })} />
+        <SelectField label={t("admin.maintenance.storageStrategy.type")} description={t("admin.maintenance.storageStrategy.typeHint")} value={strategy.type} options={STRATEGY_TYPES} onChange={(value) => onChange({ type: value })} />
+        <TextField label={t("admin.maintenance.storageStrategy.prefix")} description={t("admin.maintenance.storageStrategy.prefixHint")} value={strategy.prefix} onChange={(value) => onChange({ prefix: value })} />
+        {commonFields(strategy, onChange, t)}
+        <NumberField label={t("admin.maintenance.storageStrategy.timeoutSeconds")} description={t("admin.maintenance.storageStrategy.timeoutSecondsHint")} value={strategy.timeout_seconds} onChange={(value) => onChange({ timeout_seconds: value })} />
       </div>
     </div>
   );
 }
 
-function commonFields(strategy: StorageStrategyConfig, onChange: (patch: Partial<StorageStrategyConfig>) => void) {
+function commonFields(strategy: StorageStrategyConfig, onChange: (patch: Partial<StorageStrategyConfig>) => void, t: (key: string) => string) {
+  if (strategy.type === "local") {
+    return <TextField label={t("admin.maintenance.storageStrategy.rootPath")} description={t("admin.maintenance.storageStrategy.rootPathHint")} value={strategy.root_path} onChange={(value) => onChange({ root_path: value })} />;
+  }
   if (strategy.type === "aliyun_oss") {
     return (
       <>
-        <TextField label="endpoint" value={strategy.endpoint} onChange={(value) => onChange({ endpoint: value })} />
-        <TextField label="bucket" value={strategy.bucket} onChange={(value) => onChange({ bucket: value })} />
-        <TextField label="access_key_id" value={strategy.access_key_id} onChange={(value) => onChange({ access_key_id: value })} />
-        <TextField type="password" label="access_key_secret" value={strategy.access_key_secret} onChange={(value) => onChange({ access_key_secret: value })} />
+        <TextField label="endpoint" description={t("admin.maintenance.storageStrategy.endpointHint")} value={strategy.endpoint} onChange={(value) => onChange({ endpoint: value })} />
+        <TextField label="bucket" description={t("admin.maintenance.storageStrategy.bucketHint")} value={strategy.bucket} onChange={(value) => onChange({ bucket: value })} />
+        <TextField label="access_key_id" description={t("admin.maintenance.storageStrategy.accessKeyIdHint")} value={strategy.access_key_id} onChange={(value) => onChange({ access_key_id: value })} />
+        <TextField type="password" label="access_key_secret" description={t("admin.maintenance.storageStrategy.accessKeySecretHint")} value={strategy.access_key_secret} onChange={(value) => onChange({ access_key_secret: value })} />
+      </>
+    );
+  }
+  if (strategy.type === "s3") {
+    return (
+      <>
+        <TextField label="endpoint" description={t("admin.maintenance.storageStrategy.endpointHint")} value={strategy.endpoint} onChange={(value) => onChange({ endpoint: value })} />
+        <TextField label="bucket" description={t("admin.maintenance.storageStrategy.bucketHint")} value={strategy.bucket} onChange={(value) => onChange({ bucket: value })} />
+        <TextField label="region" description={t("admin.maintenance.storageStrategy.regionHint")} value={strategy.region ?? ""} onChange={(value) => onChange({ region: value })} />
+        <TextField label="access_key_id" description={t("admin.maintenance.storageStrategy.accessKeyIdHint")} value={strategy.access_key_id} onChange={(value) => onChange({ access_key_id: value })} />
+        <TextField type="password" label="access_key_secret" description={t("admin.maintenance.storageStrategy.accessKeySecretHint")} value={strategy.access_key_secret} onChange={(value) => onChange({ access_key_secret: value })} />
       </>
     );
   }
   if (strategy.type === "onedrive") {
     return (
       <>
-        <TextField label="endpoint" value={strategy.endpoint} onChange={(value) => onChange({ endpoint: value })} />
-        <TextField type="password" label="token" value={strategy.token} onChange={(value) => onChange({ token: value })} />
-        <TextField label="drive_id" value={strategy.drive_id} onChange={(value) => onChange({ drive_id: value })} />
-        <TextField label="root_path" value={strategy.root_path} onChange={(value) => onChange({ root_path: value })} />
+        <TextField label="endpoint" description={t("admin.maintenance.storageStrategy.endpointHint")} value={strategy.endpoint} onChange={(value) => onChange({ endpoint: value })} />
+        <TextField type="password" label="token" description={t("admin.maintenance.storageStrategy.tokenHint")} value={strategy.token} onChange={(value) => onChange({ token: value })} />
+        <TextField label="drive_id" description={t("admin.maintenance.storageStrategy.driveIdHint")} value={strategy.drive_id} onChange={(value) => onChange({ drive_id: value })} />
+        <TextField label={t("admin.maintenance.storageStrategy.rootPath")} description={t("admin.maintenance.storageStrategy.rootPathHint")} value={strategy.root_path} onChange={(value) => onChange({ root_path: value })} />
       </>
     );
   }
   return (
     <>
-      <TextField label="endpoint" value={strategy.endpoint} onChange={(value) => onChange({ endpoint: value })} />
-      <TextField label="bucket" value={strategy.bucket} onChange={(value) => onChange({ bucket: value })} />
-      <TextField label="username" value={strategy.username} onChange={(value) => onChange({ username: value })} />
-      <TextField type="password" label="password" value={strategy.password} onChange={(value) => onChange({ password: value })} />
-      <TextField type="password" label="token" value={strategy.token} onChange={(value) => onChange({ token: value })} />
+      <TextField label="endpoint" description={t("admin.maintenance.storageStrategy.endpointHint")} value={strategy.endpoint} onChange={(value) => onChange({ endpoint: value })} />
+      <TextField label="bucket" description={t("admin.maintenance.storageStrategy.bucketHint")} value={strategy.bucket} onChange={(value) => onChange({ bucket: value })} />
+      <TextField label="username" description={t("admin.maintenance.storageStrategy.usernameHint")} value={strategy.username} onChange={(value) => onChange({ username: value })} />
+      <TextField type="password" label="password" description={t("admin.maintenance.storageStrategy.passwordHint")} value={strategy.password} onChange={(value) => onChange({ password: value })} />
+      <TextField type="password" label="token" description={t("admin.maintenance.storageStrategy.tokenHint")} value={strategy.token} onChange={(value) => onChange({ token: value })} />
     </>
   );
 }
 
 function TextField({
   label,
+  description,
   value,
   onChange,
   type = "text",
 }: {
   label: string;
+  description?: string;
   value: string;
   onChange: (value: string) => void;
   type?: string;
@@ -270,16 +382,19 @@ function TextField({
     <div className="space-y-1.5">
       <Label>{label}</Label>
       <Input type={type} value={value} onChange={(event) => onChange(event.target.value)} />
+      {description && <p className="text-[11px] leading-4 text-muted-foreground">{description}</p>}
     </div>
   );
 }
 
 function NumberField({
   label,
+  description,
   value,
   onChange,
 }: {
   label: string;
+  description?: string;
   value: number;
   onChange: (value: number) => void;
 }) {
@@ -287,17 +402,20 @@ function NumberField({
     <div className="space-y-1.5">
       <Label>{label}</Label>
       <Input type="number" min={1} value={String(value)} onChange={(event) => onChange(toPositiveInt(event.target.value))} />
+      {description && <p className="text-[11px] leading-4 text-muted-foreground">{description}</p>}
     </div>
   );
 }
 
 function SelectField({
   label,
+  description,
   value,
   options,
   onChange,
 }: {
   label: string;
+  description?: string;
   value: string;
   options: readonly string[];
   onChange: (value: string) => void;
@@ -314,6 +432,7 @@ function SelectField({
           <option key={option} value={option}>{option}</option>
         ))}
       </select>
+      {description && <p className="text-[11px] leading-4 text-muted-foreground">{description}</p>}
     </div>
   );
 }
@@ -325,6 +444,7 @@ function makeStorageStrategy(type: string, index: number): StorageStrategyConfig
     prefix: "original",
     endpoint: type === "upyun" ? "https://v0.api.upyun.com" : type === "onedrive" ? "https://graph.microsoft.com/v1.0" : "",
     bucket: "",
+    region: "",
     username: "",
     password: "",
     token: "",
@@ -338,6 +458,19 @@ function makeStorageStrategy(type: string, index: number): StorageStrategyConfig
 
 function ensureOriginalStorage(config: BackendConfig): BackendConfig["original_storage"] {
   return config.original_storage ?? { default_strategy: "local", strategies: [] };
+}
+
+const MIB = 1024 * 1024;
+
+function bytesToMiB(value: number | undefined): number {
+  if (!value || !Number.isFinite(value)) return 0;
+  return Math.round((value / MIB) * 10) / 10;
+}
+
+function mibToBytes(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Math.round(parsed * MIB);
 }
 
 function toPositiveInt(value: string): number {

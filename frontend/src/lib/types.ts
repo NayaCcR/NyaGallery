@@ -7,6 +7,9 @@ export interface SiteConfigResponse {
   project_homepage: string;
   repository: string;
   icp_beian: string | null;
+  app_name?: string | null;
+  logo_url?: string | null;
+  layout?: string | null;
 }
 
 export interface BackendConfig {
@@ -14,6 +17,7 @@ export interface BackendConfig {
     storage: string;
     database_url: string;
     tag_catalog_path: string;
+    name_media_by_post_id: boolean;
   };
   server: {
     host: string;
@@ -25,6 +29,25 @@ export interface BackendConfig {
     project_homepage: string;
     repository: string;
     icp_beian: string;
+    app_name: string;
+    logo_url: string;
+    layout: string;
+  };
+  media: {
+    max_frame_pixels: number;
+    max_image_pixels: number;
+    max_animation_frames: number;
+    max_zip_uncompressed_bytes: number;
+    max_zip_frame_bytes: number;
+    max_video_bytes: number;
+    generation_timeout_seconds: number;
+    task_timeout_seconds: number;
+    max_concurrency: number;
+    upload_read_chunk_bytes: number;
+    preview_max_edge: number;
+    thumb_max_edge: number;
+    avif_quality: number;
+    webp_quality: number;
   };
   pixiv: {
     refresh_token: string;
@@ -77,6 +100,7 @@ export interface StorageStrategyConfig {
   prefix: string;
   endpoint: string;
   bucket: string;
+  region: string;
   username: string;
   password: string;
   token: string;
@@ -150,6 +174,7 @@ export interface Asset {
   canonical_tags: string[];
   width: number | null;
   height: number | null;
+  mime_type: string | null;
   crawl_time: string;
   artwork_date: string | null;
   pixiv_upload_date: string | null;
@@ -281,6 +306,350 @@ export interface AssetSiblingResponse {
   source: string;
   source_id: string;
   count: number;
+}
+
+export interface PostAttachment {
+  position: number;
+  asset_key: string | null;
+  source_type: string | null;
+  remote_url: string;
+  thumbnail_url: string;
+  mime_type: string | null;
+  width: number | null;
+  height: number | null;
+  description: string;
+  is_sensitive: boolean;
+  asset_available: boolean;
+  preview_url: string | null;
+  thumb_url: string | null;
+}
+
+export interface Post {
+  post_key: string;
+  source: string;
+  source_id: string;
+  author_id: string;
+  author_name: string;
+  author_handle: string;
+  author_avatar_url: string;
+  content: string;
+  content_warning: string;
+  posted_at: string | null;
+  crawl_time: string;
+  source_url: string;
+  language: string | null;
+  visibility: string;
+  age_rating: string | null;
+  tags: string[];
+  canonical_tags: string[];
+  metrics: Record<string, number>;
+  extra: Record<string, unknown>;
+  reply_to_url: string;
+  repost_of_url: string;
+  quote_of_url: string;
+  attachment_count: number;
+  attachments: PostAttachment[];
+}
+
+export interface MisskeyConfigResponse {
+  host: string;
+  token_configured: boolean;
+  default_request_delay_seconds: number;
+  page_size: number;
+  download_concurrency: number;
+  proxy_configured: boolean;
+  storage_strategies: StorageStrategySummary[];
+  default_storage_strategy: string;
+  note: string;
+}
+
+export interface MisskeyTokenSummary {
+  id: number;
+  user_id: number;
+  token_prefix: string;
+  token_suffix: string;
+  label: string;
+  host: string;
+  misskey_user_id: string | null;
+  misskey_username: string | null;
+  misskey_name: string | null;
+  created_by_user_id: number | null;
+  created_by_username: string | null;
+  last_used_at: string | null;
+  last_used_ip: string | null;
+  revoked_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  is_active: boolean;
+}
+
+export interface MisskeyTokenListResponse {
+  items: MisskeyTokenSummary[];
+}
+
+export interface MisskeySyncOptions {
+  token?: string;
+  misskey_token_id?: number;
+  host?: string;
+  storage_strategy?: string;
+  limit?: number;
+  page_size?: number;
+  max_pages?: number;
+  include_replies?: boolean;
+  backfill?: boolean;
+  download_media?: boolean;
+  download_concurrency?: number;
+  request_delay_seconds?: number;
+  rebuild_db?: boolean;
+  generate_cache?: boolean;
+  dry_run?: boolean;
+}
+
+export interface MisskeyNotePreview {
+  note_id: string;
+  created_at: string;
+  text: string;
+  cw: string;
+  file_count: number;
+  url: string;
+  tags: string[];
+}
+
+export interface MisskeyUserPreview {
+  user_id: string;
+  username: string;
+  name: string;
+  handle: string;
+  avatar_url: string;
+  notes_count: number | null;
+}
+
+export interface MisskeySyncResponse {
+  status?: string;
+  sync_job_id?: string;
+  message?: string;
+  sync: unknown[];
+  posts: unknown[];
+  media: unknown[];
+  jobs: unknown[];
+  rebuild: unknown;
+  preview?: MisskeyNotePreview[];
+  user?: MisskeyUserPreview;
+}
+
+export interface XConfigResponse {
+  host: string;
+  session_configured: boolean;
+  default_request_delay_seconds: number;
+  page_size: number;
+  download_concurrency: number;
+  proxy_configured: boolean;
+  storage_strategies: StorageStrategySummary[];
+  default_storage_strategy: string;
+  note: string;
+}
+
+export interface XTokenSummary {
+  id: number;
+  user_id: number;
+  token_prefix: string;
+  token_suffix: string;
+  has_ct0: boolean;
+  label: string;
+  host: string;
+  x_user_id: string | null;
+  x_screen_name: string | null;
+  x_name: string | null;
+  created_by_user_id: number | null;
+  created_by_username: string | null;
+  last_used_at: string | null;
+  last_used_ip: string | null;
+  revoked_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  is_active: boolean;
+}
+
+export interface XTokenListResponse {
+  items: XTokenSummary[];
+}
+
+export interface XSyncOptions {
+  auth_token?: string;
+  ct0?: string;
+  x_token_id?: number;
+  targets?: string[];
+  storage_strategy?: string;
+  limit?: number;
+  page_size?: number;
+  max_pages?: number;
+  include_replies?: boolean;
+  media_only?: boolean;
+  backfill?: boolean;
+  download_media?: boolean;
+  download_concurrency?: number;
+  request_delay_seconds?: number;
+  rebuild_db?: boolean;
+  generate_cache?: boolean;
+  dry_run?: boolean;
+}
+
+export interface XTweetPreview {
+  tweet_id: string;
+  created_at: string;
+  text: string;
+  screen_name: string;
+  media_count: number;
+  media_types: string[];
+  url: string;
+  tags: string[];
+  metrics: Record<string, number>;
+}
+
+export interface XUserPreview {
+  user_id: string;
+  screen_name: string;
+  name: string;
+  handle: string;
+  avatar_url: string;
+  tweets_count: number | null;
+  media_count: number | null;
+  is_protected: boolean;
+}
+
+export interface XPostFailure {
+  target: string;
+  error: string;
+  tweet_id: string | null;
+}
+
+export interface XSyncResponse {
+  status?: string;
+  sync_job_id?: string;
+  message?: string;
+  sync: unknown[];
+  posts: unknown[];
+  media: unknown[];
+  jobs: unknown[];
+  rebuild: unknown;
+  failures: XPostFailure[];
+  preview?: XTweetPreview[];
+  user?: XUserPreview;
+}
+
+export interface FanboxConfigResponse {
+  session_configured: boolean;
+  default_request_delay_seconds: number;
+  page_size: number;
+  download_concurrency: number;
+  download_files: boolean;
+  proxy_configured: boolean;
+  supports_pixiv_cookie_login: boolean;
+  storage_strategies: StorageStrategySummary[];
+  default_storage_strategy: string;
+  note: string;
+}
+
+export interface FanboxSessionSummary {
+  id: number;
+  user_id: number;
+  session_prefix: string;
+  session_suffix: string;
+  label: string;
+  source: string;
+  fanbox_user_id: string | null;
+  fanbox_creator_id: string | null;
+  fanbox_name: string | null;
+  created_by_user_id: number | null;
+  created_by_username: string | null;
+  last_used_at: string | null;
+  last_used_ip: string | null;
+  revoked_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  is_active: boolean;
+}
+
+export interface FanboxSessionListResponse {
+  items: FanboxSessionSummary[];
+}
+
+export interface FanboxLoginResponse {
+  session_id: string;
+  saved: FanboxSessionSummary | null;
+  identity: Record<string, unknown>;
+}
+
+export interface FanboxSyncOptions {
+  session_id?: string;
+  fanbox_session_id?: number;
+  targets?: string[];
+  storage_strategy?: string;
+  limit?: number;
+  page_size?: number;
+  max_pages?: number;
+  backfill?: boolean;
+  download_media?: boolean;
+  download_files?: boolean;
+  download_concurrency?: number;
+  request_delay_seconds?: number;
+  rebuild_db?: boolean;
+  generate_cache?: boolean;
+  dry_run?: boolean;
+}
+
+export interface FanboxPostPreview {
+  post_id: string;
+  title: string;
+  post_type: string;
+  published_at: string;
+  fee_required: number;
+  locked: boolean;
+  file_count: number;
+  tags: string[];
+  url: string;
+}
+
+export interface FanboxCreatorPreview {
+  creator_id: string;
+  user_id: string;
+  name: string;
+  icon_url: string;
+  has_adult_content: boolean;
+  is_supported: boolean;
+}
+
+export interface FanboxSyncResponse {
+  status?: string;
+  sync_job_id?: string;
+  message?: string;
+  sync: unknown[];
+  posts: unknown[];
+  media: unknown[];
+  jobs: unknown[];
+  rebuild: unknown;
+  failures: { target: string; error: string; post_id: string | null }[];
+  preview?: FanboxPostPreview[];
+  creator?: FanboxCreatorPreview;
+}
+
+export type PostSort = "posted_at" | "added";
+
+export interface PostSourceCount {
+  source: string;
+  count: number;
+}
+
+export interface PostListResponse {
+  items: Post[];
+  limit: number;
+  offset: number;
+  order: SearchOrder;
+  source: string;
+  q: string;
+  total: number;
+  has_more: boolean;
+  sources: PostSourceCount[];
 }
 
 export interface TagSuggestion {

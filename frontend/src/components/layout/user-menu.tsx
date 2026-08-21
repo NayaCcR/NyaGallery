@@ -15,7 +15,7 @@ export function UserMenu() {
 
   if (!ready) {
     return (
-      <Button variant="ghost" size="icon" aria-label={t("auth.account")}>
+      <Button variant="ghost" size="icon" className="control-glow" aria-label={t("auth.account")}>
         <User className="h-4 w-4" />
       </Button>
     );
@@ -23,7 +23,7 @@ export function UserMenu() {
 
   if (!token) {
     return (
-      <Button asChild variant="ghost" size="sm">
+      <Button asChild variant="ghost" size="sm" className="control-glow">
         <Link href="/login" className="inline-flex items-center gap-1.5">
           <LogIn className="h-4 w-4" />
           <span className="hidden sm:inline">{t("auth.login")}</span>
@@ -37,6 +37,7 @@ export function UserMenu() {
       <Button
         variant="ghost"
         size="icon"
+        className="control-glow"
         aria-label={t("auth.account")}
         onClick={() => setOpen((value) => !value)}
       >

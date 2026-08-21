@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Wand2 } from "lucide-react";
+import { RotateCcw, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyLine } from "@/components/admin/admin-fields";
 import { useI18n } from "@/components/providers/locale-provider";
@@ -23,6 +23,7 @@ import {
   formatLogEvent,
   httpStatusClass,
   localizedPixivMessage,
+  localizedSyncMessage,
   pixivStageLabel,
   stageDetail,
   stageLabel,
@@ -246,6 +247,282 @@ export function PixivLogRow({ log }: { log: UploadLogItem }) {
       {error && <div className="mt-2 break-words text-destructive">{error}</div>}
     </div>
   );
+}
+
+export function MisskeyLogRow({ log }: { log: UploadLogItem }) {
+  const { t } = useI18n();
+  const target = extraString(log.extra, "target") ?? log.original_filename.replace(/^misskey:/, "");
+  const host = extraString(log.extra, "host");
+  const stage = extraString(log.extra, "stage");
+  const phase = extraString(log.extra, "phase");
+  const error = extraString(log.extra, "error");
+  const jobId = extraString(log.extra, "sync_job_id");
+  const lastUpdateAt = extraString(log.extra, "last_update_at");
+  const syncCount = extraNumber(log.extra, "sync_count");
+  const remaining = extraNumber(log.extra, "remaining");
+  const notesCount = extraNumber(log.extra, "notes_count");
+  const page = extraNumber(log.extra, "page");
+  const assetCount = extraNumber(log.extra, "asset_count");
+  const queued = extraNumber(log.extra, "queued_transcode_jobs");
+  const retryAfter = extraNumber(log.extra, "retry_after_seconds");
+  const progress = extraNumber(log.extra, "progress");
+  const progressValue = progress == null ? null : Math.max(0, Math.min(100, progress));
+  const active = log.status === "queued" || log.status === "running";
+
+  return (
+    <div className={cn(
+      "rounded-lg border border-border p-3 text-xs",
+      active && "border-primary/30 bg-primary/5",
+      log.status === "error" && "border-destructive/35 bg-destructive/5"
+    )}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate font-medium" title={target}>
+            {target || "misskey"}
+          </div>
+          <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+            {formatDate(lastUpdateAt || log.created_at)}
+            {host ? ` · ${host}` : ""}
+            {jobId ? ` · ${jobId}` : ""}
+          </div>
+        </div>
+        <span className={cn("shrink-0 rounded-full px-2 py-0.5 font-medium", statusPillClass(log.status))}>
+          {statusLabel(log.status, t)}
+        </span>
+      </div>
+      {progressValue !== null && (
+        <div className="mt-2 space-y-1">
+          <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+            <span className="truncate">
+              {t(`admin.misskey.stages.${stage ?? "unknown"}`) === `admin.misskey.stages.${stage ?? "unknown"}`
+                ? stage ?? ""
+                : t(`admin.misskey.stages.${stage}`)}
+              {phase ? ` · ${t(`admin.misskey.phases.${phase}`)}` : ""}
+            </span>
+            <span>{progressValue.toFixed(0)}%</span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+            <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${progressValue}%` }} />
+          </div>
+        </div>
+      )}
+      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-muted-foreground">
+        {syncCount !== null && <span>{t("admin.misskeyStats.posts", { count: syncCount })}</span>}
+        {remaining !== null && <span>{t("admin.misskeyStats.remaining", { count: remaining })}</span>}
+        {notesCount !== null && <span>{t("admin.misskeyStats.total", { count: notesCount })}</span>}
+        {page !== null && <span>{t("admin.misskeyStats.page", { page })}</span>}
+        {assetCount !== null && <span>{t("admin.misskeyStats.assets", { count: assetCount })}</span>}
+        {queued !== null && <span>{t("admin.misskeyStats.transcode", { count: queued })}</span>}
+        {retryAfter !== null && (
+          <span className="text-amber-600 dark:text-amber-400">
+            {t("admin.misskeyStats.rateLimited", { seconds: retryAfter })}
+          </span>
+        )}
+        <span>{localizedSyncMessage("misskeyMessages", log.message, t)}</span>
+      </div>
+      {error && <div className="mt-2 break-words text-destructive">{error}</div>}
+    </div>
+  );
+}
+
+export function XLogRow({ log, onRetry }: { log: UploadLogItem; onRetry?: (targets: string[]) => void }) {
+  const { t } = useI18n();
+  const retryTargets = failedTargets(log.extra);
+  const target = extraString(log.extra, "target") ?? log.original_filename.replace(/^x:/, "");
+  const stage = extraString(log.extra, "stage");
+  const phase = extraString(log.extra, "phase");
+  const error = extraString(log.extra, "error");
+  const jobId = extraString(log.extra, "sync_job_id");
+  const lastUpdateAt = extraString(log.extra, "last_update_at");
+  const syncCount = extraNumber(log.extra, "sync_count");
+  const remaining = extraNumber(log.extra, "remaining");
+  const tweetsCount = extraNumber(log.extra, "tweets_count");
+  const page = extraNumber(log.extra, "page");
+  const assetCount = extraNumber(log.extra, "asset_count");
+  const videoAssets = extraNumber(log.extra, "video_assets");
+  const queued = extraNumber(log.extra, "queued_transcode_jobs");
+  const failureCount = extraNumber(log.extra, "failure_count");
+  const retryAfter = extraNumber(log.extra, "retry_after_seconds");
+  const progress = extraNumber(log.extra, "progress");
+  const progressValue = progress == null ? null : Math.max(0, Math.min(100, progress));
+  const active = log.status === "queued" || log.status === "running";
+
+  return (
+    <div className={cn(
+      "rounded-lg border border-border p-3 text-xs",
+      active && "border-primary/30 bg-primary/5",
+      log.status === "error" && "border-destructive/35 bg-destructive/5"
+    )}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate font-medium" title={target}>
+            {target || "x"}
+          </div>
+          <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+            {formatDate(lastUpdateAt || log.created_at)}
+            {jobId ? ` · ${jobId}` : ""}
+          </div>
+        </div>
+        <span className={cn("shrink-0 rounded-full px-2 py-0.5 font-medium", statusPillClass(log.status))}>
+          {statusLabel(log.status, t)}
+        </span>
+      </div>
+      {progressValue !== null && (
+        <div className="mt-2 space-y-1">
+          <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+            <span className="truncate">
+              {t(`admin.x.stages.${stage ?? "unknown"}`) === `admin.x.stages.${stage ?? "unknown"}`
+                ? stage ?? ""
+                : t(`admin.x.stages.${stage}`)}
+              {phase ? ` · ${t(`admin.x.phases.${phase}`)}` : ""}
+            </span>
+            <span>{progressValue.toFixed(0)}%</span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+            <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${progressValue}%` }} />
+          </div>
+        </div>
+      )}
+      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-muted-foreground">
+        {syncCount !== null && <span>{t("admin.xStats.posts", { count: syncCount })}</span>}
+        {remaining !== null && <span>{t("admin.xStats.remaining", { count: remaining })}</span>}
+        {tweetsCount !== null && <span>{t("admin.xStats.total", { count: tweetsCount })}</span>}
+        {page !== null && <span>{t("admin.xStats.page", { page })}</span>}
+        {assetCount !== null && <span>{t("admin.xStats.assets", { count: assetCount })}</span>}
+        {videoAssets !== null && videoAssets > 0 && <span>{t("admin.xStats.videos", { count: videoAssets })}</span>}
+        {queued !== null && <span>{t("admin.xStats.transcode", { count: queued })}</span>}
+        {failureCount !== null && failureCount > 0 && (
+          <>
+            <RetryFailedButton targets={retryTargets} onRetry={onRetry} />
+            <span className="text-destructive">{t("admin.xStats.failures", { count: failureCount })}</span>
+          </>
+        )}
+        {retryAfter !== null && (
+          <span className="text-amber-600 dark:text-amber-400">
+            {t("admin.xStats.rateLimited", { seconds: retryAfter })}
+          </span>
+        )}
+        <span>{localizedSyncMessage("xMessages", log.message, t)}</span>
+      </div>
+      {error && <div className="mt-2 break-words text-destructive">{error}</div>}
+    </div>
+  );
+}
+
+export function FanboxLogRow({ log, onRetry }: { log: UploadLogItem; onRetry?: (targets: string[]) => void }) {
+  const { t } = useI18n();
+  const retryTargets = failedTargets(log.extra);
+  const target = extraString(log.extra, "target") ?? log.original_filename.replace(/^fanbox:/, "");
+  const stage = extraString(log.extra, "stage");
+  const phase = extraString(log.extra, "phase");
+  const error = extraString(log.extra, "error");
+  const jobId = extraString(log.extra, "sync_job_id");
+  const lastUpdateAt = extraString(log.extra, "last_update_at");
+  const syncCount = extraNumber(log.extra, "sync_count");
+  const remaining = extraNumber(log.extra, "remaining");
+  const page = extraNumber(log.extra, "page");
+  const assetCount = extraNumber(log.extra, "asset_count");
+  const fileAssets = extraNumber(log.extra, "file_assets");
+  const lockedPosts = extraNumber(log.extra, "locked_posts");
+  const queued = extraNumber(log.extra, "queued_transcode_jobs");
+  const failureCount = extraNumber(log.extra, "failure_count");
+  const retryAfter = extraNumber(log.extra, "retry_after_seconds");
+  const progress = extraNumber(log.extra, "progress");
+  const progressValue = progress == null ? null : Math.max(0, Math.min(100, progress));
+  const active = log.status === "queued" || log.status === "running";
+
+  return (
+    <div className={cn(
+      "rounded-lg border border-border p-3 text-xs",
+      active && "border-primary/30 bg-primary/5",
+      log.status === "error" && "border-destructive/35 bg-destructive/5"
+    )}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate font-medium" title={target}>{target || "fanbox"}</div>
+          <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+            {formatDate(lastUpdateAt || log.created_at)}
+            {jobId ? ` · ${jobId}` : ""}
+          </div>
+        </div>
+        <span className={cn("shrink-0 rounded-full px-2 py-0.5 font-medium", statusPillClass(log.status))}>
+          {statusLabel(log.status, t)}
+        </span>
+      </div>
+      {progressValue !== null && (
+        <div className="mt-2 space-y-1">
+          <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+            <span className="truncate">
+              {t(`admin.fanbox.stages.${stage ?? "unknown"}`) === `admin.fanbox.stages.${stage ?? "unknown"}`
+                ? stage ?? ""
+                : t(`admin.fanbox.stages.${stage}`)}
+              {phase ? ` · ${t(`admin.fanbox.phases.${phase}`)}` : ""}
+            </span>
+            <span>{progressValue.toFixed(0)}%</span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+            <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${progressValue}%` }} />
+          </div>
+        </div>
+      )}
+      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-muted-foreground">
+        {syncCount !== null && <span>{t("admin.fanboxStats.posts", { count: syncCount })}</span>}
+        {remaining !== null && <span>{t("admin.fanboxStats.remaining", { count: remaining })}</span>}
+        {page !== null && <span>{t("admin.fanboxStats.page", { page })}</span>}
+        {assetCount !== null && <span>{t("admin.fanboxStats.assets", { count: assetCount })}</span>}
+        {fileAssets !== null && fileAssets > 0 && <span>{t("admin.fanboxStats.files", { count: fileAssets })}</span>}
+        {lockedPosts !== null && lockedPosts > 0 && (
+          <span className="text-amber-600 dark:text-amber-400">{t("admin.fanboxStats.locked", { count: lockedPosts })}</span>
+        )}
+        {queued !== null && <span>{t("admin.fanboxStats.transcode", { count: queued })}</span>}
+        {failureCount !== null && failureCount > 0 && (
+          <>
+            <RetryFailedButton targets={retryTargets} onRetry={onRetry} />
+            <span className="text-destructive">{t("admin.fanboxStats.failures", { count: failureCount })}</span>
+          </>
+        )}
+        {retryAfter !== null && (
+          <span className="text-amber-600 dark:text-amber-400">{t("admin.fanboxStats.rateLimited", { seconds: retryAfter })}</span>
+        )}
+        <span>{localizedSyncMessage("fanboxMessages", log.message, t)}</span>
+      </div>
+      {error && <div className="mt-2 break-words text-destructive">{error}</div>}
+    </div>
+  );
+}
+
+function RetryFailedButton({
+  targets,
+  onRetry,
+}: {
+  targets: string[];
+  onRetry?: (targets: string[]) => void;
+}) {
+  const { t } = useI18n();
+  if (!onRetry || targets.length === 0) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => onRetry(targets)}
+      title={targets.join("\n")}
+      className="inline-flex h-5 items-center gap-1 rounded-full border border-destructive/40 px-2 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/10 focus-ring"
+    >
+      <RotateCcw className="h-3 w-3" />
+      {t("admin.logs.retryFailed", { count: targets.length })}
+    </button>
+  );
+}
+
+function failedTargets(extra: UploadLogItem["extra"]): string[] {
+  const failures = extra && typeof extra === "object" ? (extra as Record<string, unknown>).failures : null;
+  if (!Array.isArray(failures)) return [];
+  const targets = failures.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const row = item as Record<string, unknown>;
+    const value = String(row.target ?? row.tweet_id ?? row.post_id ?? "").trim();
+    return value ? [value] : [];
+  });
+  return Array.from(new Set(targets));
 }
 
 export function AccessLogRow({ log }: { log: AccessLogItem }) {

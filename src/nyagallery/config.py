@@ -19,6 +19,7 @@ from nyagallery.secret_crypto import (
 DEFAULT_CONFIG_FILENAME = "nyagallery.toml"
 CONFIG_ENV = "NYAGALLERY_CONFIG"
 PROJECT_REPOSITORY = "https://github.com/NayaCcR/NyaGallery"
+MiB = 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,7 @@ class CoreConfig:
     storage: str = "storage"
     database_url: str | None = None
     tag_catalog_path: str | None = None
+    name_media_by_post_id: bool = True
 
 
 @dataclass(frozen=True)
@@ -41,6 +43,9 @@ class SiteConfig:
     project_homepage: str = PROJECT_REPOSITORY
     repository: str = PROJECT_REPOSITORY
     icp_beian: str = ""
+    app_name: str = ""
+    logo_url: str = ""
+    layout: str = ""
 
 
 @dataclass(frozen=True)
@@ -49,6 +54,55 @@ class PixivConfig:
     cookie: str | None = None
     default_request_delay_seconds: float = 1.0
     max_concurrency: int = 1
+
+
+@dataclass(frozen=True)
+class MisskeyConfig:
+    token: str | None = None
+    host: str = "misskey.io"
+    default_request_delay_seconds: float = 1.0
+    page_size: int = 100
+    download_concurrency: int = 5
+
+
+@dataclass(frozen=True)
+class XConfig:
+    auth_token: str | None = None
+    ct0: str | None = None
+    default_request_delay_seconds: float = 2.0
+    page_size: int = 20
+    download_concurrency: int = 4
+    tweet_detail_query_id: str = "4Siu98E55GquhG52zHdY5w"
+    user_by_screen_name_query_id: str = "32pL5BWe9WKeSK1MoPvFQQ"
+    user_tweets_query_id: str = "V7H0Ap3_Hh2FyS75OCDO3Q"
+    user_media_query_id: str = "dexO_2tohK86JDudXXG3Yw"
+
+
+@dataclass(frozen=True)
+class FanboxConfig:
+    session_id: str | None = None
+    default_request_delay_seconds: float = 1.0
+    page_size: int = 10
+    download_concurrency: int = 3
+    download_files: bool = True
+
+
+@dataclass(frozen=True)
+class MediaConfig:
+    max_frame_pixels: int = 50_000_000
+    max_image_pixels: int = 100_000_000
+    max_animation_frames: int = 500
+    max_zip_uncompressed_bytes: int = 512 * MiB
+    max_zip_frame_bytes: int = 64 * MiB
+    max_video_bytes: int = 128 * MiB
+    generation_timeout_seconds: int = 300
+    task_timeout_seconds: int = 300
+    max_concurrency: int = 2
+    upload_read_chunk_bytes: int = MiB
+    preview_max_edge: int = 1800
+    thumb_max_edge: int = 420
+    avif_quality: int = 82
+    webp_quality: int = 82
 
 
 @dataclass(frozen=True)
@@ -68,9 +122,9 @@ class NetworkSourceConfig:
 
 @dataclass(frozen=True)
 class NetworkConfig:
-    default_proxy: str = ""
-    proxies: tuple[NetworkProxyConfig, ...] = ()
-    sources: tuple[NetworkSourceConfig, ...] = ()
+    default_proxy: str = "direct"
+    proxies: tuple[NetworkProxyConfig, ...] = (NetworkProxyConfig(name="direct"),)
+    sources: tuple[NetworkSourceConfig, ...] = (NetworkSourceConfig(source="pixiv", proxy="direct"),)
 
 
 @dataclass(frozen=True)
@@ -92,6 +146,7 @@ class StorageStrategyConfig:
     prefix: str = "original"
     endpoint: str = ""
     bucket: str = ""
+    region: str = ""
     username: str = ""
     password: str = ""
     token: str = ""
@@ -120,6 +175,10 @@ class NyaGalleryConfig:
     server: ServerConfig = ServerConfig()
     site: SiteConfig = SiteConfig()
     pixiv: PixivConfig = PixivConfig()
+    misskey: MisskeyConfig = MisskeyConfig()
+    x: XConfig = XConfig()
+    fanbox: FanboxConfig = FanboxConfig()
+    media: MediaConfig = MediaConfig()
     network: NetworkConfig = NetworkConfig()
     redis: RedisConfig = RedisConfig()
     security: SecurityConfig = SecurityConfig()
@@ -145,21 +204,44 @@ def apply_config_environment(config: NyaGalleryConfig) -> None:
         os.environ.setdefault("NYAGALLERY_SECURE_COOKIES", "1")
     if config.pixiv.refresh_token:
         os.environ.setdefault("PIXIV_REFRESH_TOKEN", config.pixiv.refresh_token)
+    if config.misskey.token:
+        os.environ.setdefault("MISSKEY_TOKEN", config.misskey.token)
+    if config.x.auth_token:
+        os.environ.setdefault("X_AUTH_TOKEN", config.x.auth_token)
+    if config.x.ct0:
+        os.environ.setdefault("X_CT0", config.x.ct0)
+    if config.fanbox.session_id:
+        os.environ.setdefault("FANBOXSESSID", config.fanbox.session_id)
     if config.redis.url:
         os.environ.setdefault("NYAGALLERY_REDIS_URL", config.redis.url)
     if config.security.secret_key:
         os.environ.setdefault(SECRET_KEY_ENV, config.security.secret_key)
+    os.environ.setdefault("NYAGALLERY_MEDIA_MAX_FRAME_PIXELS", str(config.media.max_frame_pixels))
+    os.environ.setdefault("NYAGALLERY_MEDIA_MAX_IMAGE_PIXELS", str(config.media.max_image_pixels))
+    os.environ.setdefault("NYAGALLERY_MEDIA_MAX_ANIMATION_FRAMES", str(config.media.max_animation_frames))
+    os.environ.setdefault("NYAGALLERY_MEDIA_MAX_ZIP_UNCOMPRESSED_BYTES", str(config.media.max_zip_uncompressed_bytes))
+    os.environ.setdefault("NYAGALLERY_MEDIA_MAX_ZIP_FRAME_BYTES", str(config.media.max_zip_frame_bytes))
+    os.environ.setdefault("NYAGALLERY_MEDIA_MAX_VIDEO_BYTES", str(config.media.max_video_bytes))
+    os.environ.setdefault("NYAGALLERY_MEDIA_GENERATION_TIMEOUT_SECONDS", str(config.media.generation_timeout_seconds))
+    os.environ.setdefault("NYAGALLERY_MEDIA_TASK_TIMEOUT_SECONDS", str(config.media.task_timeout_seconds))
+    os.environ.setdefault("NYAGALLERY_MEDIA_MAX_CONCURRENCY", str(config.media.max_concurrency))
+    os.environ.setdefault("NYAGALLERY_UPLOAD_READ_CHUNK_BYTES", str(config.media.upload_read_chunk_bytes))
 
 
 def config_to_dict(config: NyaGalleryConfig, *, redact_secrets: bool = False) -> dict[str, object]:
     pixiv_refresh_token = "" if redact_secrets and config.pixiv.refresh_token else config.pixiv.refresh_token or ""
     pixiv_cookie = "" if redact_secrets and config.pixiv.cookie else config.pixiv.cookie or ""
+    misskey_token = "" if redact_secrets and config.misskey.token else config.misskey.token or ""
+    x_auth_token = "" if redact_secrets and config.x.auth_token else config.x.auth_token or ""
+    x_ct0 = "" if redact_secrets and config.x.ct0 else config.x.ct0 or ""
+    fanbox_session = "" if redact_secrets and config.fanbox.session_id else config.fanbox.session_id or ""
     secret_key = "" if redact_secrets and config.security.secret_key else config.security.secret_key
     return {
         "core": {
             "storage": config.core.storage,
             "database_url": config.core.database_url or "",
             "tag_catalog_path": config.core.tag_catalog_path or "",
+            "name_media_by_post_id": config.core.name_media_by_post_id,
         },
         "server": {
             "host": config.server.host,
@@ -171,12 +253,56 @@ def config_to_dict(config: NyaGalleryConfig, *, redact_secrets: bool = False) ->
             "project_homepage": config.site.project_homepage,
             "repository": config.site.repository,
             "icp_beian": config.site.icp_beian,
+            "app_name": config.site.app_name,
+            "logo_url": config.site.logo_url,
+            "layout": config.site.layout,
         },
         "pixiv": {
             "refresh_token": pixiv_refresh_token,
             "cookie": pixiv_cookie,
             "default_request_delay_seconds": config.pixiv.default_request_delay_seconds,
             "max_concurrency": config.pixiv.max_concurrency,
+        },
+        "misskey": {
+            "token": misskey_token,
+            "host": config.misskey.host,
+            "default_request_delay_seconds": config.misskey.default_request_delay_seconds,
+            "page_size": config.misskey.page_size,
+            "download_concurrency": config.misskey.download_concurrency,
+        },
+        "x": {
+            "auth_token": x_auth_token,
+            "ct0": x_ct0,
+            "default_request_delay_seconds": config.x.default_request_delay_seconds,
+            "page_size": config.x.page_size,
+            "download_concurrency": config.x.download_concurrency,
+            "tweet_detail_query_id": config.x.tweet_detail_query_id,
+            "user_by_screen_name_query_id": config.x.user_by_screen_name_query_id,
+            "user_tweets_query_id": config.x.user_tweets_query_id,
+            "user_media_query_id": config.x.user_media_query_id,
+        },
+        "fanbox": {
+            "session_id": fanbox_session,
+            "default_request_delay_seconds": config.fanbox.default_request_delay_seconds,
+            "page_size": config.fanbox.page_size,
+            "download_concurrency": config.fanbox.download_concurrency,
+            "download_files": config.fanbox.download_files,
+        },
+        "media": {
+            "max_frame_pixels": config.media.max_frame_pixels,
+            "max_image_pixels": config.media.max_image_pixels,
+            "max_animation_frames": config.media.max_animation_frames,
+            "max_zip_uncompressed_bytes": config.media.max_zip_uncompressed_bytes,
+            "max_zip_frame_bytes": config.media.max_zip_frame_bytes,
+            "max_video_bytes": config.media.max_video_bytes,
+            "generation_timeout_seconds": config.media.generation_timeout_seconds,
+            "task_timeout_seconds": config.media.task_timeout_seconds,
+            "max_concurrency": config.media.max_concurrency,
+            "upload_read_chunk_bytes": config.media.upload_read_chunk_bytes,
+            "preview_max_edge": config.media.preview_max_edge,
+            "thumb_max_edge": config.media.thumb_max_edge,
+            "avif_quality": config.media.avif_quality,
+            "webp_quality": config.media.webp_quality,
         },
         "network": {
             "default_proxy": config.network.default_proxy,
@@ -243,13 +369,11 @@ def network_proxy_for(config: NyaGalleryConfig, source: str) -> str | None:
 def render_config(config: NyaGalleryConfig) -> str:
     secret_key = config.security.secret_key
     lines: list[str] = [
-        "# NyaGallery backend configuration.",
-        "# Managed by the admin developer config editor.",
-        "",
         "[core]",
         f"storage = {_toml_string(config.core.storage)}",
         f"database_url = {_toml_string(config.core.database_url or '')}",
         f"tag_catalog_path = {_toml_string(config.core.tag_catalog_path or '')}",
+        f"name_media_by_post_id = {_toml_bool(config.core.name_media_by_post_id)}",
         "",
         "[server]",
         f"host = {_toml_string(config.server.host)}",
@@ -261,12 +385,56 @@ def render_config(config: NyaGalleryConfig) -> str:
         f"project_homepage = {_toml_string(config.site.project_homepage)}",
         f"repository = {_toml_string(config.site.repository)}",
         f"icp_beian = {_toml_string(config.site.icp_beian)}",
+        f"app_name = {_toml_string(config.site.app_name)}",
+        f"logo_url = {_toml_string(config.site.logo_url)}",
+        f"layout = {_toml_string(config.site.layout)}",
         "",
         "[pixiv]",
         f"refresh_token = {_toml_string(encrypt_secret(config.pixiv.refresh_token or '', secret_key))}",
         f"cookie = {_toml_string(encrypt_secret(config.pixiv.cookie or '', secret_key))}",
         f"default_request_delay_seconds = {float(config.pixiv.default_request_delay_seconds):g}",
         f"max_concurrency = {int(config.pixiv.max_concurrency)}",
+        "",
+        "[misskey]",
+        f"token = {_toml_string(encrypt_secret(config.misskey.token or '', secret_key))}",
+        f"host = {_toml_string(config.misskey.host)}",
+        f"default_request_delay_seconds = {float(config.misskey.default_request_delay_seconds):g}",
+        f"page_size = {int(config.misskey.page_size)}",
+        f"download_concurrency = {int(config.misskey.download_concurrency)}",
+        "",
+        "[x]",
+        f"auth_token = {_toml_string(encrypt_secret(config.x.auth_token or '', secret_key))}",
+        f"ct0 = {_toml_string(encrypt_secret(config.x.ct0 or '', secret_key))}",
+        f"default_request_delay_seconds = {float(config.x.default_request_delay_seconds):g}",
+        f"page_size = {int(config.x.page_size)}",
+        f"download_concurrency = {int(config.x.download_concurrency)}",
+        f"tweet_detail_query_id = {_toml_string(config.x.tweet_detail_query_id)}",
+        f"user_by_screen_name_query_id = {_toml_string(config.x.user_by_screen_name_query_id)}",
+        f"user_tweets_query_id = {_toml_string(config.x.user_tweets_query_id)}",
+        f"user_media_query_id = {_toml_string(config.x.user_media_query_id)}",
+        "",
+        "[fanbox]",
+        f"session_id = {_toml_string(encrypt_secret(config.fanbox.session_id or '', secret_key))}",
+        f"default_request_delay_seconds = {float(config.fanbox.default_request_delay_seconds):g}",
+        f"page_size = {int(config.fanbox.page_size)}",
+        f"download_concurrency = {int(config.fanbox.download_concurrency)}",
+        f"download_files = {'true' if config.fanbox.download_files else 'false'}",
+        "",
+        "[media]",
+        f"max_frame_pixels = {int(config.media.max_frame_pixels)}",
+        f"max_image_pixels = {int(config.media.max_image_pixels)}",
+        f"max_animation_frames = {int(config.media.max_animation_frames)}",
+        f"max_zip_uncompressed_bytes = {int(config.media.max_zip_uncompressed_bytes)}",
+        f"max_zip_frame_bytes = {int(config.media.max_zip_frame_bytes)}",
+        f"max_video_bytes = {int(config.media.max_video_bytes)}",
+        f"generation_timeout_seconds = {int(config.media.generation_timeout_seconds)}",
+        f"task_timeout_seconds = {int(config.media.task_timeout_seconds)}",
+        f"max_concurrency = {int(config.media.max_concurrency)}",
+        f"upload_read_chunk_bytes = {int(config.media.upload_read_chunk_bytes)}",
+        f"preview_max_edge = {int(config.media.preview_max_edge)}",
+        f"thumb_max_edge = {int(config.media.thumb_max_edge)}",
+        f"avif_quality = {int(config.media.avif_quality)}",
+        f"webp_quality = {int(config.media.webp_quality)}",
         "",
         "[network]",
         f"default_proxy = {_toml_string(config.network.default_proxy)}",
@@ -303,6 +471,7 @@ def _storage_strategy_to_dict(strategy: StorageStrategyConfig, *, redact_secrets
         "prefix": strategy.prefix,
         "endpoint": strategy.endpoint,
         "bucket": strategy.bucket,
+        "region": strategy.region,
         "username": strategy.username,
         "password": password,
         "token": token,
@@ -370,6 +539,7 @@ def _render_storage_strategies(strategies: tuple[StorageStrategyConfig, ...], *,
                 f"prefix = {_toml_string(strategy.prefix)}",
                 f"endpoint = {_toml_string(strategy.endpoint)}",
                 f"bucket = {_toml_string(strategy.bucket)}",
+                f"region = {_toml_string(strategy.region)}",
                 f"username = {_toml_string(strategy.username)}",
                 f"password = {_toml_string(encrypt_secret(strategy.password, secret_key))}",
                 f"token = {_toml_string(encrypt_secret(strategy.token, secret_key))}",
@@ -401,6 +571,10 @@ def _config_from_dict(data: dict[str, Any], path: Path | None) -> NyaGalleryConf
     server = _table(data, "server")
     site = _table(data, "site")
     pixiv = _table(data, "pixiv")
+    misskey = _table(data, "misskey")
+    x = _table(data, "x")
+    fanbox = _table(data, "fanbox")
+    media = _table(data, "media")
     network = _table(data, "network")
     redis = _table(data, "redis")
     security = _table(data, "security")
@@ -412,6 +586,7 @@ def _config_from_dict(data: dict[str, Any], path: Path | None) -> NyaGalleryConf
             storage=_str(core.get("storage"), "storage"),
             database_url=_optional_str(core.get("database_url")),
             tag_catalog_path=_optional_str(core.get("tag_catalog_path")),
+            name_media_by_post_id=_bool(core.get("name_media_by_post_id"), True),
         ),
         server=ServerConfig(
             host=_str(server.get("host"), "127.0.0.1"),
@@ -423,12 +598,58 @@ def _config_from_dict(data: dict[str, Any], path: Path | None) -> NyaGalleryConf
             project_homepage=_str(site.get("project_homepage"), PROJECT_REPOSITORY),
             repository=_str(site.get("repository"), PROJECT_REPOSITORY),
             icp_beian=_str(site.get("icp_beian"), ""),
+            app_name=_str(site.get("app_name"), ""),
+            logo_url=_str(site.get("logo_url"), ""),
+            layout=_str(site.get("layout"), "").strip().casefold(),
         ),
         pixiv=PixivConfig(
             refresh_token=_optional_secret(pixiv.get("refresh_token"), secret_key),
             cookie=_optional_secret(pixiv.get("cookie"), secret_key),
             default_request_delay_seconds=_float(pixiv.get("default_request_delay_seconds"), 1.0),
             max_concurrency=_int(pixiv.get("max_concurrency"), 1),
+        ),
+        misskey=MisskeyConfig(
+            token=_optional_secret(misskey.get("token") or misskey.get("access_token"), secret_key),
+            host=_str(misskey.get("host"), "misskey.io"),
+            default_request_delay_seconds=_float(misskey.get("default_request_delay_seconds"), 1.0),
+            page_size=_bounded_int(misskey.get("page_size"), 100, minimum=1, maximum=100),
+            download_concurrency=_bounded_int(misskey.get("download_concurrency"), 5, minimum=1, maximum=16),
+        ),
+        x=XConfig(
+            auth_token=_optional_secret(x.get("auth_token"), secret_key),
+            ct0=_optional_secret(x.get("ct0") or x.get("csrf_token"), secret_key),
+            default_request_delay_seconds=_float(x.get("default_request_delay_seconds"), 2.0),
+            page_size=_bounded_int(x.get("page_size"), 20, minimum=1, maximum=100),
+            download_concurrency=_bounded_int(x.get("download_concurrency"), 4, minimum=1, maximum=16),
+            tweet_detail_query_id=_str(x.get("tweet_detail_query_id"), XConfig.tweet_detail_query_id),
+            user_by_screen_name_query_id=_str(
+                x.get("user_by_screen_name_query_id"), XConfig.user_by_screen_name_query_id
+            ),
+            user_tweets_query_id=_str(x.get("user_tweets_query_id"), XConfig.user_tweets_query_id),
+            user_media_query_id=_str(x.get("user_media_query_id"), XConfig.user_media_query_id),
+        ),
+        fanbox=FanboxConfig(
+            session_id=_optional_secret(fanbox.get("session_id") or fanbox.get("fanboxsessid"), secret_key),
+            default_request_delay_seconds=_float(fanbox.get("default_request_delay_seconds"), 1.0),
+            page_size=_bounded_int(fanbox.get("page_size"), 10, minimum=1, maximum=300),
+            download_concurrency=_bounded_int(fanbox.get("download_concurrency"), 3, minimum=1, maximum=16),
+            download_files=_bool(fanbox.get("download_files"), True),
+        ),
+        media=MediaConfig(
+            max_frame_pixels=_positive_int(media.get("max_frame_pixels"), 50_000_000),
+            max_image_pixels=_positive_int(media.get("max_image_pixels"), 100_000_000),
+            max_animation_frames=_positive_int(media.get("max_animation_frames"), 500),
+            max_zip_uncompressed_bytes=_positive_int(media.get("max_zip_uncompressed_bytes"), 512 * MiB),
+            max_zip_frame_bytes=_positive_int(media.get("max_zip_frame_bytes"), 64 * MiB),
+            max_video_bytes=_positive_int(media.get("max_video_bytes"), 128 * MiB),
+            generation_timeout_seconds=_positive_int(media.get("generation_timeout_seconds"), 300),
+            task_timeout_seconds=_positive_int(media.get("task_timeout_seconds"), 300),
+            max_concurrency=_positive_int(media.get("max_concurrency"), 2),
+            upload_read_chunk_bytes=max(64 * 1024, _positive_int(media.get("upload_read_chunk_bytes"), MiB)),
+            preview_max_edge=_positive_int(media.get("preview_max_edge"), 1800),
+            thumb_max_edge=_positive_int(media.get("thumb_max_edge"), 420),
+            avif_quality=_bounded_int(media.get("avif_quality"), 82, minimum=1, maximum=100),
+            webp_quality=_bounded_int(media.get("webp_quality"), 82, minimum=1, maximum=100),
         ),
         network=_network_from_dict(network, secret_key=secret_key),
         redis=RedisConfig(
@@ -454,6 +675,10 @@ def _with_env_overrides(config: NyaGalleryConfig) -> NyaGalleryConfig:
         storage=os.environ.get("NYAGALLERY_STORAGE") or config.core.storage,
         database_url=os.environ.get("NYAGALLERY_DATABASE_URL") or config.core.database_url,
         tag_catalog_path=os.environ.get("NYAGALLERY_TAG_CATALOG") or config.core.tag_catalog_path,
+        name_media_by_post_id=_bool(
+            os.environ.get("NYAGALLERY_NAME_MEDIA_BY_POST_ID"),
+            config.core.name_media_by_post_id,
+        ),
     )
     server = ServerConfig(
         host=os.environ.get("NYAGALLERY_HOST") or config.server.host,
@@ -465,6 +690,9 @@ def _with_env_overrides(config: NyaGalleryConfig) -> NyaGalleryConfig:
         project_homepage=os.environ.get("NYAGALLERY_SITE_HOMEPAGE") or config.site.project_homepage,
         repository=os.environ.get("NYAGALLERY_SITE_REPOSITORY") or config.site.repository,
         icp_beian=os.environ.get("NYAGALLERY_SITE_ICP_BEIAN") or config.site.icp_beian,
+        app_name=os.environ.get("NYAGALLERY_SITE_APP_NAME") or config.site.app_name,
+        logo_url=os.environ.get("NYAGALLERY_SITE_LOGO_URL") or config.site.logo_url,
+        layout=(os.environ.get("NYAGALLERY_SITE_LAYOUT") or config.site.layout).strip().casefold(),
     )
     pixiv = PixivConfig(
         refresh_token=os.environ.get("PIXIV_REFRESH_TOKEN") or config.pixiv.refresh_token,
@@ -474,6 +702,92 @@ def _with_env_overrides(config: NyaGalleryConfig) -> NyaGalleryConfig:
             config.pixiv.default_request_delay_seconds,
         ),
         max_concurrency=_int(os.environ.get("NYAGALLERY_PIXIV_MAX_CONCURRENCY"), config.pixiv.max_concurrency),
+    )
+    misskey = MisskeyConfig(
+        token=os.environ.get("MISSKEY_TOKEN") or config.misskey.token,
+        host=os.environ.get("NYAGALLERY_MISSKEY_HOST") or config.misskey.host,
+        default_request_delay_seconds=_float(
+            os.environ.get("NYAGALLERY_MISSKEY_DEFAULT_DELAY"),
+            config.misskey.default_request_delay_seconds,
+        ),
+        page_size=_bounded_int(
+            os.environ.get("NYAGALLERY_MISSKEY_PAGE_SIZE"),
+            config.misskey.page_size,
+            minimum=1,
+            maximum=100,
+        ),
+        download_concurrency=_bounded_int(
+            os.environ.get("NYAGALLERY_MISSKEY_DOWNLOAD_CONCURRENCY"),
+            config.misskey.download_concurrency,
+            minimum=1,
+            maximum=16,
+        ),
+    )
+    x = XConfig(
+        auth_token=os.environ.get("X_AUTH_TOKEN") or config.x.auth_token,
+        ct0=os.environ.get("X_CT0") or config.x.ct0,
+        default_request_delay_seconds=_float(
+            os.environ.get("NYAGALLERY_X_DEFAULT_DELAY"),
+            config.x.default_request_delay_seconds,
+        ),
+        page_size=_bounded_int(os.environ.get("NYAGALLERY_X_PAGE_SIZE"), config.x.page_size, minimum=1, maximum=100),
+        download_concurrency=_bounded_int(
+            os.environ.get("NYAGALLERY_X_DOWNLOAD_CONCURRENCY"),
+            config.x.download_concurrency,
+            minimum=1,
+            maximum=16,
+        ),
+        tweet_detail_query_id=os.environ.get("NYAGALLERY_X_TWEET_DETAIL_QUERY_ID") or config.x.tweet_detail_query_id,
+        user_by_screen_name_query_id=(
+            os.environ.get("NYAGALLERY_X_USER_QUERY_ID") or config.x.user_by_screen_name_query_id
+        ),
+        user_tweets_query_id=os.environ.get("NYAGALLERY_X_USER_TWEETS_QUERY_ID") or config.x.user_tweets_query_id,
+        user_media_query_id=os.environ.get("NYAGALLERY_X_USER_MEDIA_QUERY_ID") or config.x.user_media_query_id,
+    )
+    fanbox = FanboxConfig(
+        session_id=os.environ.get("FANBOXSESSID") or config.fanbox.session_id,
+        default_request_delay_seconds=_float(
+            os.environ.get("NYAGALLERY_FANBOX_DEFAULT_DELAY"),
+            config.fanbox.default_request_delay_seconds,
+        ),
+        page_size=_bounded_int(
+            os.environ.get("NYAGALLERY_FANBOX_PAGE_SIZE"), config.fanbox.page_size, minimum=1, maximum=300
+        ),
+        download_concurrency=_bounded_int(
+            os.environ.get("NYAGALLERY_FANBOX_DOWNLOAD_CONCURRENCY"),
+            config.fanbox.download_concurrency,
+            minimum=1,
+            maximum=16,
+        ),
+        download_files=_bool(os.environ.get("NYAGALLERY_FANBOX_DOWNLOAD_FILES"), config.fanbox.download_files),
+    )
+    media = MediaConfig(
+        max_frame_pixels=_positive_int(os.environ.get("NYAGALLERY_MEDIA_MAX_FRAME_PIXELS"), config.media.max_frame_pixels),
+        max_image_pixels=_positive_int(os.environ.get("NYAGALLERY_MEDIA_MAX_IMAGE_PIXELS"), config.media.max_image_pixels),
+        max_animation_frames=_positive_int(os.environ.get("NYAGALLERY_MEDIA_MAX_ANIMATION_FRAMES"), config.media.max_animation_frames),
+        max_zip_uncompressed_bytes=_positive_int(
+            os.environ.get("NYAGALLERY_MEDIA_MAX_ZIP_UNCOMPRESSED_BYTES"),
+            config.media.max_zip_uncompressed_bytes,
+        ),
+        max_zip_frame_bytes=_positive_int(os.environ.get("NYAGALLERY_MEDIA_MAX_ZIP_FRAME_BYTES"), config.media.max_zip_frame_bytes),
+        max_video_bytes=_positive_int(os.environ.get("NYAGALLERY_MEDIA_MAX_VIDEO_BYTES"), config.media.max_video_bytes),
+        generation_timeout_seconds=_positive_int(
+            os.environ.get("NYAGALLERY_MEDIA_GENERATION_TIMEOUT_SECONDS"),
+            config.media.generation_timeout_seconds,
+        ),
+        task_timeout_seconds=_positive_int(
+            os.environ.get("NYAGALLERY_MEDIA_TASK_TIMEOUT_SECONDS"),
+            config.media.task_timeout_seconds,
+        ),
+        max_concurrency=_positive_int(os.environ.get("NYAGALLERY_MEDIA_MAX_CONCURRENCY"), config.media.max_concurrency),
+        upload_read_chunk_bytes=max(
+            64 * 1024,
+            _positive_int(os.environ.get("NYAGALLERY_UPLOAD_READ_CHUNK_BYTES"), config.media.upload_read_chunk_bytes),
+        ),
+        preview_max_edge=_positive_int(os.environ.get("NYAGALLERY_MEDIA_PREVIEW_MAX_EDGE"), config.media.preview_max_edge),
+        thumb_max_edge=_positive_int(os.environ.get("NYAGALLERY_MEDIA_THUMB_MAX_EDGE"), config.media.thumb_max_edge),
+        avif_quality=_bounded_int(os.environ.get("NYAGALLERY_MEDIA_AVIF_QUALITY"), config.media.avif_quality, minimum=1, maximum=100),
+        webp_quality=_bounded_int(os.environ.get("NYAGALLERY_MEDIA_WEBP_QUALITY"), config.media.webp_quality, minimum=1, maximum=100),
     )
     network = config.network
     network_proxy = os.environ.get("NYAGALLERY_NETWORK_PROXY")
@@ -506,6 +820,10 @@ def _with_env_overrides(config: NyaGalleryConfig) -> NyaGalleryConfig:
         server=server,
         site=site,
         pixiv=pixiv,
+        misskey=misskey,
+        x=x,
+        fanbox=fanbox,
+        media=media,
         network=network,
         redis=redis,
         security=security,
@@ -534,13 +852,14 @@ def _storage_strategy_from_dict(data: dict[str, Any], *, secret_key: str = "") -
         prefix=_str(data.get("prefix"), "original").strip("/"),
         endpoint=_str(data.get("endpoint") or data.get("url"), ""),
         bucket=_str(data.get("bucket") or data.get("service"), ""),
+        region=_str(data.get("region"), ""),
         username=_str(data.get("username") or data.get("operator"), ""),
         password=_secret_str(data.get("password"), secret_key),
         token=_secret_str(data.get("token") or data.get("access_token"), secret_key),
         access_key_id=_str(data.get("access_key_id"), ""),
         access_key_secret=_secret_str(data.get("access_key_secret"), secret_key),
         drive_id=_str(data.get("drive_id"), ""),
-        root_path=_str(data.get("root_path"), "").strip("/"),
+        root_path=_str(data.get("root_path"), ""),
         timeout_seconds=_int(data.get("timeout_seconds"), 60),
     )
 
@@ -550,12 +869,16 @@ def _network_from_dict(
     *,
     secret_key: str = "",
 ) -> NetworkConfig:
+    defaults = NetworkConfig()
     proxies = list(_network_proxy_items(data, secret_key=secret_key))
     sources = list(_network_source_items(data))
+    has_network_config = any(key in data for key in ("default_proxy", "proxies", "sources"))
+    if not has_network_config:
+        return defaults
     return NetworkConfig(
-        default_proxy=_str(data.get("default_proxy"), ""),
-        proxies=tuple(proxies),
-        sources=tuple(sources),
+        default_proxy=_str(data.get("default_proxy"), defaults.default_proxy),
+        proxies=tuple(proxies) if "proxies" in data else defaults.proxies,
+        sources=tuple(sources) if "sources" in data else (),
     )
 
 
@@ -729,6 +1052,20 @@ def _int(value: Any, default: int) -> int:
     if value in (None, ""):
         return default
     return int(value)
+
+
+def _positive_int(value: Any, default: int) -> int:
+    try:
+        return max(1, _int(value, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _bounded_int(value: Any, default: int, *, minimum: int, maximum: int) -> int:
+    try:
+        return max(minimum, min(maximum, _int(value, default)))
+    except (TypeError, ValueError):
+        return default
 
 
 def _float(value: Any, default: float) -> float:

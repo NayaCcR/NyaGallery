@@ -11,6 +11,8 @@ import type { BackendConfig, DeveloperConfigResponse, DeveloperConsoleResponse, 
 
 const NETWORK_SOURCE_OPTIONS = [
   { source: "pixiv", label: "Pixiv" },
+  { source: "misskey", label: "Misskey" },
+  { source: "x", label: "X" },
 ] as const;
 
 type AdminDeveloperPanelProps = {
@@ -112,6 +114,9 @@ export function AdminDeveloperPanel({
 
   const networkDraft = configDraft?.network ?? { default_proxy: "", proxies: [], sources: [] };
   const savedNetwork = configResponse?.config.network ?? networkDraft;
+  const hasUnsavedChanges = Boolean(
+    configDraft && configResponse && JSON.stringify(configDraft) !== JSON.stringify(configResponse.config),
+  );
 
   return (
     <>
@@ -131,7 +136,7 @@ export function AdminDeveloperPanel({
             <Button variant="outline" size="sm" disabled={busy === "developer-config-refresh"} onClick={onRefreshConfig}>
               {t("common.refresh")}
             </Button>
-            <Button size="sm" disabled={!configDraft || busy === "developer-config-save"} onClick={onSaveConfig}>
+            <Button size="sm" disabled={!hasUnsavedChanges || busy === "developer-config-save"} onClick={onSaveConfig}>
               <Save className="h-4 w-4" /> {t("admin.developer.saveConfig")}
             </Button>
           </div>
@@ -143,33 +148,33 @@ export function AdminDeveloperPanel({
               {t("admin.developer.saveWarning")}
             </div>
 
-            <ConfigGroup title="Core">
+            <ConfigGroup title={t("admin.developer.configGroups.core")}>
               <TextField label="storage" value={configDraft.core.storage} onChange={(value) => patch("core", { storage: value })} />
               <TextField label="database_url" value={configDraft.core.database_url} onChange={(value) => patch("core", { database_url: value })} />
               <TextField label="tag_catalog_path" value={configDraft.core.tag_catalog_path} onChange={(value) => patch("core", { tag_catalog_path: value })} />
             </ConfigGroup>
 
-            <ConfigGroup title="Server">
+            <ConfigGroup title={t("admin.developer.configGroups.server")}>
               <TextField label="host" value={configDraft.server.host} onChange={(value) => patch("server", { host: value })} />
               <NumberField label="port" value={configDraft.server.port} onChange={(value) => patch("server", { port: value })} />
               <ToggleField label="access_log" checked={configDraft.server.access_log} onChange={(value) => patch("server", { access_log: value })} />
               <ToggleField label="secure_cookies" checked={configDraft.server.secure_cookies} onChange={(value) => patch("server", { secure_cookies: value })} />
             </ConfigGroup>
 
-            <ConfigGroup title="Site">
+            <ConfigGroup title={t("admin.developer.configGroups.site")}>
               <TextField label="project_homepage" value={configDraft.site.project_homepage} onChange={(value) => patch("site", { project_homepage: value })} />
               <TextField label="repository" value={configDraft.site.repository} onChange={(value) => patch("site", { repository: value })} />
               <TextField label="icp_beian" value={configDraft.site.icp_beian} onChange={(value) => patch("site", { icp_beian: value })} />
             </ConfigGroup>
 
-            <ConfigGroup title="Pixiv">
+            <ConfigGroup title={t("admin.developer.configGroups.pixiv")}>
               <TextField type="password" label="refresh_token" value={configDraft.pixiv.refresh_token} onChange={(value) => patch("pixiv", { refresh_token: value })} />
               <TextField type="password" label="cookie" value={configDraft.pixiv.cookie} onChange={(value) => patch("pixiv", { cookie: value })} />
               <DecimalField label="default_request_delay_seconds" value={configDraft.pixiv.default_request_delay_seconds} onChange={(value) => patch("pixiv", { default_request_delay_seconds: value })} />
               <NumberField label="max_concurrency" value={configDraft.pixiv.max_concurrency} onChange={(value) => patch("pixiv", { max_concurrency: value })} />
             </ConfigGroup>
 
-            <ConfigGroup title="Network">
+            <ConfigGroup title={t("admin.developer.configGroups.network")}>
               <div className="md:col-span-2 xl:col-span-3">
                 <div className="rounded-md border border-border bg-muted/35 px-3 py-2 text-[11px] leading-5 text-muted-foreground">
                   {t("admin.developer.networkHint")}
@@ -217,7 +222,7 @@ export function AdminDeveloperPanel({
                       <ProxyRowActions
                         saveLabel={t("admin.developer.saveConfig")}
                         removeLabel={t("common.removeItem", { item: proxy.name || "proxy" })}
-                        saveDisabled={!configDraft || busy === "developer-config-save"}
+                        saveDisabled={!hasUnsavedChanges || busy === "developer-config-save"}
                         onSave={onSaveConfig}
                         onRemove={() => removeProxy(index)}
                       />
@@ -272,13 +277,13 @@ export function AdminDeveloperPanel({
               </div>
             </ConfigGroup>
 
-            <ConfigGroup title="Redis">
+            <ConfigGroup title={t("admin.developer.configGroups.redis")}>
               <TextField label="url" value={configDraft.redis.url} onChange={(value) => patch("redis", { url: value })} />
               <TextField label="key_prefix" value={configDraft.redis.key_prefix} onChange={(value) => patch("redis", { key_prefix: value })} />
               <ToggleField label="security_limiter" checked={configDraft.redis.security_limiter} onChange={(value) => patch("redis", { security_limiter: value })} />
             </ConfigGroup>
 
-            <ConfigGroup title="Security">
+            <ConfigGroup title={t("admin.developer.configGroups.security")}>
               <div className="md:col-span-2 xl:col-span-3">
                 <div className="flex items-start gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-[11px] leading-5 text-muted-foreground">
                   <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
@@ -288,10 +293,19 @@ export function AdminDeveloperPanel({
               <TextField type="password" label="secret_key" value={configDraft.security?.secret_key ?? ""} onChange={(value) => patch("security", { secret_key: value })} />
             </ConfigGroup>
 
-            <ConfigGroup title="Developer">
+            <ConfigGroup title={t("admin.developer.configGroups.developer")}>
               <ToggleField label="config_editor_enabled" checked={configDraft.developer.config_editor_enabled} onChange={(value) => patch("developer", { config_editor_enabled: value })} />
               <ToggleField label="console_enabled" checked={configDraft.developer.console_enabled} onChange={(value) => patch("developer", { console_enabled: value })} />
             </ConfigGroup>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-primary/25 bg-primary/5 p-4">
+              <p className="text-xs text-muted-foreground">
+                {hasUnsavedChanges ? t("admin.maintenance.unsavedChanges") : t("admin.maintenance.configSaved")}
+              </p>
+              <Button size="sm" disabled={!hasUnsavedChanges || busy === "developer-config-save"} onClick={onSaveConfig}>
+                <Save className="h-4 w-4" /> {t("admin.developer.saveConfig")}
+              </Button>
+            </div>
           </div>
         )}
       </section>
@@ -315,7 +329,7 @@ export function AdminDeveloperPanel({
           <div className="space-y-3">
             <div className="flex items-start gap-2 rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-              <span>{consoleStatus.enabled ? consoleStatus.warning : t("admin.developer.consoleDisabled")}</span>
+              <span>{t(consoleStatus.enabled ? "admin.developer.consoleWarning" : "admin.developer.consoleDisabled")}</span>
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">

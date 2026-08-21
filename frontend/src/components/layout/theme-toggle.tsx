@@ -12,6 +12,7 @@ export function ThemeToggle() {
     <Button
       variant="ghost"
       size="icon"
+      className="control-glow"
       aria-label={t("theme.toggle")}
       onClick={toggle}
       title={resolved === "dark" ? t("theme.toLight") : t("theme.toDark")}

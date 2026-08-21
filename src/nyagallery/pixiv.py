@@ -20,6 +20,8 @@ from urllib.error import HTTPError
 from urllib.parse import parse_qs, unquote, urlencode, urlparse, urlunparse
 from urllib.request import ProxyHandler, Request, build_opener, urlopen
 
+from nyagallery.security import ipv4_only_handlers
+
 from nyagallery.metadata import (
     GalleryMetadata,
     make_asset_key,
@@ -64,6 +66,7 @@ class PixivRequestOptions:
     retry_base_seconds: int = 60
     retry_max_seconds: int = 300
     proxy_url: str = ""
+    ipv4_only: bool = True
 
 
 class PixivClient(Protocol):
@@ -381,7 +384,7 @@ class PixivHTTP:
         self.timeout = timeout
         self.options = options or PixivRequestOptions()
         self.proxy_url = _effective_pixiv_proxy(proxy_url or self.options.proxy_url)
-        self._opener = _pixiv_proxy_opener(self.proxy_url)
+        self._opener = _pixiv_proxy_opener(self.proxy_url, ipv4_only=self.options.ipv4_only)
         self._last_request_at = 0.0
 
     def get_json(self, url: str) -> Any:
@@ -1119,11 +1122,12 @@ def _effective_pixiv_proxy(value: Any = None) -> str:
     ).strip()
 
 
-def _pixiv_proxy_opener(proxy_url: str):
+def _pixiv_proxy_opener(proxy_url: str, *, ipv4_only: bool = True):
+    handlers = list(ipv4_only_handlers()) if ipv4_only else []
     proxy = _effective_pixiv_proxy(proxy_url)
-    if not proxy:
-        return None
-    return build_opener(ProxyHandler({"http": proxy, "https": proxy}))
+    if proxy:
+        handlers.append(ProxyHandler({"http": proxy, "https": proxy}))
+    return build_opener(*handlers) if handlers else None
 
 
 def _configure_pixivpy_proxy(api: Any, proxy_url: str) -> None:

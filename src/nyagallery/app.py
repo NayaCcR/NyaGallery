@@ -21,7 +21,7 @@ from fastapi.responses import FileResponse
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -38,6 +38,7 @@ from nyagallery.config import (
 )
 from nyagallery.db import (
     AssetModel,
+    PostModel,
     TranscodeJobModel,
     UploadLogModel,
     access_log_to_dict,
@@ -50,6 +51,7 @@ from nyagallery.db import (
     authenticate_user,
     backfill_source_tag_index,
     change_user_password,
+    count_posts,
     create_access_log,
     create_engine_for_url,
     create_login_session,
@@ -60,31 +62,60 @@ from nyagallery.db import (
     encrypt_stored_pixiv_credentials,
     init_database,
     issue_api_token,
+    get_misskey_token,
+    get_x_token,
+    get_fanbox_session,
+    fanbox_session_belongs_to_user,
+    fanbox_session_to_dict,
+    list_fanbox_logs,
+    list_fanbox_sessions,
+    revoke_fanbox_session,
+    save_fanbox_session,
+    update_fanbox_session_label,
     get_pixiv_refresh_token,
     get_pixiv_cookie,
+    get_post,
     get_security_settings,
     list_access_logs,
     list_api_tokens,
     list_pixiv_cookies,
     list_pixiv_tokens,
+    list_misskey_logs,
+    list_misskey_tokens,
+    list_x_logs,
+    list_x_tokens,
     list_pixiv_logs,
+    list_posts,
     list_users,
     list_transcode_jobs,
     list_upload_history,
     list_upload_logs,
     make_session_factory,
     mark_asset_pending_cleanup,
+    misskey_token_belongs_to_user,
+    misskey_token_to_dict,
+    x_token_belongs_to_user,
+    x_token_to_dict,
     normalize_asset_sort,
+    normalize_post_sort,
     normalize_sort_order,
     now_utc,
+    post_source_counts,
+    post_to_dict,
+    posts_attachment_asset_map,
     purge_pending_asset,
     random_asset,
     rebuild_database,
+    rebuild_posts,
     revoke_api_token,
+    revoke_misskey_token,
+    revoke_x_token,
     revoke_pixiv_cookie,
     revoke_pixiv_token,
     revoke_login_session,
     search_assets,
+    save_misskey_token,
+    save_x_token,
     save_pixiv_cookie,
     save_pixiv_token,
     set_user_password,
@@ -96,6 +127,8 @@ from nyagallery.db import (
     pixiv_token_to_dict,
     upsert_asset,
     security_settings_to_dict,
+    update_misskey_token_label,
+    update_x_token_label,
     update_pixiv_cookie_label,
     update_pixiv_token_label,
     update_security_settings,
@@ -103,7 +136,52 @@ from nyagallery.db import (
     upload_log_to_dict,
 )
 from nyagallery.metadata import GalleryMetadata, make_asset_key, parse_pixiv_filename, utc_now_iso
-from nyagallery.media import MediaGenerator, is_animated_raster, probe_media_size
+from nyagallery.media import MediaGenerator, is_animated_raster, media_limits_from_config, probe_media_size
+from nyagallery.fanbox import (
+    FanboxAuthError,
+    FanboxClient,
+    FanboxCreator,
+    FanboxCredentials,
+    FanboxDownloader,
+    FanboxError,
+    FanboxPost,
+    FanboxPostResult,
+    FanboxRateLimitError,
+    FanboxRequestOptions,
+    FanboxSyncService,
+    exchange_pixiv_cookie_for_fanbox_session,
+    normalize_creator_id,
+)
+from nyagallery.x import (
+    X_DEFAULT_HOST,
+    XBatchResult,
+    XClient,
+    XCredentials,
+    XDownloader,
+    XError,
+    XGraphqlOperations,
+    XRateLimitError,
+    XRequestOptions,
+    XSyncService,
+    XTweet,
+    XTweetResult,
+    XUser,
+    normalize_screen_name,
+    split_batch_input,
+)
+from nyagallery.misskey import (
+    MISSKEY_DEFAULT_HOST,
+    MisskeyClient,
+    MisskeyDownloader,
+    MisskeyError,
+    MisskeyNote,
+    MisskeyNoteResult,
+    MisskeyRateLimitError,
+    MisskeyRequestOptions,
+    MisskeySyncService,
+    MisskeyUser,
+    normalize_misskey_host,
+)
 from nyagallery.pixiv import (
     HTTPPixivDownloader,
     PixivCookieClient,
@@ -117,6 +195,7 @@ from nyagallery.pixiv import (
     get_pixiv_refresh_token_with_browser_worker,
     get_pixiv_refresh_token_with_cookie_worker,
 )
+from nyagallery.posts import PostStore, ensure_sample_posts, link_sample_post_media
 from nyagallery.redis_support import close_redis_client, create_redis_client, ping_redis_client
 from nyagallery.security import (
     UNSAFE_METHODS,
@@ -135,6 +214,7 @@ from nyagallery.tags import TagAlreadyExistsError, TagCatalog, TagNotFoundError,
 
 bearer = HTTPBearer(auto_error=False)
 SENSITIVE_RATING_TAGS = frozenset({"rating:r18", "rating:r18g"})
+SENSITIVE_RATINGS = frozenset({"r18", "r18g"})
 SESSION_COOKIE = "nya_session"
 CSRF_COOKIE = "nya_csrf"
 CSRF_HEADER = "x-csrf-token"
@@ -144,20 +224,28 @@ ACCESS_LOG_QUIET_GET_PATHS = frozenset(
         "/api/me",
         "/api/site/config",
         "/api/search",
+        "/api/posts",
         "/api/uploads/history",
         "/api/uploads/logs",
         "/api/transcode/jobs",
         "/api/tags/suggest",
         "/api/tags/catalog",
         "/api/tags/summary",
+        "/api/sync/x/config",
+        "/api/sync/x/logs",
+        "/api/sync/fanbox/config",
+        "/api/sync/fanbox/logs",
     }
 )
-ACCESS_LOG_QUIET_GET_PREFIXES = ("/api/assets/", "/api/img/")
+ACCESS_LOG_QUIET_GET_PREFIXES = ("/api/assets/", "/api/img/", "/api/posts/")
+CACHE_FILE_CACHE_CONTROL = "private, max-age=300, stale-while-revalidate=86400"
+ORIGINAL_CACHE_CONTROL = "private, max-age=3600"
 
 
 @dataclass(frozen=True)
 class AppState:
     storage: GalleryStorage
+    post_store: PostStore
     catalog: TagCatalog
     engine: Engine
     session_factory: sessionmaker[Session]
@@ -254,6 +342,122 @@ class PixivSyncRequest(BaseModel):
     restrict: str = "public"
 
 
+class MisskeyTokenCreate(BaseModel):
+    token: str = Field(min_length=1, max_length=4000)
+    label: str = ""
+    host: str = "misskey.io"
+    misskey_user: dict | None = None
+
+
+class MisskeyTokenUpdate(BaseModel):
+    label: str = ""
+
+
+class FanboxSessionCreate(BaseModel):
+    session_id: str = Field(min_length=1, max_length=4000)
+    label: str = ""
+    source: str = "manual"
+    fanbox_user: dict | None = None
+
+
+class FanboxSessionUpdate(BaseModel):
+    label: str = ""
+
+
+class FanboxLoginRequest(BaseModel):
+    """Derives a FANBOXSESSID from a Pixiv web session, since Fanbox will not accept the Pixiv cookie directly."""
+
+    cookie: str | None = None
+    pixiv_cookie_id: int | None = None
+    label: str = ""
+    headless: bool = True
+    timeout_seconds: int = Field(default=120, ge=10, le=600)
+    save: bool = True
+
+
+class FanboxSyncRequest(BaseModel):
+    name_media_by_post_id: bool | None = None
+    session_id: str | None = None
+    fanbox_session_id: int | None = None
+    targets: list[str] = Field(default_factory=list)
+    proxy_url: str | None = None
+    storage_strategy: str | None = None
+    limit: int | None = Field(default=None, ge=1, le=100_000)
+    page_size: int = Field(default=10, ge=1, le=300)
+    max_pages: int | None = Field(default=None, ge=1, le=10_000)
+    backfill: bool = True
+    download_media: bool = True
+    download_files: bool = True
+    download_concurrency: int = Field(default=3, ge=1, le=16)
+    request_delay_seconds: float = Field(default=1.0, ge=0, le=60)
+    max_retries: int = Field(default=3, ge=0, le=10)
+    retry_base_seconds: int = Field(default=60, ge=1, le=3600)
+    retry_max_seconds: int = Field(default=300, ge=1, le=7200)
+    rebuild_db: bool = True
+    generate_cache: bool = True
+    dry_run: bool = False
+
+
+class XTokenCreate(BaseModel):
+    token: str = Field(min_length=1, max_length=4000)
+    ct0: str = ""
+    label: str = ""
+    host: str = "x.com"
+    x_user: dict | None = None
+
+
+class XTokenUpdate(BaseModel):
+    label: str = ""
+
+
+class XSyncRequest(BaseModel):
+    name_media_by_post_id: bool | None = None
+    auth_token: str | None = None
+    ct0: str | None = None
+    x_token_id: int | None = None
+    targets: list[str] = Field(default_factory=list)
+    proxy_url: str | None = None
+    storage_strategy: str | None = None
+    limit: int | None = Field(default=None, ge=1, le=100_000)
+    page_size: int = Field(default=20, ge=1, le=100)
+    max_pages: int | None = Field(default=None, ge=1, le=10_000)
+    include_replies: bool = True
+    media_only: bool = False
+    backfill: bool = True
+    download_media: bool = True
+    download_concurrency: int = Field(default=4, ge=1, le=16)
+    request_delay_seconds: float = Field(default=2.0, ge=0, le=60)
+    max_retries: int = Field(default=3, ge=0, le=10)
+    retry_base_seconds: int = Field(default=60, ge=1, le=3600)
+    retry_max_seconds: int = Field(default=300, ge=1, le=7200)
+    rebuild_db: bool = True
+    generate_cache: bool = True
+    dry_run: bool = False
+
+
+class MisskeySyncRequest(BaseModel):
+    name_media_by_post_id: bool | None = None
+    token: str | None = None
+    misskey_token_id: int | None = None
+    host: str | None = None
+    proxy_url: str | None = None
+    storage_strategy: str | None = None
+    limit: int | None = Field(default=None, ge=1, le=100_000)
+    page_size: int = Field(default=100, ge=1, le=100)
+    max_pages: int | None = Field(default=None, ge=1, le=10_000)
+    include_replies: bool = True
+    backfill: bool = True
+    download_media: bool = True
+    download_concurrency: int = Field(default=5, ge=1, le=16)
+    request_delay_seconds: float = Field(default=1.0, ge=0, le=60)
+    max_retries: int = Field(default=3, ge=0, le=10)
+    retry_base_seconds: int = Field(default=60, ge=1, le=3600)
+    retry_max_seconds: int = Field(default=300, ge=1, le=7200)
+    rebuild_db: bool = True
+    generate_cache: bool = True
+    dry_run: bool = False
+
+
 class PixivOAuthStartRequest(BaseModel):
     state: str | None = None
     callback_url: str | None = None
@@ -335,6 +539,8 @@ def create_app(
         strategies=config.original_storage.strategies,
     )
     storage.ensure()
+    post_store = PostStore(storage.root)
+    post_store.ensure()
     catalog = _load_catalog(storage, tag_catalog_path or config.core.tag_catalog_path)
     engine = create_engine_for_url(database_url or config.core.database_url or default_database_url(storage))
     init_database(engine)
@@ -348,6 +554,7 @@ def create_app(
     with session_factory() as session:
         source_tag_backfill = backfill_source_tag_index(session, catalog)
         encrypted_credentials = encrypt_stored_pixiv_credentials(session)
+        _index_posts_on_startup(session, post_store)
     if source_tag_backfill.tags or source_tag_backfill.labels:
         _save_catalog(storage, catalog)
 
@@ -361,7 +568,7 @@ def create_app(
             engine.dispose()
 
     app = FastAPI(title="NyaGallery API", version="0.1.0", lifespan=lifespan)
-    app.state.nyagallery = AppState(storage, catalog, engine, session_factory, config, security_limiter, redis_client, {}, threading.Lock())
+    app.state.nyagallery = AppState(storage, post_store, catalog, engine, session_factory, config, security_limiter, redis_client, {}, threading.Lock())
 
     @app.middleware("http")
     async def security_middleware(request: Request, call_next):
@@ -384,6 +591,9 @@ def create_app(
             "project_homepage": config.site.project_homepage,
             "repository": config.site.repository,
             "icp_beian": config.site.icp_beian or None,
+            "app_name": config.site.app_name or None,
+            "logo_url": config.site.logo_url or None,
+            "layout": config.site.layout or None,
         }
 
     @app.get("/api/storage/strategies")
@@ -496,6 +706,53 @@ def create_app(
             "order": sort_order,
         }
 
+    @app.get("/api/posts")
+    def api_posts(
+        db: DbSession,
+        principal: ViewPrincipal,
+        limit: Annotated[int, Query(ge=1, le=100)] = 20,
+        offset: Annotated[int, Query(ge=0)] = 0,
+        source: str = "",
+        q: str = "",
+        sort: str = "posted_at",
+        order: str = "desc",
+    ) -> dict[str, object]:
+        sort_key = normalize_post_sort(sort)
+        sort_order = normalize_sort_order(order)
+        excluded = _hidden_post_ratings(principal)
+        posts = list_posts(
+            db,
+            limit=limit,
+            offset=offset,
+            source=source,
+            q=q,
+            sort=sort_key,
+            order=sort_order,
+            exclude_ratings=excluded,
+        )
+        assets = posts_attachment_asset_map(db, posts)
+        total = count_posts(db, source=source, q=q, exclude_ratings=excluded)
+        return {
+            "items": [post_to_dict(post, assets=assets) for post in posts],
+            "limit": limit,
+            "offset": offset,
+            "sort": sort_key,
+            "order": sort_order,
+            "source": source,
+            "q": q,
+            "total": total,
+            "has_more": offset + len(posts) < total,
+            "sources": post_source_counts(db, exclude_ratings=excluded),
+        }
+
+    @app.get("/api/posts/{post_key}")
+    def api_post(post_key: str, db: DbSession, principal: ViewPrincipal) -> dict[str, object]:
+        post = get_post(db, post_key)
+        if post is None:
+            raise HTTPException(status_code=404, detail="post not found")
+        _require_sensitive_post_view(post, principal)
+        return post_to_dict(post, assets=posts_attachment_asset_map(db, [post]))
+
     @app.get("/api/img/random")
     def api_random_image(
         db: DbSession,
@@ -504,7 +761,7 @@ def create_app(
         original: bool = False,
     ) -> FileResponse:
         q = _query_with_guest_safety(q or "", principal)
-        asset = random_asset(db, catalog, q)
+        asset = random_asset(db, catalog, q, exclude_ratings=_hidden_post_ratings(principal))
         if asset is None:
             raise HTTPException(status_code=404, detail="no matching asset")
         return _file_response(storage, asset, "original" if original else "preview")
@@ -517,7 +774,7 @@ def create_app(
         original: bool = False,
     ) -> FileResponse:
         tag = _query_with_guest_safety(tag, principal)
-        asset = random_asset(db, catalog, tag)
+        asset = random_asset(db, catalog, tag, exclude_ratings=_hidden_post_ratings(principal))
         if asset is None:
             raise HTTPException(status_code=404, detail="no matching asset")
         return _file_response(storage, asset, "original" if original else "preview")
@@ -685,7 +942,14 @@ def create_app(
             media_items = [item.__dict__ for item in MediaGenerator(storage).generate_all()]
         result = rebuild_database(db, storage, catalog)
         _save_catalog(storage, catalog)
-        return {"assets": result.assets, "tags": result.tags, "duplicates": result.duplicates, "media": media_items}
+        return {
+            "assets": result.assets,
+            "tags": result.tags,
+            "duplicates": result.duplicates,
+            "posts": result.posts,
+            "post_attachments": result.post_attachments,
+            "media": media_items,
+        }
 
     @app.post("/api/media/generate")
     def api_generate_media(request: MediaRequest, _db: DbSession, _principal: EditTagsPrincipal) -> dict[str, object]:
@@ -888,6 +1152,10 @@ def create_app(
                 "pixiv.refresh_token",
                 "pixiv.cookie",
                 "network.proxies.password",
+                "misskey.token",
+                "x.auth_token",
+                "x.ct0",
+                "fanbox.session_id",
                 "original_storage.strategies.password",
                 "original_storage.strategies.token",
                 "original_storage.strategies.access_key_secret",
@@ -925,6 +1193,10 @@ def create_app(
                 "pixiv.refresh_token",
                 "pixiv.cookie",
                 "network.proxies.password",
+                "misskey.token",
+                "x.auth_token",
+                "x.ct0",
+                "fanbox.session_id",
                 "original_storage.strategies.password",
                 "original_storage.strategies.token",
                 "original_storage.strategies.access_key_secret",
@@ -1522,6 +1794,592 @@ def create_app(
             db.commit()
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.get("/api/sync/misskey/config")
+    def api_misskey_config(request: Request, _principal: UploadPrincipal) -> dict[str, object]:
+        state_config: NyaGalleryConfig = request.app.state.nyagallery.config
+        return {
+            "host": normalize_misskey_host(state_config.misskey.host),
+            "token_configured": bool(state_config.misskey.token),
+            "default_request_delay_seconds": state_config.misskey.default_request_delay_seconds,
+            "page_size": state_config.misskey.page_size,
+            "download_concurrency": state_config.misskey.download_concurrency,
+            "proxy_configured": bool(network_proxy_for(state_config, "misskey")),
+            "storage_strategies": _storage_strategy_items(storage),
+            "default_storage_strategy": storage.default_storage_strategy(),
+            "note": "Media is archived as regular gallery assets; note text is stored as posts and shown on the posts page.",
+        }
+
+    @app.get("/api/sync/misskey/logs")
+    def api_misskey_logs(
+        db: DbSession,
+        principal: ViewPrincipal,
+        limit: Annotated[int, Query(ge=1, le=200)] = 50,
+        offset: Annotated[int, Query(ge=0)] = 0,
+    ) -> dict[str, object]:
+        logs = list_misskey_logs(
+            db,
+            user_id=principal.user_id,
+            is_admin="admin" in permissions_for_role(principal.role),
+            limit=limit,
+            offset=offset,
+        )
+        return {
+            "items": [upload_log_to_dict(log) for log in logs],
+            "limit": limit,
+            "offset": offset,
+        }
+
+    @app.post("/api/sync/misskey/user/{username}")
+    def api_sync_misskey_user(
+        username: str,
+        request: MisskeySyncRequest,
+        db: DbSession,
+        principal: UploadPrincipal,
+        http_request: Request,
+    ) -> dict[str, object]:
+        state_config: NyaGalleryConfig = http_request.app.state.nyagallery.config
+        try:
+            resolved = _resolve_misskey_request(
+                request,
+                state_config,
+                storage,
+                db=db,
+                principal=principal,
+                http_request=http_request,
+            )
+            if resolved.dry_run:
+                client, _downloader = _misskey_sync_components(resolved)
+                user = client.get_user(username)
+                notes = []
+                for note in client.iter_user_notes(
+                    user.user_id,
+                    limit=resolved.limit or 20,
+                    include_replies=resolved.include_replies,
+                    page_size=resolved.page_size,
+                    max_pages=resolved.max_pages,
+                ):
+                    notes.append(_misskey_note_preview(note))
+                _create_misskey_log(
+                    db,
+                    principal=principal,
+                    target=username,
+                    host=resolved.host or "",
+                    status="success",
+                    message="dry run completed",
+                    extra={"notes": notes, "user": _misskey_user_preview(user), "options": _misskey_options_log(resolved)},
+                )
+                db.commit()
+                return {
+                    "sync": [],
+                    "posts": [],
+                    "media": [],
+                    "rebuild": None,
+                    "jobs": [],
+                    "preview": notes,
+                    "user": _misskey_user_preview(user),
+                }
+            return _queue_misskey_sync_job(
+                storage,
+                catalog,
+                session_factory=session_factory,
+                db=db,
+                principal=principal,
+                target=username,
+                request=resolved,
+            )
+        except MisskeyRateLimitError as exc:
+            retry_after = exc.retry_after_seconds or request.retry_base_seconds
+            _create_misskey_log(
+                db,
+                principal=principal,
+                target=username,
+                host=request.host or state_config.misskey.host,
+                status="error",
+                message="misskey rate limited",
+                extra={"retry_after_seconds": retry_after},
+            )
+            db.commit()
+            raise HTTPException(
+                status_code=429,
+                detail=f"Misskey rate limited; retry after {retry_after} seconds",
+                headers={"Retry-After": str(retry_after)},
+            ) from exc
+        except (MisskeyError, StorageError) as exc:
+            _create_misskey_log(
+                db,
+                principal=principal,
+                target=username,
+                host=request.host or state_config.misskey.host,
+                status="error",
+                message=str(exc),
+            )
+            db.commit()
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/sync/fanbox/config")
+    def api_fanbox_config(request: Request, _principal: UploadPrincipal) -> dict[str, object]:
+        state_config: NyaGalleryConfig = request.app.state.nyagallery.config
+        return {
+            "session_configured": bool(state_config.fanbox.session_id),
+            "default_request_delay_seconds": state_config.fanbox.default_request_delay_seconds,
+            "page_size": state_config.fanbox.page_size,
+            "download_concurrency": state_config.fanbox.download_concurrency,
+            "download_files": state_config.fanbox.download_files,
+            "proxy_configured": bool(network_proxy_for(state_config, "fanbox")),
+            "supports_pixiv_cookie_login": True,
+            "storage_strategies": _storage_strategy_items(storage),
+            "default_storage_strategy": storage.default_storage_strategy(),
+            "note": (
+                "Post images and attachments are archived as regular gallery assets; title, body, tags and "
+                "like/comment counts become a post. Fanbox does not accept a Pixiv cookie directly, but a saved "
+                "Pixiv session can be exchanged for a FANBOXSESSID. Post bodies always require that session."
+            ),
+        }
+
+    @app.get("/api/sync/fanbox/logs")
+    def api_fanbox_logs(
+        db: DbSession,
+        principal: ViewPrincipal,
+        limit: Annotated[int, Query(ge=1, le=200)] = 50,
+        offset: Annotated[int, Query(ge=0)] = 0,
+    ) -> dict[str, object]:
+        logs = list_fanbox_logs(
+            db,
+            user_id=principal.user_id,
+            is_admin="admin" in permissions_for_role(principal.role),
+            limit=limit,
+            offset=offset,
+        )
+        return {"items": [upload_log_to_dict(log) for log in logs], "limit": limit, "offset": offset}
+
+    @app.post("/api/sync/fanbox/login")
+    def api_fanbox_login(
+        request: FanboxLoginRequest,
+        db: DbSession,
+        principal: UploadPrincipal,
+        http_request: Request,
+    ) -> dict[str, object]:
+        """Completes the Fanbox login chain from a Pixiv cookie and optionally stores the resulting session."""
+        state_config: NyaGalleryConfig = http_request.app.state.nyagallery.config
+        cookie = (request.cookie or "").strip()
+        if request.pixiv_cookie_id is not None:
+            if not _is_admin_principal(principal) and not pixiv_cookie_belongs_to_user(
+                db, request.pixiv_cookie_id, principal.user_id
+            ):
+                raise HTTPException(status_code=403, detail="permission denied")
+            try:
+                cookie = get_pixiv_cookie(
+                    db,
+                    request.pixiv_cookie_id,
+                    record_usage=True,
+                    client_ip=client_ip(http_request, trust_proxy_headers=False),
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+            db.commit()
+        cookie = cookie or (state_config.pixiv.cookie or "").strip()
+        if not cookie:
+            raise HTTPException(status_code=400, detail="a Pixiv session cookie is required to derive a Fanbox session")
+        try:
+            session_id = exchange_pixiv_cookie_for_fanbox_session(
+                cookie,
+                headless=request.headless,
+                timeout_seconds=request.timeout_seconds,
+                proxy_url=network_proxy_for(state_config, "fanbox") or network_proxy_for(state_config, "pixiv"),
+            )
+        except FanboxAuthError as exc:
+            _create_fanbox_log(db, principal=principal, target="login", status="error", message=str(exc))
+            db.commit()
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        identity = _fanbox_session_identity(session_id, state_config)
+        saved = None
+        if request.save and principal.username:
+            saved = save_fanbox_session(
+                db,
+                principal.username,
+                session_id,
+                label=request.label,
+                source="pixiv_cookie",
+                fanbox_user=identity,
+                created_by_user_id=principal.user_id,
+                created_by_username=principal.username,
+            )
+        _create_fanbox_log(
+            db,
+            principal=principal,
+            target="login",
+            status="success",
+            message="fanbox session derived from pixiv cookie",
+            extra={"saved": bool(saved), "identity": identity or None},
+        )
+        db.commit()
+        return {
+            "session_id": session_id if not request.save else "",
+            "saved": fanbox_session_to_dict(saved) if saved is not None else None,
+            "identity": identity,
+        }
+
+    @app.post("/api/sync/fanbox/creator/{creator_id}")
+    def api_sync_fanbox_creator(
+        creator_id: str,
+        request: FanboxSyncRequest,
+        db: DbSession,
+        principal: UploadPrincipal,
+        http_request: Request,
+    ) -> dict[str, object]:
+        state_config: NyaGalleryConfig = http_request.app.state.nyagallery.config
+        handle = normalize_creator_id(creator_id)
+        if not handle:
+            raise HTTPException(status_code=400, detail="a valid Fanbox creator id is required")
+        try:
+            resolved = _resolve_fanbox_request(request, state_config, storage, db=db, principal=principal, http_request=http_request)
+            if resolved.dry_run:
+                client, _downloader = _fanbox_sync_components(resolved)
+                creator = client.get_creator(handle)
+                posts = [
+                    _fanbox_post_preview(post)
+                    for post in client.iter_creator_posts(
+                        handle, limit=resolved.limit or 20, page_size=resolved.page_size, max_pages=resolved.max_pages
+                    )
+                ]
+                _create_fanbox_log(
+                    db,
+                    principal=principal,
+                    target=handle,
+                    status="success",
+                    message="dry run completed",
+                    extra={"posts": posts, "creator": _fanbox_creator_preview(creator), "options": _fanbox_options_log(resolved)},
+                )
+                db.commit()
+                return {
+                    "sync": [], "posts": [], "media": [], "rebuild": None, "jobs": [],
+                    "preview": posts, "creator": _fanbox_creator_preview(creator), "failures": [],
+                }
+            return _queue_fanbox_sync_job(
+                storage, catalog, session_factory=session_factory, db=db,
+                principal=principal, target=handle, request=resolved,
+            )
+        except FanboxRateLimitError as exc:
+            raise _fanbox_rate_limit_error(db, exc, principal=principal, target=handle, request=request)
+        except (FanboxError, StorageError) as exc:
+            _create_fanbox_log(db, principal=principal, target=handle, status="error", message=str(exc))
+            db.commit()
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/sync/fanbox/posts")
+    def api_sync_fanbox_posts(
+        request: FanboxSyncRequest,
+        db: DbSession,
+        principal: UploadPrincipal,
+        http_request: Request,
+    ) -> dict[str, object]:
+        state_config: NyaGalleryConfig = http_request.app.state.nyagallery.config
+        targets = _fanbox_batch_targets(request.targets)
+        if not targets:
+            raise HTTPException(status_code=400, detail="at least one Fanbox post URL or id is required")
+        label = f"{len(targets)} posts"
+        try:
+            resolved = _resolve_fanbox_request(request, state_config, storage, db=db, principal=principal, http_request=http_request)
+            if resolved.dry_run:
+                client, _downloader = _fanbox_sync_components(resolved)
+                previews = [_fanbox_post_preview(client.get_post(target)) for target in targets]
+                _create_fanbox_log(
+                    db, principal=principal, target=label, status="success",
+                    message="dry run completed",
+                    extra={"posts": previews, "options": _fanbox_options_log(resolved)},
+                )
+                db.commit()
+                return {"sync": [], "posts": [], "media": [], "rebuild": None, "jobs": [], "preview": previews, "failures": []}
+            return _queue_fanbox_sync_job(
+                storage, catalog, session_factory=session_factory, db=db,
+                principal=principal, target=label, request=resolved, targets=targets,
+            )
+        except FanboxRateLimitError as exc:
+            raise _fanbox_rate_limit_error(db, exc, principal=principal, target=label, request=request)
+        except (FanboxError, StorageError) as exc:
+            _create_fanbox_log(db, principal=principal, target=label, status="error", message=str(exc))
+            db.commit()
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/users/{username}/fanbox-session")
+    def api_save_user_fanbox_session(
+        username: str,
+        request: FanboxSessionCreate,
+        db: DbSession,
+        principal: ApiPrincipal,
+    ) -> dict[str, object]:
+        _require_self_or_admin(username, principal)
+        try:
+            row = save_fanbox_session(
+                db, username, request.session_id,
+                label=request.label, source=request.source, fanbox_user=request.fanbox_user,
+                created_by_user_id=principal.user_id, created_by_username=principal.username,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return fanbox_session_to_dict(row)
+
+    @app.get("/api/users/{username}/fanbox-sessions")
+    def api_user_fanbox_sessions(username: str, db: DbSession, principal: ApiPrincipal) -> dict[str, object]:
+        _require_self_or_admin(username, principal)
+        try:
+            rows = list_fanbox_sessions(db, username)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return {"items": [fanbox_session_to_dict(row) for row in rows]}
+
+    @app.patch("/api/fanbox-sessions/{session_row_id}")
+    def api_update_fanbox_session_label(
+        session_row_id: int,
+        request: FanboxSessionUpdate,
+        db: DbSession,
+        principal: ApiPrincipal,
+    ) -> dict[str, object]:
+        if not _is_admin_principal(principal) and not fanbox_session_belongs_to_user(db, session_row_id, principal.user_id):
+            raise HTTPException(status_code=403, detail="permission denied")
+        try:
+            row = update_fanbox_session_label(db, session_row_id, request.label)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return fanbox_session_to_dict(row)
+
+    @app.delete("/api/fanbox-sessions/{session_row_id}")
+    def api_revoke_fanbox_session(session_row_id: int, db: DbSession, principal: ApiPrincipal) -> dict[str, object]:
+        if not _is_admin_principal(principal) and not fanbox_session_belongs_to_user(db, session_row_id, principal.user_id):
+            raise HTTPException(status_code=403, detail="permission denied")
+        try:
+            row = revoke_fanbox_session(db, session_row_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return fanbox_session_to_dict(row)
+
+    @app.get("/api/sync/x/config")
+    def api_x_config(request: Request, _principal: UploadPrincipal) -> dict[str, object]:
+        state_config: NyaGalleryConfig = request.app.state.nyagallery.config
+        return {
+            "host": X_DEFAULT_HOST,
+            "session_configured": bool(state_config.x.auth_token and state_config.x.ct0),
+            "default_request_delay_seconds": state_config.x.default_request_delay_seconds,
+            "page_size": state_config.x.page_size,
+            "download_concurrency": state_config.x.download_concurrency,
+            "proxy_configured": bool(network_proxy_for(state_config, "x")),
+            "storage_strategies": _storage_strategy_items(storage),
+            "default_storage_strategy": storage.default_storage_strategy(),
+            "note": (
+                "Photos and videos are archived as regular gallery assets at original quality; post text, metrics "
+                "and tags are stored as posts and shown on the posts page. Single public posts resolve without "
+                "credentials; timeline sync needs a saved auth_token/ct0 session."
+            ),
+        }
+
+    @app.get("/api/sync/x/logs")
+    def api_x_logs(
+        db: DbSession,
+        principal: ViewPrincipal,
+        limit: Annotated[int, Query(ge=1, le=200)] = 50,
+        offset: Annotated[int, Query(ge=0)] = 0,
+    ) -> dict[str, object]:
+        logs = list_x_logs(
+            db,
+            user_id=principal.user_id,
+            is_admin="admin" in permissions_for_role(principal.role),
+            limit=limit,
+            offset=offset,
+        )
+        return {
+            "items": [upload_log_to_dict(log) for log in logs],
+            "limit": limit,
+            "offset": offset,
+        }
+
+    @app.post("/api/sync/x/posts")
+    def api_sync_x_posts(
+        request: XSyncRequest,
+        db: DbSession,
+        principal: UploadPrincipal,
+        http_request: Request,
+    ) -> dict[str, object]:
+        state_config: NyaGalleryConfig = http_request.app.state.nyagallery.config
+        targets = _x_batch_targets(request.targets)
+        if not targets:
+            raise HTTPException(status_code=400, detail="at least one X post URL or id is required")
+        try:
+            resolved = _resolve_x_request(
+                request,
+                state_config,
+                storage,
+                db=db,
+                principal=principal,
+                http_request=http_request,
+                require_session=False,
+            )
+            if resolved.dry_run:
+                client, _downloader = _x_sync_components(resolved, state_config)
+                previews = [_x_tweet_preview(client.get_tweet(target)) for target in targets]
+                _create_x_log(
+                    db,
+                    principal=principal,
+                    target=f"{len(targets)} posts",
+                    status="success",
+                    message="dry run completed",
+                    extra={"tweets": previews, "options": _x_options_log(resolved)},
+                )
+                db.commit()
+                return {
+                    "sync": [],
+                    "posts": [],
+                    "media": [],
+                    "rebuild": None,
+                    "jobs": [],
+                    "preview": previews,
+                    "failures": [],
+                }
+            return _queue_x_sync_job(
+                storage,
+                catalog,
+                session_factory=session_factory,
+                db=db,
+                principal=principal,
+                target=f"{len(targets)} posts",
+                request=resolved,
+                targets=targets,
+            )
+        except XRateLimitError as exc:
+            raise _x_rate_limit_error(db, exc, principal=principal, target=f"{len(targets)} posts", request=request)
+        except (XError, StorageError) as exc:
+            _create_x_log(db, principal=principal, target=f"{len(targets)} posts", status="error", message=str(exc))
+            db.commit()
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/sync/x/user/{screen_name}")
+    def api_sync_x_user(
+        screen_name: str,
+        request: XSyncRequest,
+        db: DbSession,
+        principal: UploadPrincipal,
+        http_request: Request,
+    ) -> dict[str, object]:
+        state_config: NyaGalleryConfig = http_request.app.state.nyagallery.config
+        handle = normalize_screen_name(screen_name)
+        if not handle:
+            raise HTTPException(status_code=400, detail="a valid X username is required")
+        try:
+            resolved = _resolve_x_request(
+                request,
+                state_config,
+                storage,
+                db=db,
+                principal=principal,
+                http_request=http_request,
+                require_session=True,
+            )
+            if resolved.dry_run:
+                client, _downloader = _x_sync_components(resolved, state_config)
+                user = client.get_user(handle)
+                tweets = [
+                    _x_tweet_preview(tweet)
+                    for tweet in client.iter_user_tweets(
+                        user.user_id,
+                        limit=resolved.limit or 20,
+                        media_only=resolved.media_only,
+                        include_replies=resolved.include_replies,
+                        page_size=resolved.page_size,
+                        max_pages=resolved.max_pages,
+                    )
+                ]
+                _create_x_log(
+                    db,
+                    principal=principal,
+                    target=handle,
+                    status="success",
+                    message="dry run completed",
+                    extra={"tweets": tweets, "user": _x_user_preview(user), "options": _x_options_log(resolved)},
+                )
+                db.commit()
+                return {
+                    "sync": [],
+                    "posts": [],
+                    "media": [],
+                    "rebuild": None,
+                    "jobs": [],
+                    "preview": tweets,
+                    "user": _x_user_preview(user),
+                    "failures": [],
+                }
+            return _queue_x_sync_job(
+                storage,
+                catalog,
+                session_factory=session_factory,
+                db=db,
+                principal=principal,
+                target=handle,
+                request=resolved,
+            )
+        except XRateLimitError as exc:
+            raise _x_rate_limit_error(db, exc, principal=principal, target=handle, request=request)
+        except (XError, StorageError) as exc:
+            _create_x_log(db, principal=principal, target=handle, status="error", message=str(exc))
+            db.commit()
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/users/{username}/x-token")
+    def api_save_user_x_token(
+        username: str,
+        request: XTokenCreate,
+        db: DbSession,
+        principal: ApiPrincipal,
+    ) -> dict[str, object]:
+        _require_self_or_admin(username, principal)
+        try:
+            token = save_x_token(
+                db,
+                username,
+                request.token,
+                ct0=request.ct0,
+                label=request.label,
+                host=request.host or X_DEFAULT_HOST,
+                x_user=request.x_user,
+                created_by_user_id=principal.user_id,
+                created_by_username=principal.username,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return x_token_to_dict(token)
+
+    @app.get("/api/users/{username}/x-tokens")
+    def api_user_x_tokens(username: str, db: DbSession, principal: ApiPrincipal) -> dict[str, object]:
+        _require_self_or_admin(username, principal)
+        try:
+            tokens = list_x_tokens(db, username)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return {"items": [x_token_to_dict(token) for token in tokens]}
+
+    @app.patch("/api/x-tokens/{token_id}")
+    def api_update_x_token_label(
+        token_id: int,
+        request: XTokenUpdate,
+        db: DbSession,
+        principal: ApiPrincipal,
+    ) -> dict[str, object]:
+        if not _is_admin_principal(principal) and not x_token_belongs_to_user(db, token_id, principal.user_id):
+            raise HTTPException(status_code=403, detail="permission denied")
+        try:
+            token = update_x_token_label(db, token_id, request.label)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return x_token_to_dict(token)
+
+    @app.delete("/api/x-tokens/{token_id}")
+    def api_revoke_x_token(token_id: int, db: DbSession, principal: ApiPrincipal) -> dict[str, object]:
+        if not _is_admin_principal(principal) and not x_token_belongs_to_user(db, token_id, principal.user_id):
+            raise HTTPException(status_code=403, detail="permission denied")
+        try:
+            token = revoke_x_token(db, token_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return x_token_to_dict(token)
+
     @app.post("/api/users")
     def api_create_user(user: UserCreate, db: DbSession, principal: AdminPrincipal) -> dict[str, object]:
         role = validate_role(user.role)
@@ -1700,6 +2558,63 @@ def create_app(
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return pixiv_cookie_to_dict(cookie)
 
+    @app.post("/api/users/{username}/misskey-token")
+    def api_save_user_misskey_token(
+        username: str,
+        request: MisskeyTokenCreate,
+        db: DbSession,
+        principal: ApiPrincipal,
+    ) -> dict[str, object]:
+        _require_self_or_admin(username, principal)
+        try:
+            token = save_misskey_token(
+                db,
+                username,
+                request.token,
+                label=request.label,
+                host=normalize_misskey_host(request.host),
+                misskey_user=request.misskey_user,
+                created_by_user_id=principal.user_id,
+                created_by_username=principal.username,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404 if "user not found" in str(exc) else 400, detail=str(exc)) from exc
+        return misskey_token_to_dict(token)
+
+    @app.get("/api/users/{username}/misskey-tokens")
+    def api_user_misskey_tokens(username: str, db: DbSession, principal: ApiPrincipal) -> dict[str, object]:
+        _require_self_or_admin(username, principal)
+        try:
+            tokens = list_misskey_tokens(db, username)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return {"items": [misskey_token_to_dict(token) for token in tokens]}
+
+    @app.patch("/api/misskey-tokens/{token_id}")
+    def api_update_misskey_token_label(
+        token_id: int,
+        request: MisskeyTokenUpdate,
+        db: DbSession,
+        principal: ApiPrincipal,
+    ) -> dict[str, object]:
+        if not _is_admin_principal(principal) and not misskey_token_belongs_to_user(db, token_id, principal.user_id):
+            raise HTTPException(status_code=403, detail="permission denied")
+        try:
+            token = update_misskey_token_label(db, token_id, request.label)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return misskey_token_to_dict(token)
+
+    @app.delete("/api/misskey-tokens/{token_id}")
+    def api_revoke_misskey_token(token_id: int, db: DbSession, principal: ApiPrincipal) -> dict[str, object]:
+        if not _is_admin_principal(principal) and not misskey_token_belongs_to_user(db, token_id, principal.user_id):
+            raise HTTPException(status_code=403, detail="permission denied")
+        try:
+            token = revoke_misskey_token(db, token_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return misskey_token_to_dict(token)
+
     @app.patch("/api/pixiv-tokens/{token_id}")
     def api_update_pixiv_token_label(
         token_id: int,
@@ -1761,6 +2676,19 @@ def _developer_config_payload_with_preserved_secrets(
         value = pixiv.get(key)
         if value is None or str(value).strip() == "":
             pixiv[key] = str(file_pixiv.get(key) or "")
+    file_misskey = file_data.get("misskey") if isinstance(file_data.get("misskey"), dict) else {}
+    misskey = data.setdefault("misskey", {})
+    if misskey.get("token") is None or str(misskey.get("token") or "").strip() == "":
+        misskey["token"] = str(file_misskey.get("token") or "")
+    file_x = file_data.get("x") if isinstance(file_data.get("x"), dict) else {}
+    x_section = data.setdefault("x", {})
+    for key in ("auth_token", "ct0"):
+        if x_section.get(key) is None or str(x_section.get(key) or "").strip() == "":
+            x_section[key] = str(file_x.get(key) or "")
+    file_fanbox = file_data.get("fanbox") if isinstance(file_data.get("fanbox"), dict) else {}
+    fanbox_section = data.setdefault("fanbox", {})
+    if fanbox_section.get("session_id") is None or str(fanbox_section.get("session_id") or "").strip() == "":
+        fanbox_section["session_id"] = str(file_fanbox.get("session_id") or "")
     file_network = file_data.get("network") if isinstance(file_data.get("network"), dict) else {}
     file_proxies = file_network.get("proxies") if isinstance(file_network.get("proxies"), list) else []
     saved_proxies_by_name = {
@@ -2610,6 +3538,1038 @@ def _pixiv_artwork_preview(artwork) -> dict[str, object]:
     }
 
 
+def _fanbox_batch_targets(targets: list[str]) -> list[str]:
+    from nyagallery.fanbox import split_batch_input as fanbox_split
+
+    collected: list[str] = []
+    for entry in targets:
+        collected.extend(fanbox_split(entry))
+    return list(dict.fromkeys(collected))
+
+
+def _fanbox_session_identity(session_id: str, config: NyaGalleryConfig) -> dict[str, object]:
+    """Best-effort identity for a freshly derived session; a failure here must not fail the login."""
+    try:
+        client = FanboxClient(
+            credentials=FanboxCredentials(session_id=session_id),
+            options=FanboxRequestOptions(request_delay_seconds=0, max_retries=0),
+            proxy_url=network_proxy_for(config, "fanbox"),
+        )
+        return client.verify_session()
+    except FanboxError:
+        return {}
+
+
+def _resolve_fanbox_request(
+    request: FanboxSyncRequest,
+    config: NyaGalleryConfig,
+    storage: GalleryStorage,
+    *,
+    db: Session | None = None,
+    principal: Principal | None = None,
+    http_request: Request | None = None,
+) -> FanboxSyncRequest:
+    resolved = FanboxSyncRequest(**_model_dump(request))
+    if resolved.fanbox_session_id is not None:
+        if db is None or principal is None:
+            raise FanboxError("saved Fanbox sessions cannot be used in this context")
+        if not _is_admin_principal(principal) and not fanbox_session_belongs_to_user(
+            db, resolved.fanbox_session_id, principal.user_id
+        ):
+            raise HTTPException(status_code=403, detail="permission denied")
+        try:
+            resolved.session_id = get_fanbox_session(
+                db,
+                resolved.fanbox_session_id,
+                record_usage=True,
+                client_ip=client_ip(http_request, trust_proxy_headers=False) if http_request is not None else None,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        db.commit()
+    resolved.session_id = (resolved.session_id or config.fanbox.session_id or "").strip() or None
+    if not resolved.proxy_url:
+        resolved.proxy_url = network_proxy_for(config, "fanbox") or None
+    resolved.storage_strategy = storage.validate_storage_strategy(resolved.storage_strategy)
+    if resolved.name_media_by_post_id is None:
+        resolved.name_media_by_post_id = config.core.name_media_by_post_id
+    return resolved
+
+
+def _fanbox_request_options(request: FanboxSyncRequest) -> FanboxRequestOptions:
+    return FanboxRequestOptions(
+        request_delay_seconds=request.request_delay_seconds,
+        max_retries=request.max_retries,
+        retry_base_seconds=request.retry_base_seconds,
+        retry_max_seconds=request.retry_max_seconds,
+        download_concurrency=request.download_concurrency,
+        proxy_url=request.proxy_url or "",
+    )
+
+
+def _fanbox_sync_components(request: FanboxSyncRequest) -> tuple[FanboxClient, FanboxDownloader]:
+    options = _fanbox_request_options(request)
+    credentials = FanboxCredentials(session_id=request.session_id or "")
+    client = FanboxClient(credentials=credentials, options=options, proxy_url=request.proxy_url)
+    downloader = FanboxDownloader(credentials=credentials, options=options, proxy_url=request.proxy_url)
+    return client, downloader
+
+
+def _fanbox_options_log(request: FanboxSyncRequest) -> dict[str, object]:
+    return {
+        "limit": request.limit,
+        "page_size": request.page_size,
+        "max_pages": request.max_pages,
+        "backfill": request.backfill,
+        "download_media": request.download_media,
+        "download_files": request.download_files,
+        "download_concurrency": request.download_concurrency,
+        "request_delay_seconds": request.request_delay_seconds,
+        "storage_strategy": request.storage_strategy,
+        "rebuild_db": request.rebuild_db,
+        "generate_cache": request.generate_cache,
+        "session_configured": bool(request.session_id),
+        "proxy_configured": bool(request.proxy_url),
+    }
+
+
+def _fanbox_creator_preview(creator: FanboxCreator) -> dict[str, object]:
+    return {
+        "creator_id": creator.creator_id,
+        "user_id": creator.user_id,
+        "name": creator.display_name,
+        "icon_url": creator.icon_url,
+        "has_adult_content": creator.has_adult_content,
+        "is_supported": creator.is_supported,
+    }
+
+
+def _fanbox_post_preview(post: FanboxPost) -> dict[str, object]:
+    return {
+        "post_id": post.post_id,
+        "title": post.title[:120],
+        "post_type": post.post_type,
+        "published_at": post.published_at,
+        "fee_required": post.fee_required,
+        "locked": post.is_locked,
+        "file_count": len(post.files),
+        "tags": list(post.tags),
+        "url": post.url,
+    }
+
+
+def _create_fanbox_log(
+    db: Session,
+    *,
+    principal: Principal,
+    target: str,
+    status: str,
+    message: str,
+    extra: dict[str, object] | None = None,
+) -> UploadLogModel:
+    return create_upload_log(
+        db,
+        asset_key=None,
+        uploader_user_id=principal.user_id,
+        uploader_username=principal.username,
+        original_filename=f"fanbox:{target}",
+        file_size=None,
+        mime_type=None,
+        event="fanbox_sync",
+        status=status,
+        message=message,
+        extra={"target": target, **(extra or {})},
+    )
+
+
+def _fanbox_rate_limit_error(
+    db: Session,
+    exc: FanboxRateLimitError,
+    *,
+    principal: Principal,
+    target: str,
+    request: FanboxSyncRequest,
+) -> HTTPException:
+    retry_after = exc.retry_after_seconds or request.retry_base_seconds
+    _create_fanbox_log(
+        db, principal=principal, target=target, status="error",
+        message="fanbox rate limited", extra={"retry_after_seconds": retry_after},
+    )
+    db.commit()
+    return HTTPException(
+        status_code=429,
+        detail=f"Fanbox rate limited; retry after {retry_after} seconds",
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
+def _queue_fanbox_sync_job(
+    storage: GalleryStorage,
+    catalog: TagCatalog,
+    *,
+    session_factory: sessionmaker[Session],
+    db: Session,
+    principal: Principal,
+    target: str,
+    request: FanboxSyncRequest,
+    targets: list[str] | None = None,
+) -> dict[str, object]:
+    if not request.session_id:
+        raise FanboxAuthError(
+            "a Fanbox session is required: post bodies are gated behind FANBOXSESSID. "
+            "Save a session in the admin Fanbox panel, set [fanbox].session_id, or pass fanbox_session_id."
+        )
+    job_id = secrets.token_urlsafe(9).rstrip("=")
+    log = _create_fanbox_log(
+        db, principal=principal, target=target, status="queued", message="fanbox sync queued",
+        extra={
+            "sync_job_id": job_id, "stage": "queued", "progress": 0,
+            "last_update_at": utc_now_iso(), "options": _fanbox_options_log(request),
+        },
+    )
+    db.commit()
+    thread = threading.Thread(
+        target=_run_fanbox_sync_job,
+        args=(storage, catalog, session_factory, principal, target, request, log.id, job_id, targets),
+        daemon=True,
+    )
+    thread.start()
+    return {
+        "status": "queued", "sync_job_id": job_id, "message": "fanbox sync queued",
+        "sync": [], "posts": [], "media": [], "jobs": [], "rebuild": None, "failures": [],
+    }
+
+
+def _run_fanbox_sync_job(
+    storage: GalleryStorage,
+    catalog: TagCatalog,
+    session_factory: sessionmaker[Session],
+    principal: Principal,
+    target: str,
+    request: FanboxSyncRequest,
+    log_id: int,
+    job_id: str,
+    targets: list[str] | None = None,
+) -> None:
+    started_at = time.monotonic()
+    options = _fanbox_options_log(request)
+
+    def update(status: str, message: str, extra: dict[str, object] | None = None) -> None:
+        payload = {
+            "sync_job_id": job_id,
+            "last_update_at": utc_now_iso(),
+            "duration_seconds": round(time.monotonic() - started_at, 1),
+            **(extra or {}),
+        }
+        _commit_pixiv_log_update(
+            session_factory, log_id, status=status, message=message,
+            extra={key: value for key, value in payload.items() if value is not None},
+        )
+
+    def progress(event: dict[str, object]) -> None:
+        update("running", str(event.get("message") or "fanbox sync running"), dict(event))
+
+    try:
+        update("running", "fetching fanbox posts", {"stage": "fetching_posts", "progress": 0, "options": options})
+        client, downloader = _fanbox_sync_components(request)
+        service = FanboxSyncService(
+            storage,
+            client=client,
+            downloader=downloader,
+            uploader_user_id=principal.user_id,
+            uploader_username=principal.username,
+            storage_strategy_name=request.storage_strategy,
+            download_media=request.download_media,
+            download_files=request.download_files,
+            download_concurrency=request.download_concurrency,
+            name_media_by_post_id=bool(request.name_media_by_post_id),
+            progress=progress,
+        )
+        if targets:
+            batch = service.sync_posts(targets)
+            results, failures = list(batch.results), list(batch.failures)
+        else:
+            results = service.sync_creator(
+                target,
+                limit=request.limit,
+                backfill=request.backfill,
+                page_size=request.page_size,
+                max_pages=request.max_pages,
+            )
+            failures = []
+        with session_factory() as session:
+            _fanbox_sync_finish(
+                storage, session, catalog, results,
+                failures=failures, session_factory=session_factory, principal=principal,
+                request=request, log_id=log_id,
+                extra={"sync_job_id": job_id, "duration_seconds": round(time.monotonic() - started_at, 1)},
+            )
+    except FanboxRateLimitError as exc:
+        retry_after = exc.retry_after_seconds or request.retry_base_seconds
+        update("error", "fanbox rate limited", {"stage": "error", "retry_after_seconds": retry_after, "options": options})
+    except Exception as exc:  # noqa: BLE001 - background job must record any failure
+        update("error", str(exc), {"stage": "error", "options": options})
+
+
+def _fanbox_sync_finish(
+    storage: GalleryStorage,
+    db: Session,
+    catalog: TagCatalog,
+    results: list[FanboxPostResult],
+    *,
+    failures: list,
+    session_factory: sessionmaker[Session],
+    principal: Principal,
+    request: FanboxSyncRequest,
+    log_id: int,
+    extra: dict[str, object],
+) -> None:
+    assets = [asset for result in results for asset in result.assets]
+    rebuild_result = rebuild_database(db, storage, catalog) if request.rebuild_db or request.generate_cache else None
+    if rebuild_result is not None:
+        _save_catalog(storage, catalog)
+    jobs: list[dict[str, object] | None] = []
+    cache_tasks: list[tuple[GalleryStorage, sessionmaker[Session], TagCatalog, str, str]] = []
+    if request.generate_cache:
+        for asset_result in assets:
+            if asset_result.status == "skipped" or asset_result.kind != "image":
+                continue
+            asset = db.get(AssetModel, asset_result.asset_key)
+            if asset is None:
+                continue
+            existing = db.scalar(
+                select(TranscodeJobModel)
+                .where(
+                    TranscodeJobModel.asset_key == asset.asset_key,
+                    TranscodeJobModel.status.in_(("queued", "running")),
+                )
+                .order_by(TranscodeJobModel.id.desc())
+            )
+            if existing:
+                jobs.append(transcode_job_to_dict(existing))
+                continue
+            job = create_transcode_job(db, asset, source="fanbox", file_size=_asset_original_size(storage, asset))
+            jobs.append(transcode_job_to_dict(job))
+            cache_tasks.append((storage, session_factory, catalog, asset.asset_key, job.job_id))
+        db.commit()
+        for task_args in cache_tasks:
+            _schedule_background_task(None, _generate_cache_and_refresh_asset, *task_args)
+    _update_pixiv_log(
+        db, log_id, status="success", message="fanbox sync completed",
+        extra={
+            "stage": "done", "progress": 100,
+            "sync_count": len(results), "post_count": len(results),
+            "locked_posts": len([item for item in results if item.locked]),
+            "asset_count": len(assets),
+            "downloaded_assets": len([item for item in assets if item.status == "downloaded"]),
+            "skipped_assets": len([item for item in assets if item.status == "skipped"]),
+            "duplicate_assets": len([item for item in assets if item.status == "duplicate"]),
+            "file_assets": len([item for item in assets if item.kind != "image"]),
+            "queued_transcode_jobs": len([job for job in jobs if job]),
+            "failure_count": len(failures),
+            "failures": [failure.to_dict() for failure in failures][:50],
+            "rebuild": rebuild_result.__dict__ if rebuild_result else None,
+            "options": _fanbox_options_log(request),
+            "last_update_at": utc_now_iso(),
+            **extra,
+        },
+    )
+    db.commit()
+
+
+def _x_batch_targets(targets: list[str]) -> list[str]:
+    """Accepts either a JSON list or one pasted blob of links, matching the batch endpoint of the resolver."""
+    collected: list[str] = []
+    for entry in targets:
+        collected.extend(split_batch_input(entry))
+    return list(dict.fromkeys(collected))
+
+
+def _resolve_x_request(
+    request: XSyncRequest,
+    config: NyaGalleryConfig,
+    storage: GalleryStorage,
+    *,
+    db: Session | None = None,
+    principal: Principal | None = None,
+    http_request: Request | None = None,
+    require_session: bool = False,
+) -> XSyncRequest:
+    resolved = XSyncRequest(**_model_dump(request))
+    if resolved.x_token_id is not None:
+        if db is None or principal is None:
+            raise XError("saved X sessions cannot be used in this context")
+        if not _is_admin_principal(principal) and not x_token_belongs_to_user(db, resolved.x_token_id, principal.user_id):
+            raise HTTPException(status_code=403, detail="permission denied")
+        try:
+            resolved.auth_token, saved_ct0, _host = get_x_token(
+                db,
+                resolved.x_token_id,
+                record_usage=True,
+                client_ip=client_ip(http_request, trust_proxy_headers=False) if http_request is not None else None,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        resolved.ct0 = resolved.ct0 or saved_ct0 or None
+        db.commit()
+    resolved.auth_token = (resolved.auth_token or config.x.auth_token or "").strip() or None
+    resolved.ct0 = (resolved.ct0 or config.x.ct0 or "").strip() or None
+    if require_session and not (resolved.auth_token and resolved.ct0):
+        raise XError(
+            "an X session is required to walk a timeline; save an auth_token/ct0 pair in the admin page "
+            "or set [x].auth_token and [x].ct0"
+        )
+    if not resolved.proxy_url:
+        resolved.proxy_url = network_proxy_for(config, "x") or None
+    resolved.storage_strategy = storage.validate_storage_strategy(resolved.storage_strategy)
+    if resolved.name_media_by_post_id is None:
+        resolved.name_media_by_post_id = config.core.name_media_by_post_id
+    return resolved
+
+
+def _x_request_options(request: XSyncRequest) -> XRequestOptions:
+    return XRequestOptions(
+        request_delay_seconds=request.request_delay_seconds,
+        max_retries=request.max_retries,
+        retry_base_seconds=request.retry_base_seconds,
+        retry_max_seconds=request.retry_max_seconds,
+        download_concurrency=request.download_concurrency,
+        proxy_url=request.proxy_url or "",
+    )
+
+
+def _x_sync_components(request: XSyncRequest, config: NyaGalleryConfig) -> tuple[XClient, XDownloader]:
+    options = _x_request_options(request)
+    client = XClient(
+        credentials=XCredentials(auth_token=request.auth_token or "", ct0=request.ct0 or ""),
+        options=options,
+        operations=XGraphqlOperations(
+            tweet_detail=config.x.tweet_detail_query_id,
+            user_by_screen_name=config.x.user_by_screen_name_query_id,
+            user_tweets=config.x.user_tweets_query_id,
+            user_media=config.x.user_media_query_id,
+        ),
+        proxy_url=request.proxy_url,
+    )
+    return client, XDownloader(options=options, proxy_url=request.proxy_url)
+
+
+def _x_options_log(request: XSyncRequest) -> dict[str, object]:
+    return {
+        "limit": request.limit,
+        "page_size": request.page_size,
+        "max_pages": request.max_pages,
+        "include_replies": request.include_replies,
+        "media_only": request.media_only,
+        "backfill": request.backfill,
+        "download_media": request.download_media,
+        "download_concurrency": request.download_concurrency,
+        "request_delay_seconds": request.request_delay_seconds,
+        "storage_strategy": request.storage_strategy,
+        "rebuild_db": request.rebuild_db,
+        "generate_cache": request.generate_cache,
+        "session_configured": bool(request.auth_token and request.ct0),
+        "proxy_configured": bool(request.proxy_url),
+    }
+
+
+def _x_user_preview(user: XUser) -> dict[str, object]:
+    return {
+        "user_id": user.user_id,
+        "screen_name": user.screen_name,
+        "name": user.display_name,
+        "handle": user.handle,
+        "avatar_url": user.avatar_url,
+        "tweets_count": user.statuses_count,
+        "media_count": user.media_count,
+        "is_protected": user.is_protected,
+    }
+
+
+def _x_tweet_preview(tweet: XTweet) -> dict[str, object]:
+    return {
+        "tweet_id": tweet.tweet_id,
+        "created_at": tweet.created_at,
+        "text": tweet.text[:200],
+        "screen_name": tweet.user.screen_name,
+        "media_count": len(tweet.media),
+        "media_types": sorted({media.media_type for media in tweet.media}),
+        "url": tweet.url,
+        "tags": list(tweet.tags),
+        "metrics": dict(tweet.metrics),
+    }
+
+
+def _create_x_log(
+    db: Session,
+    *,
+    principal: Principal,
+    target: str,
+    status: str,
+    message: str,
+    extra: dict[str, object] | None = None,
+) -> UploadLogModel:
+    return create_upload_log(
+        db,
+        asset_key=None,
+        uploader_user_id=principal.user_id,
+        uploader_username=principal.username,
+        original_filename=f"x:{target}",
+        file_size=None,
+        mime_type=None,
+        event="x_sync",
+        status=status,
+        message=message,
+        extra={"target": target, "host": X_DEFAULT_HOST, **(extra or {})},
+    )
+
+
+def _x_rate_limit_error(
+    db: Session,
+    exc: XRateLimitError,
+    *,
+    principal: Principal,
+    target: str,
+    request: XSyncRequest,
+) -> HTTPException:
+    retry_after = exc.retry_after_seconds or request.retry_base_seconds
+    _create_x_log(
+        db,
+        principal=principal,
+        target=target,
+        status="error",
+        message="x rate limited",
+        extra={"retry_after_seconds": retry_after},
+    )
+    db.commit()
+    return HTTPException(
+        status_code=429,
+        detail=f"X rate limited; retry after {retry_after} seconds",
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
+def _queue_x_sync_job(
+    storage: GalleryStorage,
+    catalog: TagCatalog,
+    *,
+    session_factory: sessionmaker[Session],
+    db: Session,
+    principal: Principal,
+    target: str,
+    request: XSyncRequest,
+    targets: list[str] | None = None,
+) -> dict[str, object]:
+    job_id = secrets.token_urlsafe(9).rstrip("=")
+    log = _create_x_log(
+        db,
+        principal=principal,
+        target=target,
+        status="queued",
+        message="x sync queued",
+        extra={
+            "sync_job_id": job_id,
+            "stage": "queued",
+            "progress": 0,
+            "last_update_at": utc_now_iso(),
+            "options": _x_options_log(request),
+        },
+    )
+    db.commit()
+    thread = threading.Thread(
+        target=_run_x_sync_job,
+        args=(storage, catalog, session_factory, principal, target, request, log.id, job_id, targets),
+        daemon=True,
+    )
+    thread.start()
+    return {
+        "status": "queued",
+        "sync_job_id": job_id,
+        "message": "x sync queued",
+        "sync": [],
+        "posts": [],
+        "media": [],
+        "jobs": [],
+        "rebuild": None,
+        "failures": [],
+    }
+
+
+def _run_x_sync_job(
+    storage: GalleryStorage,
+    catalog: TagCatalog,
+    session_factory: sessionmaker[Session],
+    principal: Principal,
+    target: str,
+    request: XSyncRequest,
+    log_id: int,
+    job_id: str,
+    targets: list[str] | None = None,
+) -> None:
+    started_at = time.monotonic()
+    options = _x_options_log(request)
+
+    def update(status: str, message: str, extra: dict[str, object] | None = None) -> None:
+        payload = {
+            "sync_job_id": job_id,
+            "last_update_at": utc_now_iso(),
+            "duration_seconds": round(time.monotonic() - started_at, 1),
+            **(extra or {}),
+        }
+        _commit_pixiv_log_update(
+            session_factory,
+            log_id,
+            status=status,
+            message=message,
+            extra={key: value for key, value in payload.items() if value is not None},
+        )
+
+    def progress(event: dict[str, object]) -> None:
+        update("running", str(event.get("message") or "x sync running"), dict(event))
+
+    try:
+        update("running", "fetching x posts", {"stage": "fetching_posts", "progress": 0, "options": options})
+        config: NyaGalleryConfig = load_config()
+        client, downloader = _x_sync_components(request, config)
+        media_limits = media_limits_from_config(config.media)
+        generator = MediaGenerator(storage, limits=media_limits)
+        service = XSyncService(
+            storage,
+            client=client,
+            downloader=downloader,
+            uploader_user_id=principal.user_id,
+            uploader_username=principal.username,
+            storage_strategy_name=request.storage_strategy,
+            download_media=request.download_media,
+            download_concurrency=request.download_concurrency,
+            name_media_by_post_id=bool(request.name_media_by_post_id),
+            max_video_bytes=media_limits.max_video_bytes,
+            cover_writer=generator.generate_from_cover,
+            progress=progress,
+        )
+        if targets:
+            batch = service.sync_posts(targets)
+            results, failures = list(batch.results), list(batch.failures)
+        else:
+            results = service.sync_user(
+                target,
+                limit=request.limit,
+                backfill=request.backfill,
+                include_replies=request.include_replies,
+                media_only=request.media_only,
+                page_size=request.page_size,
+                max_pages=request.max_pages,
+            )
+            failures = []
+        with session_factory() as session:
+            _x_sync_finish(
+                storage,
+                session,
+                catalog,
+                results,
+                failures=failures,
+                session_factory=session_factory,
+                principal=principal,
+                request=request,
+                log_id=log_id,
+                extra={
+                    "sync_job_id": job_id,
+                    "duration_seconds": round(time.monotonic() - started_at, 1),
+                },
+            )
+    except XRateLimitError as exc:
+        retry_after = exc.retry_after_seconds or request.retry_base_seconds
+        update("error", "x rate limited", {"stage": "error", "retry_after_seconds": retry_after, "options": options})
+    except Exception as exc:  # noqa: BLE001 - background job must record any failure
+        update("error", str(exc), {"stage": "error", "options": options})
+
+
+def _x_sync_finish(
+    storage: GalleryStorage,
+    db: Session,
+    catalog: TagCatalog,
+    results: list[XTweetResult],
+    *,
+    failures: list,
+    session_factory: sessionmaker[Session],
+    principal: Principal,
+    request: XSyncRequest,
+    log_id: int,
+    extra: dict[str, object],
+) -> None:
+    assets = [asset for result in results for asset in result.assets]
+    rebuild_result = rebuild_database(db, storage, catalog) if request.rebuild_db or request.generate_cache else None
+    if rebuild_result is not None:
+        _save_catalog(storage, catalog)
+    jobs: list[dict[str, object] | None] = []
+    cache_tasks: list[tuple[GalleryStorage, sessionmaker[Session], TagCatalog, str, str]] = []
+    if request.generate_cache:
+        for asset_result in assets:
+            if asset_result.status == "skipped" or not asset_result.needs_transcode:
+                continue
+            asset = db.get(AssetModel, asset_result.asset_key)
+            if asset is None:
+                continue
+            existing = db.scalar(
+                select(TranscodeJobModel)
+                .where(
+                    TranscodeJobModel.asset_key == asset.asset_key,
+                    TranscodeJobModel.status.in_(("queued", "running")),
+                )
+                .order_by(TranscodeJobModel.id.desc())
+            )
+            if existing:
+                jobs.append(transcode_job_to_dict(existing))
+                continue
+            job = create_transcode_job(db, asset, source="x", file_size=_asset_original_size(storage, asset))
+            jobs.append(transcode_job_to_dict(job))
+            cache_tasks.append((storage, session_factory, catalog, asset.asset_key, job.job_id))
+        db.commit()
+        for task_args in cache_tasks:
+            _schedule_background_task(None, _generate_cache_and_refresh_asset, *task_args)
+    _update_pixiv_log(
+        db,
+        log_id,
+        status="success",
+        message="x sync completed",
+        extra={
+            "stage": "done",
+            "progress": 100,
+            "sync_count": len(results),
+            "post_count": len(results),
+            "asset_count": len(assets),
+            "downloaded_assets": len([item for item in assets if item.status == "downloaded"]),
+            "skipped_assets": len([item for item in assets if item.status == "skipped"]),
+            "duplicate_assets": len([item for item in assets if item.status == "duplicate"]),
+            "video_assets": len([item for item in assets if not item.needs_transcode]),
+            "queued_transcode_jobs": len([job for job in jobs if job]),
+            "failure_count": len(failures),
+            "failures": [failure.to_dict() for failure in failures][:50],
+            "rebuild": rebuild_result.__dict__ if rebuild_result else None,
+            "options": _x_options_log(request),
+            "last_update_at": utc_now_iso(),
+            **extra,
+        },
+    )
+    db.commit()
+
+
+def _resolve_misskey_request(
+    request: MisskeySyncRequest,
+    config: NyaGalleryConfig,
+    storage: GalleryStorage,
+    *,
+    db: Session | None = None,
+    principal: Principal | None = None,
+    http_request: Request | None = None,
+) -> MisskeySyncRequest:
+    resolved = MisskeySyncRequest(**_model_dump(request))
+    saved_host = ""
+    if resolved.misskey_token_id is not None:
+        if db is None or principal is None:
+            raise MisskeyError("saved Misskey tokens cannot be used in this context")
+        if not _is_admin_principal(principal) and not misskey_token_belongs_to_user(
+            db, resolved.misskey_token_id, principal.user_id
+        ):
+            raise HTTPException(status_code=403, detail="permission denied")
+        try:
+            resolved.token, saved_host = get_misskey_token(
+                db,
+                resolved.misskey_token_id,
+                record_usage=True,
+                client_ip=client_ip(http_request, trust_proxy_headers=False) if http_request is not None else None,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        db.commit()
+    resolved.token = (resolved.token or config.misskey.token or "").strip() or None
+    if not resolved.token:
+        raise MisskeyError("Misskey token is required; save one in the admin page or set [misskey].token")
+    resolved.host = normalize_misskey_host(resolved.host or saved_host or config.misskey.host)
+    if not resolved.proxy_url:
+        resolved.proxy_url = network_proxy_for(config, "misskey") or None
+    resolved.storage_strategy = storage.validate_storage_strategy(resolved.storage_strategy)
+    if resolved.name_media_by_post_id is None:
+        resolved.name_media_by_post_id = config.core.name_media_by_post_id
+    return resolved
+
+
+def _misskey_request_options(request: MisskeySyncRequest) -> MisskeyRequestOptions:
+    return MisskeyRequestOptions(
+        request_delay_seconds=request.request_delay_seconds,
+        max_retries=request.max_retries,
+        retry_base_seconds=request.retry_base_seconds,
+        retry_max_seconds=request.retry_max_seconds,
+        download_concurrency=request.download_concurrency,
+        proxy_url=request.proxy_url or "",
+    )
+
+
+def _misskey_sync_components(request: MisskeySyncRequest) -> tuple[MisskeyClient, MisskeyDownloader]:
+    options = _misskey_request_options(request)
+    host = request.host or MISSKEY_DEFAULT_HOST
+    client = MisskeyClient(token=request.token or "", host=host, options=options, proxy_url=request.proxy_url)
+    downloader = MisskeyDownloader(host=host, options=options, proxy_url=request.proxy_url)
+    return client, downloader
+
+
+def _misskey_options_log(request: MisskeySyncRequest) -> dict[str, object]:
+    return {
+        "host": request.host,
+        "limit": request.limit,
+        "page_size": request.page_size,
+        "max_pages": request.max_pages,
+        "include_replies": request.include_replies,
+        "backfill": request.backfill,
+        "download_media": request.download_media,
+        "download_concurrency": request.download_concurrency,
+        "request_delay_seconds": request.request_delay_seconds,
+        "storage_strategy": request.storage_strategy,
+        "rebuild_db": request.rebuild_db,
+        "generate_cache": request.generate_cache,
+        "proxy_configured": bool(request.proxy_url),
+    }
+
+
+def _misskey_user_preview(user: MisskeyUser) -> dict[str, object]:
+    return {
+        "user_id": user.user_id,
+        "username": user.username,
+        "name": user.display_name,
+        "handle": user.handle,
+        "avatar_url": user.avatar_url,
+        "notes_count": user.notes_count,
+    }
+
+
+def _misskey_note_preview(note: MisskeyNote) -> dict[str, object]:
+    return {
+        "note_id": note.note_id,
+        "created_at": note.created_at,
+        "text": note.text[:200],
+        "cw": note.cw,
+        "file_count": len(note.files),
+        "url": note.url,
+        "tags": list(note.tags),
+    }
+
+
+def _create_misskey_log(
+    db: Session,
+    *,
+    principal: Principal,
+    target: str,
+    host: str,
+    status: str,
+    message: str,
+    extra: dict[str, object] | None = None,
+) -> UploadLogModel:
+    return create_upload_log(
+        db,
+        asset_key=None,
+        uploader_user_id=principal.user_id,
+        uploader_username=principal.username,
+        original_filename=f"misskey:{target}",
+        file_size=None,
+        mime_type=None,
+        event="misskey_sync",
+        status=status,
+        message=message,
+        extra={"target": target, "host": host, **(extra or {})},
+    )
+
+
+def _queue_misskey_sync_job(
+    storage: GalleryStorage,
+    catalog: TagCatalog,
+    *,
+    session_factory: sessionmaker[Session],
+    db: Session,
+    principal: Principal,
+    target: str,
+    request: MisskeySyncRequest,
+) -> dict[str, object]:
+    job_id = secrets.token_urlsafe(9).rstrip("=")
+    log = _create_misskey_log(
+        db,
+        principal=principal,
+        target=target,
+        host=request.host or "",
+        status="queued",
+        message="misskey sync queued",
+        extra={
+            "sync_job_id": job_id,
+            "stage": "queued",
+            "progress": 0,
+            "last_update_at": utc_now_iso(),
+            "options": _misskey_options_log(request),
+        },
+    )
+    db.commit()
+    thread = threading.Thread(
+        target=_run_misskey_sync_job,
+        args=(storage, catalog, session_factory, principal, target, request, log.id, job_id),
+        daemon=True,
+    )
+    thread.start()
+    return {
+        "status": "queued",
+        "sync_job_id": job_id,
+        "message": "misskey sync queued",
+        "sync": [],
+        "posts": [],
+        "media": [],
+        "jobs": [],
+        "rebuild": None,
+    }
+
+
+def _run_misskey_sync_job(
+    storage: GalleryStorage,
+    catalog: TagCatalog,
+    session_factory: sessionmaker[Session],
+    principal: Principal,
+    target: str,
+    request: MisskeySyncRequest,
+    log_id: int,
+    job_id: str,
+) -> None:
+    started_at = time.monotonic()
+    options = _misskey_options_log(request)
+
+    def update(status: str, message: str, extra: dict[str, object] | None = None) -> None:
+        payload = {
+            "sync_job_id": job_id,
+            "last_update_at": utc_now_iso(),
+            "duration_seconds": round(time.monotonic() - started_at, 1),
+            **(extra or {}),
+        }
+        _commit_pixiv_log_update(
+            session_factory,
+            log_id,
+            status=status,
+            message=message,
+            extra={key: value for key, value in payload.items() if value is not None},
+        )
+
+    def progress(event: dict[str, object]) -> None:
+        update("running", str(event.get("message") or "misskey sync running"), dict(event))
+
+    try:
+        update("running", "fetching misskey notes", {"stage": "fetching_notes", "progress": 0, "options": options})
+        client, downloader = _misskey_sync_components(request)
+        service = MisskeySyncService(
+            storage,
+            client=client,
+            downloader=downloader,
+            uploader_user_id=principal.user_id,
+            uploader_username=principal.username,
+            storage_strategy_name=request.storage_strategy,
+            download_media=request.download_media,
+            download_concurrency=request.download_concurrency,
+            name_media_by_post_id=bool(request.name_media_by_post_id),
+            progress=progress,
+        )
+        results = service.sync_user(
+            target,
+            limit=request.limit,
+            backfill=request.backfill,
+            include_replies=request.include_replies,
+            page_size=request.page_size,
+            max_pages=request.max_pages,
+        )
+        with session_factory() as session:
+            _misskey_sync_finish(
+                storage,
+                session,
+                catalog,
+                results,
+                session_factory=session_factory,
+                principal=principal,
+                request=request,
+                log_id=log_id,
+                extra={
+                    "sync_job_id": job_id,
+                    "duration_seconds": round(time.monotonic() - started_at, 1),
+                },
+            )
+    except MisskeyRateLimitError as exc:
+        retry_after = exc.retry_after_seconds or request.retry_base_seconds
+        update(
+            "error",
+            "misskey rate limited",
+            {"stage": "error", "retry_after_seconds": retry_after, "options": options},
+        )
+    except Exception as exc:  # noqa: BLE001 - background job must record any failure
+        update("error", str(exc), {"stage": "error", "options": options})
+
+
+def _misskey_sync_finish(
+    storage: GalleryStorage,
+    db: Session,
+    catalog: TagCatalog,
+    results: list[MisskeyNoteResult],
+    *,
+    session_factory: sessionmaker[Session],
+    principal: Principal,
+    request: MisskeySyncRequest,
+    log_id: int,
+    extra: dict[str, object],
+) -> None:
+    assets = [asset for result in results for asset in result.assets]
+    rebuild_result = rebuild_database(db, storage, catalog) if request.rebuild_db or request.generate_cache else None
+    if rebuild_result is not None:
+        _save_catalog(storage, catalog)
+    jobs: list[dict[str, object] | None] = []
+    cache_tasks: list[tuple[GalleryStorage, sessionmaker[Session], TagCatalog, str, str]] = []
+    if request.generate_cache:
+        for asset_result in assets:
+            if asset_result.status == "skipped":
+                continue
+            asset = db.get(AssetModel, asset_result.asset_key)
+            if asset is None:
+                continue
+            existing = db.scalar(
+                select(TranscodeJobModel)
+                .where(
+                    TranscodeJobModel.asset_key == asset.asset_key,
+                    TranscodeJobModel.status.in_(("queued", "running")),
+                )
+                .order_by(TranscodeJobModel.id.desc())
+            )
+            if existing:
+                jobs.append(transcode_job_to_dict(existing))
+                continue
+            job = create_transcode_job(db, asset, source="misskey", file_size=_asset_original_size(storage, asset))
+            jobs.append(transcode_job_to_dict(job))
+            cache_tasks.append((storage, session_factory, catalog, asset.asset_key, job.job_id))
+        db.commit()
+        for task_args in cache_tasks:
+            _schedule_background_task(None, _generate_cache_and_refresh_asset, *task_args)
+    _update_pixiv_log(
+        db,
+        log_id,
+        status="success",
+        message="misskey sync completed",
+        extra={
+            "stage": "done",
+            "progress": 100,
+            "sync_count": len(results),
+            "post_count": len(results),
+            "asset_count": len(assets),
+            "downloaded_assets": len([item for item in assets if item.status == "downloaded"]),
+            "skipped_assets": len([item for item in assets if item.status == "skipped"]),
+            "duplicate_assets": len([item for item in assets if item.status == "duplicate"]),
+            "queued_transcode_jobs": len([job for job in jobs if job]),
+            "rebuild": rebuild_result.__dict__ if rebuild_result else None,
+            "options": _misskey_options_log(request),
+            "last_update_at": utc_now_iso(),
+            **extra,
+        },
+    )
+    db.commit()
+
+
 def _create_pixiv_log(
     db: Session,
     *,
@@ -3127,7 +5087,10 @@ def require_permission(permission: str):
         if permission in permissions_for_role("guest"):
             return Principal("guest", "guest")
         if not any_users(db):
-            return Principal("bootstrap-admin", "admin")
+            raise HTTPException(
+                status_code=401,
+                detail="no users exist yet; create the first account with `nyagallery setup` on the server",
+            )
         raise HTTPException(status_code=401, detail="login required")
 
     return dependency
@@ -3167,10 +5130,42 @@ def _query_with_guest_safety(query: str, principal: Principal) -> str:
     return " ".join(parts)
 
 
+def _hidden_post_ratings(principal: Principal) -> tuple[str, ...]:
+    if principal.role != "guest":
+        return ()
+    return tuple(sorted(tag.split(":", 1)[1] for tag in SENSITIVE_RATING_TAGS))
+
+
+def _require_sensitive_post_view(post: PostModel, principal: Principal) -> None:
+    if post.age_rating and post.age_rating in _hidden_post_ratings(principal):
+        raise HTTPException(status_code=403, detail="viewer role required for sensitive content")
+
+
+def _index_posts_on_startup(session: Session, post_store: PostStore) -> int:
+    asset_keys = list(
+        session.scalars(
+            select(AssetModel.asset_key)
+            .where(AssetModel.deletion_status.is_(None))
+            .order_by(AssetModel.asset_key)
+            .limit(3)
+        ).all()
+    )
+    seeded = ensure_sample_posts(post_store, asset_keys=asset_keys)
+    linked = link_sample_post_media(post_store, asset_keys=asset_keys)
+    indexed = int(session.scalar(select(func.count()).select_from(PostModel)) or 0)
+    if seeded or linked or (indexed == 0 and not post_store.is_empty()):
+        result = rebuild_posts(session, post_store, replace=True)
+        session.commit()
+        return result.posts
+    return 0
+
+
 def _require_sensitive_view(asset: AssetModel, principal: Principal) -> None:
     if principal.role != "guest":
         return
-    if any(tag.tag in SENSITIVE_RATING_TAGS for tag in asset.tags):
+    if (str(asset.age_rating or "").casefold() in SENSITIVE_RATINGS) or any(
+        tag.tag in SENSITIVE_RATING_TAGS for tag in asset.tags
+    ):
         raise HTTPException(status_code=403, detail="viewer role required for sensitive content")
 
 
@@ -3179,7 +5174,10 @@ def _can_view_asset(asset: AssetModel, principal: Principal) -> bool:
         return False
     if principal.role != "guest":
         return True
-    return not any(tag.tag in SENSITIVE_RATING_TAGS for tag in asset.tags)
+    return not (
+        str(asset.age_rating or "").casefold() in SENSITIVE_RATINGS
+        or any(tag.tag in SENSITIVE_RATING_TAGS for tag in asset.tags)
+    )
 
 
 def _asset_original_size(storage: GalleryStorage, asset: AssetModel) -> int | None:
@@ -3203,10 +5201,10 @@ def _file_size_for_kind(storage: GalleryStorage, asset: AssetModel, kind: str) -
             return storage.file_size(asset.original_path)
         except Exception:
             return None
-    path, _filename = _asset_file_path(storage, asset, kind)
     try:
+        path, _filename = _asset_file_path(storage, asset, kind)
         return path.stat().st_size if path.exists() else None
-    except Exception:
+    except (HTTPException, OSError, StorageError):
         return None
 
 
@@ -3217,6 +5215,7 @@ def _file_response(storage: GalleryStorage, asset: AssetModel, kind: str) -> Fil
     resp = FileResponse(path, filename=filename, media_type=_media_type_for_path(path))
     resp.headers["Content-Disposition"] = _inline_content_disposition(filename)
     resp.headers["X-Asset-Key"] = asset.asset_key
+    resp.headers["Cache-Control"] = CACHE_FILE_CACHE_CONTROL if kind in {"preview", "thumb"} else ORIGINAL_CACHE_CONTROL
     return resp
 
 
@@ -3248,7 +5247,7 @@ def _asset_file_path(storage: GalleryStorage, asset: AssetModel, kind: str) -> t
         path = (
             _existing_path(storage, asset.thumb_path)
             or _path_if_exists(storage.thumb_path(asset.asset_key, ".avif"))
-            or storage.resolve_relative_path(asset.original_path)
+            or _cache_fallback_original(storage, asset)
         )
         filename = path.name
     else:
@@ -3256,10 +5255,17 @@ def _asset_file_path(storage: GalleryStorage, asset: AssetModel, kind: str) -> t
             _existing_path(storage, asset.preview_path)
             or _existing_preview_path(storage, asset.asset_key)
             or _existing_path(storage, asset.thumb_path)
-            or storage.resolve_relative_path(asset.original_path)
+            or _cache_fallback_original(storage, asset)
         )
         filename = path.name
     return path, filename
+
+
+def _cache_fallback_original(storage: GalleryStorage, asset: AssetModel) -> Path:
+    """Serving a whole video as its own thumbnail downloads megabytes per tile, so ask for a cover instead."""
+    if str(asset.mime_type or "").casefold().startswith("video/"):
+        raise HTTPException(status_code=404, detail="no cover generated for this video yet")
+    return storage.resolve_relative_path(asset.original_path)
 
 
 def _inline_content_disposition(filename: str) -> str:
@@ -3282,6 +5288,12 @@ def _media_type_for_path(path: Path) -> str | None:
         return "image/jpeg"
     if suffix == ".zip":
         return "application/zip"
+    if suffix in {".mp4", ".m4v"}:
+        return "video/mp4"
+    if suffix == ".webm":
+        return "video/webm"
+    if suffix == ".mov":
+        return "video/quicktime"
     return None
 
 

@@ -69,6 +69,22 @@ export function sourceTagSecondaryLabel(
   return secondary && secondary !== primary ? secondary : null;
 }
 
+export function isVideoMedia(mimeType?: string | null): boolean {
+  return (mimeType ?? "").toLowerCase().startsWith("video/");
+}
+
+export function formatDateTime(value: string | null | undefined, locale?: string): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString(locale, { dateStyle: "medium", timeStyle: "short" });
+}
+
+/** X delivers GIFs as silent mp4s; they should loop like an image, not sit behind a play button. */
+export function isAnimatedGifMedia(sourceType?: string | null): boolean {
+  return (sourceType ?? "").toLowerCase() === "animated_gif";
+}
+
 export function isHiddenTag(tag: string): boolean {
   const normalized = tag.trim().toLowerCase();
   const idx = normalized.indexOf(":");

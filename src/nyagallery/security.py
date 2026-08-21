@@ -3,9 +3,13 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict, deque
 from dataclasses import dataclass
+from http.client import HTTPConnection, HTTPSConnection
+import ipaddress
 import secrets
+import socket
 from typing import Any, Mapping
 from urllib.parse import urlparse
+from urllib.request import HTTPHandler, HTTPSHandler
 
 from starlette.requests import Request
 
@@ -606,3 +610,118 @@ def _parse_whitelist_entry(entry: str) -> tuple[str, str]:
     if len(parts) == 2 and parts[0].upper() in HTTP_METHODS:
         return parts[0].upper(), parts[1].strip()
     return "*", entry.strip()
+
+
+class OutboundRequestError(RuntimeError):
+    """A scraper was asked to fetch a URL that must not leave the server."""
+
+
+ALLOWED_OUTBOUND_SCHEMES = frozenset({"http", "https"})
+
+
+def assert_outbound_url(url: str, *, allow_private: bool = False, ipv4_only: bool = False) -> str:
+    """Guards every scraper fetch: http(s) only, and no internal addresses by default.
+
+    Rejects file://, ftp:// and friends outright, then resolves the host and refuses
+    loopback, link-local, private and reserved ranges. Self-hosted instances on a LAN
+    need allow_private, which is opt-in per source. ipv4_only checks only A records,
+    matching scrapers that connect through ipv4_only_handlers().
+    """
+    text = str(url or "").strip()
+    parsed = urlparse(text)
+    if parsed.scheme.lower() not in ALLOWED_OUTBOUND_SCHEMES:
+        raise OutboundRequestError(f"refusing to fetch non-HTTP URL: {text[:200]}")
+    host = parsed.hostname or ""
+    if not host:
+        raise OutboundRequestError(f"refusing to fetch URL without a host: {text[:200]}")
+    if allow_private:
+        return text
+    family = socket.AF_INET if ipv4_only else socket.AF_UNSPEC
+    for address in _resolve_host_addresses(host, family=family):
+        if not address.is_global or address.is_multicast:
+            raise OutboundRequestError(f"refusing to fetch internal address {address} for host {host!r}")
+    return text
+
+
+def _resolve_host_addresses(
+    host: str,
+    *,
+    family: int = socket.AF_UNSPEC,
+) -> list[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+    literal = host.strip("[]")
+    try:
+        address = ipaddress.ip_address(literal)
+    except ValueError:
+        pass
+    else:
+        if family == socket.AF_INET and address.version != 4:
+            raise OutboundRequestError(f"refusing non-IPv4 literal host {host!r} in IPv4-only mode")
+        return [address]
+    try:
+        infos = socket.getaddrinfo(host, None, family=family, proto=socket.IPPROTO_TCP)
+    except OSError as exc:
+        raise OutboundRequestError(f"cannot resolve host {host!r}: {exc}") from exc
+    addresses = []
+    for info in infos:
+        try:
+            addresses.append(ipaddress.ip_address(info[4][0]))
+        except ValueError:
+            continue
+    if not addresses:
+        raise OutboundRequestError(f"cannot resolve host {host!r}")
+    return addresses
+
+
+def ipv4_create_connection(
+    address: tuple[str, int],
+    timeout=socket._GLOBAL_DEFAULT_TIMEOUT,
+    source_address=None,
+):
+    """socket.create_connection restricted to A records, so scrapers never try a dead IPv6 route."""
+    host, port = address[0], address[1]
+    last_error: OSError | None = None
+    for family, socket_type, proto, _canonname, sockaddr in socket.getaddrinfo(
+        host, port, socket.AF_INET, socket.SOCK_STREAM
+    ):
+        sock = None
+        try:
+            sock = socket.socket(family, socket_type, proto)
+            if timeout is not socket._GLOBAL_DEFAULT_TIMEOUT:
+                sock.settimeout(timeout)
+            if source_address:
+                sock.bind(source_address)
+            sock.connect(sockaddr)
+            return sock
+        except OSError as exc:
+            last_error = exc
+            if sock is not None:
+                sock.close()
+    if last_error is not None:
+        raise last_error
+    raise OSError(f"no IPv4 address for host {host!r}")
+
+
+class IPv4HTTPConnection(HTTPConnection):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._create_connection = ipv4_create_connection
+
+
+class IPv4HTTPSConnection(HTTPSConnection):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._create_connection = ipv4_create_connection
+
+
+class IPv4HTTPHandler(HTTPHandler):
+    def http_open(self, req):
+        return self.do_open(IPv4HTTPConnection, req)
+
+
+class IPv4HTTPSHandler(HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(IPv4HTTPSConnection, req, context=self._context)
+
+
+def ipv4_only_handlers() -> list[HTTPHandler | HTTPSHandler]:
+    return [IPv4HTTPHandler(), IPv4HTTPSHandler()]

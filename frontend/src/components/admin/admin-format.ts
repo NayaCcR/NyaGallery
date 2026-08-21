@@ -35,11 +35,16 @@ export function terminalStatus(job: TranscodeJob): string {
   return status;
 }
 
-export function localizedPixivMessage(message: string, t: AdminTranslate): string {
-  const key = `admin.pixivMessages.${message}`;
+/** Backend log messages are plain English; look them up per source and fall back to the raw text. */
+export function localizedSyncMessage(namespace: string, message: string, t: AdminTranslate): string {
+  const key = `admin.${namespace}.${message}`;
   const label = t(key);
   if (label !== key) return label;
   return message || "-";
+}
+
+export function localizedPixivMessage(message: string, t: AdminTranslate): string {
+  return localizedSyncMessage("pixivMessages", message, t);
 }
 
 export function pixivStageLabel(stage: string | null, t: AdminTranslate): string {

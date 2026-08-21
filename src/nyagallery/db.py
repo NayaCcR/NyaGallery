@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Iterable
 import uuid
 
-from sqlalchemy import JSON, BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, create_engine, delete, exists, func, inspect, or_, select, text, update
+from sqlalchemy import JSON, BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, delete, exists, func, inspect, or_, select, text, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
@@ -25,6 +25,7 @@ from nyagallery.auth import (
 )
 from nyagallery.metadata import GalleryMetadata
 from nyagallery.metadata import utc_now_iso
+from nyagallery.posts import GalleryPost, PostStore
 from nyagallery.security import normalize_security_settings
 from nyagallery.secret_crypto import decrypt_secret, encrypt_secret, is_encrypted_secret, secret_encryption_enabled
 from nyagallery.storage import GalleryStorage
@@ -135,6 +136,63 @@ class AssetTagModel(Base):
     asset: Mapped[AssetModel] = relationship(back_populates="tags")
 
 
+class PostModel(Base):
+    __tablename__ = "posts"
+    __table_args__ = (
+        UniqueConstraint("source", "source_id", name="uq_post_source_id"),
+    )
+
+    post_key: Mapped[str] = mapped_column(String(180), primary_key=True)
+    source: Mapped[str] = mapped_column(String(40), index=True)
+    source_id: Mapped[str] = mapped_column(String(180), index=True)
+    author_id: Mapped[str] = mapped_column(String(180), default="", index=True)
+    author_name: Mapped[str] = mapped_column(String(240), default="")
+    author_handle: Mapped[str] = mapped_column(String(240), default="", index=True)
+    author_avatar_url: Mapped[str] = mapped_column(String(1000), default="")
+    content: Mapped[str] = mapped_column(Text, default="")
+    content_warning: Mapped[str] = mapped_column(String(1000), default="")
+    posted_at: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
+    crawl_time: Mapped[str] = mapped_column(String(80), default="")
+    source_url: Mapped[str] = mapped_column(String(1000), default="")
+    language: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    visibility: Mapped[str] = mapped_column(String(40), default="public")
+    age_rating: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
+    tags: Mapped[list[str]] = mapped_column(JSON, default=list)
+    canonical_tags: Mapped[list[str]] = mapped_column(JSON, default=list)
+    metrics: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    extra: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    reply_to_url: Mapped[str] = mapped_column(String(1000), default="")
+    repost_of_url: Mapped[str] = mapped_column(String(1000), default="")
+    quote_of_url: Mapped[str] = mapped_column(String(1000), default="")
+    attachment_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+    attachments: Mapped[list["PostAttachmentModel"]] = relationship(
+        back_populates="post",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="PostAttachmentModel.position",
+    )
+
+
+class PostAttachmentModel(Base):
+    __tablename__ = "post_attachments"
+
+    post_key: Mapped[str] = mapped_column(String(180), ForeignKey("posts.post_key", ondelete="CASCADE"), primary_key=True)
+    position: Mapped[int] = mapped_column(Integer, primary_key=True)
+    asset_key: Mapped[str | None] = mapped_column(String(160), nullable=True, index=True)
+    remote_url: Mapped[str] = mapped_column(String(1000), default="")
+    thumbnail_url: Mapped[str] = mapped_column(String(1000), default="")
+    mime_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    description: Mapped[str] = mapped_column(String(1000), default="")
+    is_sensitive: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    post: Mapped[PostModel] = relationship(back_populates="attachments")
+
+
 class UserModel(Base):
     __tablename__ = "users"
 
@@ -200,6 +258,76 @@ class PixivCookieModel(Base):
     pixiv_user_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
     pixiv_account: Mapped[str | None] = mapped_column(String(160), nullable=True)
     pixiv_name: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_by_username: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_used_ip: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class MisskeyTokenModel(Base):
+    __tablename__ = "misskey_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token: Mapped[str] = mapped_column(String(4000))
+    token_hash: Mapped[str] = mapped_column(String(64), index=True)
+    token_prefix: Mapped[str] = mapped_column(String(32), index=True)
+    token_suffix: Mapped[str] = mapped_column(String(32), default="")
+    label: Mapped[str] = mapped_column(String(160), default="")
+    host: Mapped[str] = mapped_column(String(240), default="misskey.io", index=True)
+    misskey_user_id: Mapped[str | None] = mapped_column(String(180), nullable=True, index=True)
+    misskey_username: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    misskey_name: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_by_username: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_used_ip: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class XTokenModel(Base):
+    __tablename__ = "x_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token: Mapped[str] = mapped_column(String(4000))
+    token_hash: Mapped[str] = mapped_column(String(64), index=True)
+    token_prefix: Mapped[str] = mapped_column(String(32), index=True)
+    token_suffix: Mapped[str] = mapped_column(String(32), default="")
+    ct0: Mapped[str] = mapped_column(String(4000), default="")
+    label: Mapped[str] = mapped_column(String(160), default="")
+    host: Mapped[str] = mapped_column(String(240), default="x.com", index=True)
+    x_user_id: Mapped[str | None] = mapped_column(String(180), nullable=True, index=True)
+    x_screen_name: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    x_name: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_by_username: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_used_ip: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class FanboxSessionModel(Base):
+    __tablename__ = "fanbox_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    session_id: Mapped[str] = mapped_column(String(4000))
+    session_hash: Mapped[str] = mapped_column(String(64), index=True)
+    session_prefix: Mapped[str] = mapped_column(String(32), index=True)
+    session_suffix: Mapped[str] = mapped_column(String(32), default="")
+    label: Mapped[str] = mapped_column(String(160), default="")
+    source: Mapped[str] = mapped_column(String(32), default="manual")
+    fanbox_user_id: Mapped[str | None] = mapped_column(String(180), nullable=True, index=True)
+    fanbox_creator_id: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    fanbox_name: Mapped[str | None] = mapped_column(String(240), nullable=True)
     created_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_by_username: Mapped[str | None] = mapped_column(String(80), nullable=True)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -305,6 +433,14 @@ class RebuildResult:
     assets: int
     tags: int
     duplicates: int
+    posts: int = 0
+    post_attachments: int = 0
+
+
+@dataclass(frozen=True)
+class PostRebuildResult:
+    posts: int
+    attachments: int
 
 
 @dataclass(frozen=True)
@@ -424,8 +560,240 @@ def rebuild_database(
         asset_count += 1
         tag_count += len(tags)
 
+    posts = rebuild_posts(session, PostStore(storage.root), replace=replace)
     session.commit()
-    return RebuildResult(asset_count, tag_count, duplicate_count)
+    return RebuildResult(asset_count, tag_count, duplicate_count, posts.posts, posts.attachments)
+
+
+def rebuild_posts(session: Session, store: PostStore, *, replace: bool = True) -> PostRebuildResult:
+    store.ensure()
+    if replace:
+        session.execute(delete(PostAttachmentModel))
+        session.execute(delete(PostModel))
+        session.flush()
+
+    post_count = 0
+    attachment_count = 0
+    for post in store.iter_posts():
+        row = upsert_post(session, post)
+        post_count += 1
+        attachment_count += len(row.attachments)
+    return PostRebuildResult(post_count, attachment_count)
+
+
+def upsert_post(session: Session, post: GalleryPost) -> PostModel:
+    row = session.get(PostModel, post.post_key)
+    if row is None:
+        row = PostModel(post_key=post.post_key)
+        session.add(row)
+
+    row.source = post.source
+    row.source_id = post.source_id
+    row.author_id = post.author_id
+    row.author_name = post.author_name
+    row.author_handle = post.author_handle
+    row.author_avatar_url = post.author_avatar_url
+    row.content = post.content
+    row.content_warning = post.content_warning
+    row.posted_at = post.posted_at or None
+    row.crawl_time = post.crawl_time
+    row.source_url = post.source_url
+    row.language = post.language
+    row.visibility = post.visibility
+    row.age_rating = post.age_rating
+    row.tags = list(post.tags)
+    row.canonical_tags = list(post.canonical_tags)
+    row.metrics = dict(post.metrics) or None
+    row.extra = post.extra or None
+    row.reply_to_url = post.reply_to_url
+    row.repost_of_url = post.repost_of_url
+    row.quote_of_url = post.quote_of_url
+    row.attachment_count = len(post.attachments)
+    row.updated_at = now_utc()
+    row.attachments = [
+        PostAttachmentModel(
+            post_key=post.post_key,
+            position=position,
+            asset_key=attachment.asset_key,
+            remote_url=attachment.remote_url,
+            thumbnail_url=attachment.thumbnail_url,
+            mime_type=attachment.mime_type,
+            width=attachment.width,
+            height=attachment.height,
+            description=attachment.description,
+            is_sensitive=attachment.is_sensitive,
+        )
+        for position, attachment in enumerate(post.attachments)
+    ]
+    session.flush()
+    return row
+
+
+POST_SORT_KEYS = {"posted_at", "added"}
+
+
+def normalize_post_sort(sort: str | None) -> str:
+    key = str(sort or "").strip().casefold()
+    if key in {"added", "crawl_time", "archived"}:
+        return "added"
+    return "posted_at"
+
+
+def list_posts(
+    session: Session,
+    *,
+    limit: int = 20,
+    offset: int = 0,
+    source: str = "",
+    q: str = "",
+    sort: str = "posted_at",
+    order: str = "desc",
+    exclude_ratings: Iterable[str] = (),
+) -> list[PostModel]:
+    statement = _apply_post_filters(select(PostModel), source=source, q=q, exclude_ratings=exclude_ratings)
+    descending = normalize_sort_order(order) == "desc"
+    # crawl_time survives a rebuild because it lives in the post JSON; created_at is reset by it.
+    column = PostModel.crawl_time if normalize_post_sort(sort) == "added" else PostModel.posted_at
+    if descending:
+        statement = statement.order_by(column.is_(None).asc(), column.desc(), PostModel.post_key.desc())
+    else:
+        statement = statement.order_by(column.is_(None).desc(), column.asc(), PostModel.post_key.asc())
+    return list(session.scalars(statement.limit(limit).offset(offset)).unique().all())
+
+
+def count_posts(
+    session: Session,
+    *,
+    source: str = "",
+    q: str = "",
+    exclude_ratings: Iterable[str] = (),
+) -> int:
+    statement = _apply_post_filters(
+        select(func.count()).select_from(PostModel),
+        source=source,
+        q=q,
+        exclude_ratings=exclude_ratings,
+    )
+    return int(session.scalar(statement) or 0)
+
+
+def get_post(session: Session, post_key: str) -> PostModel | None:
+    return session.get(PostModel, post_key)
+
+
+def post_source_counts(session: Session, *, exclude_ratings: Iterable[str] = ()) -> list[dict[str, object]]:
+    statement = _apply_post_filters(
+        select(PostModel.source, func.count()).group_by(PostModel.source),
+        exclude_ratings=exclude_ratings,
+    )
+    rows = session.execute(statement).all()
+    return [
+        {"source": source, "count": int(count)}
+        for source, count in sorted(rows, key=lambda row: (-int(row[1]), str(row[0])))
+    ]
+
+
+def posts_attachment_asset_map(session: Session, posts: Iterable[PostModel]) -> dict[str, AssetModel]:
+    asset_keys = {
+        attachment.asset_key
+        for post in posts
+        for attachment in post.attachments
+        if attachment.asset_key
+    }
+    if not asset_keys:
+        return {}
+    statement = select(AssetModel).where(
+        AssetModel.asset_key.in_(sorted(asset_keys)),
+        AssetModel.deletion_status.is_(None),
+    )
+    return {asset.asset_key: asset for asset in session.scalars(statement).unique().all()}
+
+
+def post_to_dict(post: PostModel, *, assets: dict[str, AssetModel] | None = None) -> dict[str, object]:
+    return {
+        "post_key": post.post_key,
+        "source": post.source,
+        "source_id": post.source_id,
+        "author_id": post.author_id,
+        "author_name": post.author_name,
+        "author_handle": post.author_handle,
+        "author_avatar_url": post.author_avatar_url,
+        "content": post.content,
+        "content_warning": post.content_warning,
+        "posted_at": post.posted_at,
+        "crawl_time": post.crawl_time,
+        "source_url": post.source_url,
+        "language": post.language,
+        "visibility": post.visibility,
+        "age_rating": post.age_rating,
+        "tags": list(post.tags or []),
+        "canonical_tags": list(post.canonical_tags or []),
+        "metrics": dict(post.metrics or {}),
+        "extra": dict(post.extra or {}),
+        "reply_to_url": post.reply_to_url,
+        "repost_of_url": post.repost_of_url,
+        "quote_of_url": post.quote_of_url,
+        "attachment_count": post.attachment_count,
+        "attachments": [
+            _post_attachment_to_dict(attachment, assets or {})
+            for attachment in sorted(post.attachments, key=lambda item: item.position)
+        ],
+    }
+
+
+def _post_attachment_to_dict(
+    attachment: PostAttachmentModel,
+    assets: dict[str, AssetModel],
+) -> dict[str, object]:
+    asset = assets.get(attachment.asset_key) if attachment.asset_key else None
+    width = attachment.width
+    height = attachment.height
+    if asset is not None:
+        width = width or asset.width
+        height = height or asset.height
+    return {
+        "position": attachment.position,
+        "asset_key": attachment.asset_key,
+        "source_type": asset.source_type if asset is not None else None,
+        "remote_url": attachment.remote_url,
+        "thumbnail_url": attachment.thumbnail_url,
+        "mime_type": attachment.mime_type or (asset.mime_type if asset is not None else None),
+        "width": width,
+        "height": height,
+        "description": attachment.description,
+        "is_sensitive": bool(attachment.is_sensitive),
+        "asset_available": asset is not None,
+        "preview_url": (
+            f"/api/assets/{asset.asset_key}/preview" if asset is not None else attachment.remote_url or None
+        ),
+        "thumb_url": (
+            f"/api/assets/{asset.asset_key}/thumb"
+            if asset is not None
+            else attachment.thumbnail_url or attachment.remote_url or None
+        ),
+    }
+
+
+def _apply_post_filters(statement, *, source: str = "", q: str = "", exclude_ratings: Iterable[str] = ()):
+    source_key = str(source or "").strip().casefold()
+    if source_key:
+        statement = statement.where(PostModel.source == source_key)
+    term = str(q or "").strip()
+    if term:
+        pattern = _contains_pattern(term)
+        statement = statement.where(
+            or_(
+                func.lower(PostModel.content).like(pattern, escape="\\"),
+                func.lower(PostModel.author_name).like(pattern, escape="\\"),
+                func.lower(PostModel.author_handle).like(pattern, escape="\\"),
+            )
+        )
+    ratings = [rating for rating in exclude_ratings if rating]
+    if ratings:
+        statement = statement.where(
+            or_(PostModel.age_rating.is_(None), PostModel.age_rating.notin_(ratings))
+        )
+    return statement
 
 
 def backfill_source_tag_index(session: Session, catalog: TagCatalog) -> SourceTagBackfillResult:
@@ -535,13 +903,23 @@ def search_assets(
     return list(session.scalars(statement.limit(limit).offset(offset)).all())
 
 
-def random_asset(session: Session, catalog: TagCatalog, query: str | None = None, *, include_deleted: bool = False) -> AssetModel | None:
+def random_asset(
+    session: Session,
+    catalog: TagCatalog,
+    query: str | None = None,
+    *,
+    include_deleted: bool = False,
+    exclude_ratings: Iterable[str] = (),
+) -> AssetModel | None:
     parsed = catalog.parse_query(query or "")
     if parsed.unknown_required:
         return None
     statement = select(AssetModel).order_by(func.random()).limit(1)
     if not include_deleted:
         statement = statement.where(AssetModel.deletion_status.is_(None))
+    ratings = tuple(str(rating).strip().casefold() for rating in exclude_ratings if str(rating).strip())
+    if ratings:
+        statement = statement.where(or_(AssetModel.age_rating.is_(None), func.lower(AssetModel.age_rating).notin_(ratings)))
     statement = _apply_tag_filters(statement, parsed)
     return session.scalar(statement)
 
@@ -829,6 +1207,451 @@ def pixiv_token_to_dict(token: PixivTokenModel) -> dict[str, object]:
     }
 
 
+def save_misskey_token(
+    session: Session,
+    username: str,
+    token: str,
+    *,
+    label: str = "",
+    host: str = "misskey.io",
+    misskey_user: dict | None = None,
+    created_by_user_id: int | None = None,
+    created_by_username: str | None = None,
+) -> MisskeyTokenModel:
+    user = session.scalar(select(UserModel).where(UserModel.username == username, UserModel.is_active.is_(True)))
+    if user is None:
+        raise ValueError(f"user not found: {username}")
+    value = token.strip()
+    if not value:
+        raise ValueError("Misskey token cannot be empty")
+
+    token_hash = hash_opaque_token(value)
+    row = session.scalar(
+        select(MisskeyTokenModel).where(
+            MisskeyTokenModel.user_id == user.id,
+            MisskeyTokenModel.token_hash == token_hash,
+        )
+    )
+    if row is None:
+        row = MisskeyTokenModel(
+            user_id=user.id,
+            token=encrypt_secret(value),
+            token_hash=token_hash,
+            token_prefix=token_prefix(value),
+            token_suffix=value[-8:] if len(value) > 8 else value,
+            created_by_user_id=created_by_user_id,
+            created_by_username=created_by_username,
+        )
+        session.add(row)
+    else:
+        row.token = encrypt_secret(value)
+        row.token_prefix = token_prefix(value)
+        row.token_suffix = value[-8:] if len(value) > 8 else value
+        row.revoked_at = None
+
+    row.label = label.strip()[:160]
+    row.host = (host or "misskey.io").strip()[:240] or "misskey.io"
+    _apply_misskey_user(row, misskey_user)
+    row.updated_at = now_utc()
+    user.updated_at = now_utc()
+    session.commit()
+    return row
+
+
+def list_misskey_tokens(session: Session, username: str) -> list[MisskeyTokenModel]:
+    user = session.scalar(select(UserModel).where(UserModel.username == username, UserModel.is_active.is_(True)))
+    if user is None:
+        raise ValueError(f"user not found: {username}")
+    return list(
+        session.scalars(
+            select(MisskeyTokenModel)
+            .where(MisskeyTokenModel.user_id == user.id)
+            .order_by(MisskeyTokenModel.updated_at.desc(), MisskeyTokenModel.id.desc())
+        ).all()
+    )
+
+
+def update_misskey_token_label(session: Session, token_id: int, label: str) -> MisskeyTokenModel:
+    row = session.get(MisskeyTokenModel, token_id)
+    if row is None:
+        raise ValueError(f"Misskey token not found: {token_id}")
+    row.label = label.strip()[:160]
+    row.updated_at = now_utc()
+    session.commit()
+    return row
+
+
+def revoke_misskey_token(session: Session, token_id: int) -> MisskeyTokenModel:
+    row = session.get(MisskeyTokenModel, token_id)
+    if row is None:
+        raise ValueError(f"Misskey token not found: {token_id}")
+    if row.revoked_at is None:
+        row.revoked_at = now_utc()
+        row.updated_at = row.revoked_at
+        session.commit()
+    return row
+
+
+def misskey_token_belongs_to_user(session: Session, token_id: int, user_id: int | None) -> bool:
+    if user_id is None:
+        return False
+    row = session.get(MisskeyTokenModel, token_id)
+    return bool(row and row.user_id == user_id)
+
+
+def get_misskey_token(
+    session: Session,
+    token_id: int,
+    *,
+    record_usage: bool = False,
+    client_ip: str | None = None,
+) -> tuple[str, str]:
+    """Returns the decrypted token and its instance host."""
+    row = session.get(MisskeyTokenModel, token_id)
+    if row is None or row.revoked_at is not None:
+        raise ValueError(f"Misskey token not found: {token_id}")
+    if record_usage:
+        row.last_used_at = now_utc()
+        row.last_used_ip = (client_ip or "")[:120] or None
+        row.updated_at = now_utc()
+        session.flush()
+    return decrypt_secret(row.token), row.host
+
+
+def misskey_token_to_dict(token: MisskeyTokenModel) -> dict[str, object]:
+    return {
+        "id": token.id,
+        "user_id": token.user_id,
+        "token_prefix": token.token_prefix,
+        "token_suffix": token.token_suffix,
+        "label": token.label,
+        "host": token.host,
+        "misskey_user_id": token.misskey_user_id,
+        "misskey_username": token.misskey_username,
+        "misskey_name": token.misskey_name,
+        "created_by_user_id": token.created_by_user_id,
+        "created_by_username": token.created_by_username,
+        "last_used_at": _datetime_to_iso(token.last_used_at),
+        "last_used_ip": token.last_used_ip,
+        "revoked_at": _datetime_to_iso(token.revoked_at),
+        "created_at": _datetime_to_iso(token.created_at),
+        "updated_at": _datetime_to_iso(token.updated_at),
+        "is_active": token.revoked_at is None,
+    }
+
+
+def _apply_misskey_user(row: MisskeyTokenModel, misskey_user: dict | None) -> None:
+    if not isinstance(misskey_user, dict):
+        return
+    user_id = _optional_text(misskey_user.get("user_id") or misskey_user.get("id"), max_length=180)
+    username = _optional_text(misskey_user.get("username"), max_length=240)
+    name = _optional_text(misskey_user.get("name"), max_length=240)
+    if user_id:
+        row.misskey_user_id = user_id
+    if username:
+        row.misskey_username = username
+    if name:
+        row.misskey_name = name
+
+
+def save_x_token(
+    session: Session,
+    username: str,
+    token: str,
+    *,
+    ct0: str = "",
+    label: str = "",
+    host: str = "x.com",
+    x_user: dict | None = None,
+    created_by_user_id: int | None = None,
+    created_by_username: str | None = None,
+) -> XTokenModel:
+    user = session.scalar(select(UserModel).where(UserModel.username == username, UserModel.is_active.is_(True)))
+    if user is None:
+        raise ValueError(f"user not found: {username}")
+    value = token.strip()
+    if not value:
+        raise ValueError("X auth_token cannot be empty")
+
+    token_hash = hash_opaque_token(value)
+    row = session.scalar(
+        select(XTokenModel).where(
+            XTokenModel.user_id == user.id,
+            XTokenModel.token_hash == token_hash,
+        )
+    )
+    if row is None:
+        row = XTokenModel(
+            user_id=user.id,
+            token=encrypt_secret(value),
+            token_hash=token_hash,
+            token_prefix=token_prefix(value),
+            token_suffix=value[-8:] if len(value) > 8 else value,
+            created_by_user_id=created_by_user_id,
+            created_by_username=created_by_username,
+        )
+        session.add(row)
+    else:
+        row.token = encrypt_secret(value)
+        row.token_prefix = token_prefix(value)
+        row.token_suffix = value[-8:] if len(value) > 8 else value
+        row.revoked_at = None
+
+    if ct0.strip():
+        row.ct0 = encrypt_secret(ct0.strip())
+    row.label = label.strip()[:160]
+    row.host = (host or "x.com").strip()[:240] or "x.com"
+    _apply_x_user(row, x_user)
+    row.updated_at = now_utc()
+    user.updated_at = now_utc()
+    session.commit()
+    return row
+
+
+def list_x_tokens(session: Session, username: str) -> list[XTokenModel]:
+    user = session.scalar(select(UserModel).where(UserModel.username == username, UserModel.is_active.is_(True)))
+    if user is None:
+        raise ValueError(f"user not found: {username}")
+    return list(
+        session.scalars(
+            select(XTokenModel)
+            .where(XTokenModel.user_id == user.id)
+            .order_by(XTokenModel.updated_at.desc(), XTokenModel.id.desc())
+        ).all()
+    )
+
+
+def update_x_token_label(session: Session, token_id: int, label: str) -> XTokenModel:
+    row = session.get(XTokenModel, token_id)
+    if row is None:
+        raise ValueError(f"X token not found: {token_id}")
+    row.label = label.strip()[:160]
+    row.updated_at = now_utc()
+    session.commit()
+    return row
+
+
+def revoke_x_token(session: Session, token_id: int) -> XTokenModel:
+    row = session.get(XTokenModel, token_id)
+    if row is None:
+        raise ValueError(f"X token not found: {token_id}")
+    if row.revoked_at is None:
+        row.revoked_at = now_utc()
+        row.updated_at = row.revoked_at
+        session.commit()
+    return row
+
+
+def x_token_belongs_to_user(session: Session, token_id: int, user_id: int | None) -> bool:
+    if user_id is None:
+        return False
+    row = session.get(XTokenModel, token_id)
+    return bool(row and row.user_id == user_id)
+
+
+def get_x_token(
+    session: Session,
+    token_id: int,
+    *,
+    record_usage: bool = False,
+    client_ip: str | None = None,
+) -> tuple[str, str, str]:
+    """Returns the decrypted auth_token, its ct0 companion and the instance host."""
+    row = session.get(XTokenModel, token_id)
+    if row is None or row.revoked_at is not None:
+        raise ValueError(f"X token not found: {token_id}")
+    if record_usage:
+        row.last_used_at = now_utc()
+        row.last_used_ip = (client_ip or "")[:120] or None
+        row.updated_at = now_utc()
+        session.flush()
+    return decrypt_secret(row.token), decrypt_secret(row.ct0) if row.ct0 else "", row.host
+
+
+def x_token_to_dict(token: XTokenModel) -> dict[str, object]:
+    return {
+        "id": token.id,
+        "user_id": token.user_id,
+        "token_prefix": token.token_prefix,
+        "token_suffix": token.token_suffix,
+        "has_ct0": bool(token.ct0),
+        "label": token.label,
+        "host": token.host,
+        "x_user_id": token.x_user_id,
+        "x_screen_name": token.x_screen_name,
+        "x_name": token.x_name,
+        "created_by_user_id": token.created_by_user_id,
+        "created_by_username": token.created_by_username,
+        "last_used_at": _datetime_to_iso(token.last_used_at),
+        "last_used_ip": token.last_used_ip,
+        "revoked_at": _datetime_to_iso(token.revoked_at),
+        "created_at": _datetime_to_iso(token.created_at),
+        "updated_at": _datetime_to_iso(token.updated_at),
+        "is_active": token.revoked_at is None,
+    }
+
+
+def _apply_x_user(row: XTokenModel, x_user: dict | None) -> None:
+    if not isinstance(x_user, dict):
+        return
+    user_id = _optional_text(x_user.get("user_id") or x_user.get("id"), max_length=180)
+    screen_name = _optional_text(x_user.get("screen_name") or x_user.get("username"), max_length=240)
+    name = _optional_text(x_user.get("name"), max_length=240)
+    if user_id:
+        row.x_user_id = user_id
+    if screen_name:
+        row.x_screen_name = screen_name
+    if name:
+        row.x_name = name
+
+
+def save_fanbox_session(
+    session: Session,
+    username: str,
+    session_id: str,
+    *,
+    label: str = "",
+    source: str = "manual",
+    fanbox_user: dict | None = None,
+    created_by_user_id: int | None = None,
+    created_by_username: str | None = None,
+) -> FanboxSessionModel:
+    user = session.scalar(select(UserModel).where(UserModel.username == username, UserModel.is_active.is_(True)))
+    if user is None:
+        raise ValueError(f"user not found: {username}")
+    value = session_id.strip()
+    if not value:
+        raise ValueError("FANBOXSESSID cannot be empty")
+
+    session_hash = hash_opaque_token(value)
+    row = session.scalar(
+        select(FanboxSessionModel).where(
+            FanboxSessionModel.user_id == user.id,
+            FanboxSessionModel.session_hash == session_hash,
+        )
+    )
+    if row is None:
+        row = FanboxSessionModel(
+            user_id=user.id,
+            session_id=encrypt_secret(value),
+            session_hash=session_hash,
+            session_prefix=token_prefix(value),
+            session_suffix=value[-8:] if len(value) > 8 else value,
+            created_by_user_id=created_by_user_id,
+            created_by_username=created_by_username,
+        )
+        session.add(row)
+    else:
+        row.session_id = encrypt_secret(value)
+        row.session_prefix = token_prefix(value)
+        row.session_suffix = value[-8:] if len(value) > 8 else value
+        row.revoked_at = None
+
+    row.label = label.strip()[:160]
+    row.source = (source or "manual").strip()[:32] or "manual"
+    _apply_fanbox_user(row, fanbox_user)
+    row.updated_at = now_utc()
+    user.updated_at = now_utc()
+    session.commit()
+    return row
+
+
+def list_fanbox_sessions(session: Session, username: str) -> list[FanboxSessionModel]:
+    user = session.scalar(select(UserModel).where(UserModel.username == username, UserModel.is_active.is_(True)))
+    if user is None:
+        raise ValueError(f"user not found: {username}")
+    return list(
+        session.scalars(
+            select(FanboxSessionModel)
+            .where(FanboxSessionModel.user_id == user.id)
+            .order_by(FanboxSessionModel.updated_at.desc(), FanboxSessionModel.id.desc())
+        ).all()
+    )
+
+
+def update_fanbox_session_label(session: Session, session_row_id: int, label: str) -> FanboxSessionModel:
+    row = session.get(FanboxSessionModel, session_row_id)
+    if row is None:
+        raise ValueError(f"Fanbox session not found: {session_row_id}")
+    row.label = label.strip()[:160]
+    row.updated_at = now_utc()
+    session.commit()
+    return row
+
+
+def revoke_fanbox_session(session: Session, session_row_id: int) -> FanboxSessionModel:
+    row = session.get(FanboxSessionModel, session_row_id)
+    if row is None:
+        raise ValueError(f"Fanbox session not found: {session_row_id}")
+    if row.revoked_at is None:
+        row.revoked_at = now_utc()
+        row.updated_at = row.revoked_at
+        session.commit()
+    return row
+
+
+def fanbox_session_belongs_to_user(session: Session, session_row_id: int, user_id: int | None) -> bool:
+    if user_id is None:
+        return False
+    row = session.get(FanboxSessionModel, session_row_id)
+    return bool(row and row.user_id == user_id)
+
+
+def get_fanbox_session(
+    session: Session,
+    session_row_id: int,
+    *,
+    record_usage: bool = False,
+    client_ip: str | None = None,
+) -> str:
+    """Returns the decrypted FANBOXSESSID."""
+    row = session.get(FanboxSessionModel, session_row_id)
+    if row is None or row.revoked_at is not None:
+        raise ValueError(f"Fanbox session not found: {session_row_id}")
+    if record_usage:
+        row.last_used_at = now_utc()
+        row.last_used_ip = (client_ip or "")[:120] or None
+        row.updated_at = now_utc()
+        session.flush()
+    return decrypt_secret(row.session_id)
+
+
+def fanbox_session_to_dict(row: FanboxSessionModel) -> dict[str, object]:
+    return {
+        "id": row.id,
+        "user_id": row.user_id,
+        "session_prefix": row.session_prefix,
+        "session_suffix": row.session_suffix,
+        "label": row.label,
+        "source": row.source,
+        "fanbox_user_id": row.fanbox_user_id,
+        "fanbox_creator_id": row.fanbox_creator_id,
+        "fanbox_name": row.fanbox_name,
+        "created_by_user_id": row.created_by_user_id,
+        "created_by_username": row.created_by_username,
+        "last_used_at": _datetime_to_iso(row.last_used_at),
+        "last_used_ip": row.last_used_ip,
+        "revoked_at": _datetime_to_iso(row.revoked_at),
+        "created_at": _datetime_to_iso(row.created_at),
+        "updated_at": _datetime_to_iso(row.updated_at),
+        "is_active": row.revoked_at is None,
+    }
+
+
+def _apply_fanbox_user(row: FanboxSessionModel, fanbox_user: dict | None) -> None:
+    if not isinstance(fanbox_user, dict):
+        return
+    user_id = _optional_text(fanbox_user.get("user_id") or fanbox_user.get("userId"), max_length=180)
+    creator_id = _optional_text(fanbox_user.get("creator_id") or fanbox_user.get("creatorId"), max_length=240)
+    name = _optional_text(fanbox_user.get("name"), max_length=240)
+    if user_id:
+        row.fanbox_user_id = user_id
+    if creator_id:
+        row.fanbox_creator_id = creator_id
+    if name:
+        row.fanbox_name = name
+
+
 def save_pixiv_cookie(
     session: Session,
     username: str,
@@ -939,9 +1762,12 @@ def get_pixiv_cookie(
 
 def encrypt_stored_pixiv_credentials(session: Session) -> dict[str, int]:
     if not secret_encryption_enabled():
-        return {"pixiv_tokens": 0, "pixiv_cookies": 0}
+        return {"pixiv_tokens": 0, "pixiv_cookies": 0, "misskey_tokens": 0, "x_tokens": 0, "fanbox_sessions": 0}
     token_count = 0
     cookie_count = 0
+    misskey_count = 0
+    x_count = 0
+    fanbox_count = 0
     for row in session.scalars(select(PixivTokenModel)).all():
         if row.refresh_token and not is_encrypted_secret(row.refresh_token):
             row.refresh_token = encrypt_secret(row.refresh_token)
@@ -952,9 +1778,36 @@ def encrypt_stored_pixiv_credentials(session: Session) -> dict[str, int]:
             row.cookie = encrypt_secret(row.cookie)
             row.updated_at = now_utc()
             cookie_count += 1
-    if token_count or cookie_count:
+    for row in session.scalars(select(MisskeyTokenModel)).all():
+        if row.token and not is_encrypted_secret(row.token):
+            row.token = encrypt_secret(row.token)
+            row.updated_at = now_utc()
+            misskey_count += 1
+    for row in session.scalars(select(XTokenModel)).all():
+        changed = False
+        if row.token and not is_encrypted_secret(row.token):
+            row.token = encrypt_secret(row.token)
+            changed = True
+        if row.ct0 and not is_encrypted_secret(row.ct0):
+            row.ct0 = encrypt_secret(row.ct0)
+            changed = True
+        if changed:
+            row.updated_at = now_utc()
+            x_count += 1
+    for row in session.scalars(select(FanboxSessionModel)).all():
+        if row.session_id and not is_encrypted_secret(row.session_id):
+            row.session_id = encrypt_secret(row.session_id)
+            row.updated_at = now_utc()
+            fanbox_count += 1
+    if token_count or cookie_count or misskey_count or x_count or fanbox_count:
         session.commit()
-    return {"pixiv_tokens": token_count, "pixiv_cookies": cookie_count}
+    return {
+        "pixiv_tokens": token_count,
+        "pixiv_cookies": cookie_count,
+        "misskey_tokens": misskey_count,
+        "x_tokens": x_count,
+        "fanbox_sessions": fanbox_count,
+    }
 
 
 def pixiv_cookie_to_dict(cookie: PixivCookieModel) -> dict[str, object]:
@@ -1088,6 +1941,7 @@ def asset_to_dict(asset: AssetModel, catalog: TagCatalog | None = None) -> dict[
         "canonical_tags": list(asset.canonical_tags or []),
         "width": asset.width,
         "height": asset.height,
+        "mime_type": asset.mime_type,
         "crawl_time": asset.crawl_time,
         "artwork_date": asset.artwork_date,
         "pixiv_upload_date": asset.pixiv_upload_date,
@@ -1307,6 +2161,66 @@ def list_pixiv_logs(
     statement = (
         select(UploadLogModel)
         .where(UploadLogModel.event.in_(("pixiv_sync", "pixiv_import")))
+        .order_by(UploadLogModel.created_at.desc(), UploadLogModel.id.desc())
+    )
+    if not is_admin:
+        statement = statement.where(UploadLogModel.uploader_user_id == user_id)
+    return list(session.scalars(statement.limit(limit).offset(offset)).all())
+
+
+def list_misskey_logs(
+    session: Session,
+    *,
+    user_id: int | None,
+    is_admin: bool,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[UploadLogModel]:
+    if not is_admin and user_id is None:
+        return []
+    statement = (
+        select(UploadLogModel)
+        .where(UploadLogModel.event.in_(("misskey_sync", "misskey_import")))
+        .order_by(UploadLogModel.created_at.desc(), UploadLogModel.id.desc())
+    )
+    if not is_admin:
+        statement = statement.where(UploadLogModel.uploader_user_id == user_id)
+    return list(session.scalars(statement.limit(limit).offset(offset)).all())
+
+
+def list_x_logs(
+    session: Session,
+    *,
+    user_id: int | None,
+    is_admin: bool,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[UploadLogModel]:
+    if not is_admin and user_id is None:
+        return []
+    statement = (
+        select(UploadLogModel)
+        .where(UploadLogModel.event.in_(("x_sync", "x_import")))
+        .order_by(UploadLogModel.created_at.desc(), UploadLogModel.id.desc())
+    )
+    if not is_admin:
+        statement = statement.where(UploadLogModel.uploader_user_id == user_id)
+    return list(session.scalars(statement.limit(limit).offset(offset)).all())
+
+
+def list_fanbox_logs(
+    session: Session,
+    *,
+    user_id: int | None,
+    is_admin: bool,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[UploadLogModel]:
+    if not is_admin and user_id is None:
+        return []
+    statement = (
+        select(UploadLogModel)
+        .where(UploadLogModel.event.in_(("fanbox_sync", "fanbox_import")))
         .order_by(UploadLogModel.created_at.desc(), UploadLogModel.id.desc())
     )
     if not is_admin:
@@ -1738,8 +2652,16 @@ def _apply_sort(statement, sort: str | None, order: str | None):
     expression = _sort_expression(sort_key)
     empty_last = func.coalesce(expression, "") == ""
     sorted_expression = expression.desc() if direction == "desc" else expression.asc()
-    tie_breaker = AssetModel.asset_key.desc() if direction == "desc" else AssetModel.asset_key.asc()
-    return statement.order_by(empty_last.asc(), sorted_expression, tie_breaker)
+    # Pages of one work always read p0, p1, p2 even when the works themselves are newest-first.
+    group = AssetModel.source_id.desc() if direction == "desc" else AssetModel.source_id.asc()
+    return statement.order_by(
+        empty_last.asc(),
+        sorted_expression,
+        group,
+        AssetModel.page_index.is_(None).asc(),
+        AssetModel.page_index.asc(),
+        AssetModel.asset_key.asc(),
+    )
 
 
 def _sort_expression(sort_key: str):

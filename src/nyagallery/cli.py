@@ -17,6 +17,7 @@ from nyagallery.config import (
     save_config_file,
 )
 from nyagallery.db import (
+    AssetModel,
     UserModel,
     create_engine_for_url,
     create_user,
@@ -28,11 +29,42 @@ from nyagallery.db import (
     make_session_factory,
     now_utc,
     rebuild_database,
+    rebuild_posts,
     set_user_password,
     update_security_settings,
 )
 from nyagallery.auth import hash_password
-from nyagallery.media import MediaGenerator
+from nyagallery.media import MediaGenerator, media_limits_from_config
+from nyagallery.misskey import (
+    MisskeyClient,
+    MisskeyDownloader,
+    MisskeyRequestOptions,
+    MisskeySyncService,
+    normalize_page_size,
+)
+from nyagallery.fanbox import (
+    FanboxClient,
+    FanboxCredentials,
+    FanboxDownloader,
+    FanboxRequestOptions,
+    FanboxSyncService,
+    exchange_pixiv_cookie_for_fanbox_session,
+    normalize_creator_id,
+    normalize_page_size as normalize_fanbox_page_size,
+    split_batch_input as fanbox_split_batch_input,
+)
+from nyagallery.x import (
+    XClient,
+    XCredentials,
+    XDownloader,
+    XGraphqlOperations,
+    XRequestOptions,
+    XSyncService,
+    normalize_page_size as normalize_x_page_size,
+    normalize_screen_name,
+    split_batch_input,
+)
+from nyagallery.posts import PostStore, ensure_sample_posts, link_sample_post_media, sample_posts
 from nyagallery.pixiv import (
     PixivOAuthError,
     HTTPPixivDownloader,
@@ -122,6 +154,82 @@ def main(argv: list[str] | None = None) -> int:
 
     migrate_metadata = subparsers.add_parser("migrate-metadata", help="Rewrite per-asset metadata JSON files into creator-grouped JSON files.")
     migrate_metadata.add_argument("--keep-legacy", action="store_true", help="Keep legacy per-asset JSON files in place.")
+
+    misskey_sync = subparsers.add_parser(
+        "misskey-sync-user",
+        help="Archive a Misskey user's notes as posts and their media as gallery assets.",
+    )
+    misskey_sync.add_argument("username", help="Misskey username, optionally user@host.")
+    misskey_sync.add_argument("-t", "--token", default=None, help="API token (also reads MISSKEY_TOKEN or [misskey].token).")
+    misskey_sync.add_argument("--host", default=None, help="Misskey host (default: misskey.io or [misskey].host).")
+    misskey_sync.add_argument("--limit", type=int, default=None, help="Maximum notes to fetch this run.")
+    misskey_sync.add_argument("--page-size", type=int, default=None, help="Notes per API request (1-100).")
+    misskey_sync.add_argument("--max-pages", type=int, default=None, help="Maximum API pages to walk.")
+    misskey_sync.add_argument("--no-media", action="store_true", help="Store note text only, keeping remote media URLs.")
+    misskey_sync.add_argument("--no-backfill", action="store_true", help="Skip walking older notes than the archive.")
+    misskey_sync.add_argument("--no-replies", action="store_true", help="Exclude replies.")
+    misskey_sync.add_argument("--download-concurrency", type=int, default=None, help="Parallel media downloads.")
+    misskey_sync.add_argument("--request-delay", type=float, default=None, help="Seconds between API requests.")
+    misskey_sync.add_argument("--storage-strategy", default=None, help="Original storage strategy for downloaded media.")
+    misskey_sync.add_argument("--generate-cache", action="store_true", help="Generate previews/thumbs after syncing.")
+    misskey_sync.add_argument("--dry-run", action="store_true", help="Print what would be archived without writing.")
+
+    for name, help_text in (
+        ("x-sync-user", "Archive an X user's posts as posts and their photos/videos as gallery assets."),
+        ("x-sync-posts", "Archive one or more X post URLs or ids as posts and gallery assets."),
+    ):
+        x_sync = subparsers.add_parser(name, help=help_text)
+        if name == "x-sync-user":
+            x_sync.add_argument("username", help="X username, with or without the leading @.")
+            x_sync.add_argument("--limit", type=int, default=None, help="Maximum posts to fetch this run.")
+            x_sync.add_argument("--page-size", type=int, default=None, help="Posts per timeline request (1-100).")
+            x_sync.add_argument("--max-pages", type=int, default=None, help="Maximum timeline pages to walk.")
+            x_sync.add_argument("--media-only", action="store_true", help="Walk the media tab instead of all posts.")
+            x_sync.add_argument("--no-backfill", action="store_true", help="Stop at the newest already-archived post.")
+            x_sync.add_argument("--no-replies", action="store_true", help="Exclude replies.")
+        else:
+            x_sync.add_argument("targets", nargs="+", help="Post URLs or ids; each may also be a separated list.")
+        x_sync.add_argument("--auth-token", default=None, help="Session auth_token (also reads X_AUTH_TOKEN or [x].auth_token).")
+        x_sync.add_argument("--ct0", default=None, help="Session ct0 CSRF token (also reads X_CT0 or [x].ct0).")
+        x_sync.add_argument("--no-media", action="store_true", help="Store post text only, keeping remote media URLs.")
+        x_sync.add_argument("--download-concurrency", type=int, default=None, help="Parallel media downloads.")
+        x_sync.add_argument("--request-delay", type=float, default=None, help="Seconds between API requests.")
+        x_sync.add_argument("--storage-strategy", default=None, help="Original storage strategy for downloaded media.")
+        x_sync.add_argument("--generate-cache", action="store_true", help="Generate previews/thumbs after syncing.")
+        x_sync.add_argument("--dry-run", action="store_true", help="Print what would be archived without writing.")
+
+    fanbox_login = subparsers.add_parser(
+        "fanbox-login",
+        help="Derive a FANBOXSESSID from a Pixiv session cookie (Fanbox will not accept the Pixiv cookie directly).",
+    )
+    fanbox_login.add_argument("-c", "--cookie", default=None, help="Pixiv session cookie (also reads [pixiv].cookie).")
+    fanbox_login.add_argument("--show-browser", action="store_true", help="Run the exchange with a visible browser.")
+    fanbox_login.add_argument("--timeout", type=int, default=120, help="Seconds to wait for the session cookie.")
+
+    for name, help_text in (
+        ("fanbox-sync-creator", "Archive a FANBOX creator's posts as posts and their media as gallery assets."),
+        ("fanbox-sync-posts", "Archive one or more FANBOX post URLs or ids."),
+    ):
+        fanbox_sync = subparsers.add_parser(name, help=help_text)
+        if name == "fanbox-sync-creator":
+            fanbox_sync.add_argument("creator", help="Creator id, @handle, or creator URL.")
+            fanbox_sync.add_argument("--limit", type=int, default=None, help="Maximum posts to fetch this run.")
+            fanbox_sync.add_argument("--page-size", type=int, default=None, help="Posts per list request (1-300).")
+            fanbox_sync.add_argument("--max-pages", type=int, default=None, help="Maximum list pages to walk.")
+            fanbox_sync.add_argument("--no-backfill", action="store_true", help="Stop at the newest archived post.")
+        else:
+            fanbox_sync.add_argument("targets", nargs="+", help="Post URLs or ids; each may also be a separated list.")
+        fanbox_sync.add_argument("-s", "--session", default=None, help="FANBOXSESSID (also reads FANBOXSESSID or [fanbox].session_id).")
+        fanbox_sync.add_argument("--no-media", action="store_true", help="Store post text only, keeping remote URLs.")
+        fanbox_sync.add_argument("--no-files", action="store_true", help="Skip non-image attachments.")
+        fanbox_sync.add_argument("--download-concurrency", type=int, default=None, help="Parallel media downloads.")
+        fanbox_sync.add_argument("--request-delay", type=float, default=None, help="Seconds between API requests.")
+        fanbox_sync.add_argument("--storage-strategy", default=None, help="Original storage strategy for downloaded media.")
+        fanbox_sync.add_argument("--generate-cache", action="store_true", help="Generate previews/thumbs after syncing.")
+        fanbox_sync.add_argument("--dry-run", action="store_true", help="Print what would be archived without writing.")
+
+    posts_seed = subparsers.add_parser("posts-seed", help="Write the sample posts and index them into the database.")
+    posts_seed.add_argument("--force", action="store_true", help="Write the sample posts again even if seeding already ran.")
 
     rebuild_db = subparsers.add_parser("rebuild-db", help="Rebuild the database index from metadata JSON.")
     rebuild_db.add_argument("--generate-cache", action="store_true")
@@ -279,6 +387,382 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
 
+    if args.command == "misskey-sync-user":
+        token = args.token or config.misskey.token
+        if not token:
+            print("error: provide --token, set MISSKEY_TOKEN, or configure [misskey].token")
+            return 2
+        options = MisskeyRequestOptions(
+            request_delay_seconds=(
+                args.request_delay if args.request_delay is not None else config.misskey.default_request_delay_seconds
+            ),
+            download_concurrency=args.download_concurrency or config.misskey.download_concurrency,
+            proxy_url=network_proxy_for(config, "misskey") or "",
+        )
+        host = args.host or config.misskey.host
+        page_size = normalize_page_size(args.page_size or config.misskey.page_size)
+        client = MisskeyClient(token=token, host=host, options=options)
+        if args.dry_run:
+            user = client.get_user(args.username)
+            notes = list(
+                client.iter_user_notes(
+                    user.user_id,
+                    limit=args.limit or 20,
+                    include_replies=not args.no_replies,
+                    page_size=page_size,
+                    max_pages=args.max_pages,
+                )
+            )
+            print(
+                json.dumps(
+                    {
+                        "user": {"id": user.user_id, "handle": user.handle, "notes_count": user.notes_count},
+                        "notes": [
+                            {"id": n.note_id, "created_at": n.created_at, "files": len(n.files), "cw": n.cw}
+                            for n in notes
+                        ],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            return 0
+
+        def report(event: dict) -> None:
+            if event.get("stage") in {"page_fetched", "user_started", "user_done"}:
+                parts = [str(event.get("message") or "")]
+                for key in ("page", "sync_count", "remaining", "notes_count", "progress"):
+                    if event.get(key) is not None:
+                        parts.append(f"{key}={event[key]}")
+                print("  " + " ".join(parts))
+
+        service = MisskeySyncService(
+            storage,
+            client=client,
+            downloader=MisskeyDownloader(host=host, options=options),
+            storage_strategy_name=args.storage_strategy,
+            download_media=not args.no_media,
+            download_concurrency=options.download_concurrency,
+            progress=report,
+        )
+        results = service.sync_user(
+            args.username,
+            limit=args.limit,
+            backfill=not args.no_backfill,
+            include_replies=not args.no_replies,
+            page_size=page_size,
+            max_pages=args.max_pages,
+        )
+        assets = [asset for result in results for asset in result.assets]
+        catalog = _load_catalog(storage)
+        engine = create_engine_for_url(database_url)
+        init_database(engine)
+        session_factory = make_session_factory(engine)
+        media_results = []
+        if args.generate_cache:
+            media_results = [
+                item.__dict__
+                for item in MediaGenerator(storage, limits=media_limits_from_config(config.media)).generate_all()
+            ]
+        with session_factory() as session:
+            rebuild = rebuild_database(session, storage, catalog)
+        catalog.save(storage.tags_dir / "catalog.json")
+        print(
+            json.dumps(
+                {
+                    "posts": len(results),
+                    "assets": len(assets),
+                    "downloaded": len([a for a in assets if a.status == "downloaded"]),
+                    "skipped": len([a for a in assets if a.status == "skipped"]),
+                    "duplicates": len([a for a in assets if a.status == "duplicate"]),
+                    "rebuild": rebuild.__dict__,
+                    "media": media_results,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        engine.dispose()
+        return 0
+
+    if args.command in {"x-sync-user", "x-sync-posts"}:
+        options = XRequestOptions(
+            request_delay_seconds=(
+                args.request_delay if args.request_delay is not None else config.x.default_request_delay_seconds
+            ),
+            download_concurrency=args.download_concurrency or config.x.download_concurrency,
+            proxy_url=network_proxy_for(config, "x") or "",
+        )
+        credentials = XCredentials(
+            auth_token=(args.auth_token or config.x.auth_token or "").strip(),
+            ct0=(args.ct0 or config.x.ct0 or "").strip(),
+        )
+        if args.command == "x-sync-user" and not credentials.is_complete:
+            print("error: walking a timeline needs a session; pass --auth-token/--ct0, set X_AUTH_TOKEN/X_CT0, or configure [x]")
+            return 2
+        client = XClient(
+            credentials=credentials,
+            options=options,
+            operations=XGraphqlOperations(
+                tweet_detail=config.x.tweet_detail_query_id,
+                user_by_screen_name=config.x.user_by_screen_name_query_id,
+                user_tweets=config.x.user_tweets_query_id,
+                user_media=config.x.user_media_query_id,
+            ),
+        )
+        targets = (
+            [item for target in args.targets for item in split_batch_input(target)]
+            if args.command == "x-sync-posts"
+            else []
+        )
+        if args.dry_run:
+            if args.command == "x-sync-posts":
+                preview = [
+                    {"id": t.tweet_id, "author": t.user.screen_name, "created_at": t.created_at,
+                     "media": len(t.media), "metrics": t.metrics, "tags": list(t.tags)}
+                    for t in (client.get_tweet(target) for target in targets)
+                ]
+                print(json.dumps({"posts": preview}, ensure_ascii=False, indent=2))
+                return 0
+            user = client.get_user(args.username)
+            tweets = list(
+                client.iter_user_tweets(
+                    user.user_id,
+                    limit=args.limit or 20,
+                    media_only=args.media_only,
+                    include_replies=not args.no_replies,
+                    page_size=normalize_x_page_size(args.page_size or config.x.page_size),
+                    max_pages=args.max_pages,
+                )
+            )
+            print(
+                json.dumps(
+                    {
+                        "user": {"id": user.user_id, "handle": user.handle, "tweets_count": user.statuses_count},
+                        "posts": [
+                            {"id": t.tweet_id, "created_at": t.created_at, "media": len(t.media), "metrics": t.metrics}
+                            for t in tweets
+                        ],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            return 0
+
+        def report(event: dict) -> None:
+            if event.get("stage") in {"page_fetched", "user_started", "user_done", "batch_started", "batch_done", "tweet_failed"}:
+                parts = [str(event.get("message") or "")]
+                for key in ("page", "sync_count", "remaining", "tweets_count", "failure_count", "progress"):
+                    if event.get(key) is not None:
+                        parts.append(f"{key}={event[key]}")
+                print("  " + " ".join(parts))
+
+        catalog = _load_catalog(storage)
+        generator = MediaGenerator(storage, limits=media_limits_from_config(config.media))
+        service = XSyncService(
+            storage,
+            client=client,
+            downloader=XDownloader(options=options),
+            storage_strategy_name=args.storage_strategy,
+            download_media=not args.no_media,
+            download_concurrency=options.download_concurrency,
+            cover_writer=generator.generate_from_cover,
+            progress=report,
+        )
+        failures: list = []
+        if args.command == "x-sync-posts":
+            batch = service.sync_posts(targets)
+            results, failures = list(batch.results), list(batch.failures)
+        else:
+            results = service.sync_user(
+                normalize_screen_name(args.username),
+                limit=args.limit,
+                backfill=not args.no_backfill,
+                include_replies=not args.no_replies,
+                media_only=args.media_only,
+                page_size=normalize_x_page_size(args.page_size or config.x.page_size),
+                max_pages=args.max_pages,
+            )
+        assets = [asset for result in results for asset in result.assets]
+        engine = create_engine_for_url(database_url)
+        init_database(engine)
+        session_factory = make_session_factory(engine)
+        media_results = []
+        if args.generate_cache:
+            media_results = [item.__dict__ for item in generator.generate_all()]
+        with session_factory() as session:
+            rebuild = rebuild_database(session, storage, catalog)
+        catalog.save(storage.tags_dir / "catalog.json")
+        print(
+            json.dumps(
+                {
+                    "posts": len(results),
+                    "assets": len(assets),
+                    "downloaded": len([a for a in assets if a.status == "downloaded"]),
+                    "skipped": len([a for a in assets if a.status == "skipped"]),
+                    "duplicates": len([a for a in assets if a.status == "duplicate"]),
+                    "videos": len([a for a in assets if not a.needs_transcode]),
+                    "failures": [failure.to_dict() for failure in failures],
+                    "rebuild": rebuild.__dict__,
+                    "media": media_results,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        engine.dispose()
+        return 0
+
+    if args.command == "fanbox-login":
+        cookie = (args.cookie or config.pixiv.cookie or "").strip()
+        if not cookie:
+            print("error: provide --cookie or configure [pixiv].cookie; Fanbox has no credential of its own to reuse")
+            return 2
+        session_id = exchange_pixiv_cookie_for_fanbox_session(
+            cookie,
+            headless=not args.show_browser,
+            timeout_seconds=args.timeout,
+            proxy_url=network_proxy_for(config, "fanbox") or network_proxy_for(config, "pixiv"),
+        )
+        print(json.dumps({"session_id": session_id, "cookie": f"FANBOXSESSID={session_id}"}, indent=2))
+        return 0
+
+    if args.command in {"fanbox-sync-creator", "fanbox-sync-posts"}:
+        options = FanboxRequestOptions(
+            request_delay_seconds=(
+                args.request_delay if args.request_delay is not None else config.fanbox.default_request_delay_seconds
+            ),
+            download_concurrency=args.download_concurrency or config.fanbox.download_concurrency,
+            proxy_url=network_proxy_for(config, "fanbox") or "",
+        )
+        credentials = FanboxCredentials(session_id=(args.session or config.fanbox.session_id or "").strip())
+        if not credentials.is_complete:
+            print("warning: no FANBOXSESSID configured; only public summaries are readable and no media will archive")
+        client = FanboxClient(credentials=credentials, options=options)
+        if args.dry_run:
+            if args.command == "fanbox-sync-posts":
+                targets = [i for t in args.targets for i in fanbox_split_batch_input(t)]
+                preview = [
+                    {"id": p.post_id, "title": p.title, "type": p.post_type, "fee": p.fee_required,
+                     "locked": p.is_locked, "files": len(p.files)}
+                    for p in (client.get_post(t) for t in targets)
+                ]
+            else:
+                creator = client.get_creator(args.creator)
+                preview = {
+                    "creator": {"id": creator.creator_id, "user_id": creator.user_id, "name": creator.display_name},
+                    "posts": [
+                        {"id": p.post_id, "title": p.title, "fee": p.fee_required, "at": p.published_at}
+                        for p in client.iter_creator_posts(
+                            creator.creator_id,
+                            limit=args.limit or 20,
+                            page_size=normalize_fanbox_page_size(args.page_size or config.fanbox.page_size),
+                            max_pages=args.max_pages,
+                        )
+                    ],
+                }
+            print(json.dumps(preview, ensure_ascii=False, indent=2))
+            return 0
+
+        def report(event: dict) -> None:
+            if event.get("stage") in {"page_fetched", "creator_started", "creator_done", "batch_started", "batch_done", "post_failed"}:
+                parts = [str(event.get("message") or "")]
+                for key in ("page", "sync_count", "remaining", "failure_count", "locked_posts", "progress"):
+                    if event.get(key) is not None:
+                        parts.append(f"{key}={event[key]}")
+                print("  " + " ".join(parts))
+
+        catalog = _load_catalog(storage)
+        service = FanboxSyncService(
+            storage,
+            client=client,
+            downloader=FanboxDownloader(credentials=credentials, options=options),
+            storage_strategy_name=args.storage_strategy,
+            download_media=not args.no_media,
+            download_files=not args.no_files,
+            download_concurrency=options.download_concurrency,
+            progress=report,
+        )
+        failures: list = []
+        if args.command == "fanbox-sync-posts":
+            batch = service.sync_posts(args.targets)
+            results, failures = list(batch.results), list(batch.failures)
+        else:
+            results = service.sync_creator(
+                normalize_creator_id(args.creator),
+                limit=args.limit,
+                backfill=not args.no_backfill,
+                page_size=normalize_fanbox_page_size(args.page_size or config.fanbox.page_size),
+                max_pages=args.max_pages,
+            )
+        assets = [asset for result in results for asset in result.assets]
+        engine = create_engine_for_url(database_url)
+        init_database(engine)
+        session_factory = make_session_factory(engine)
+        media_results = []
+        if args.generate_cache:
+            media_results = [
+                item.__dict__
+                for item in MediaGenerator(storage, limits=media_limits_from_config(config.media)).generate_all()
+            ]
+        with session_factory() as session:
+            rebuild = rebuild_database(session, storage, catalog)
+        catalog.save(storage.tags_dir / "catalog.json")
+        print(
+            json.dumps(
+                {
+                    "posts": len(results),
+                    "locked": len([r for r in results if r.locked]),
+                    "assets": len(assets),
+                    "downloaded": len([a for a in assets if a.status == "downloaded"]),
+                    "skipped": len([a for a in assets if a.status == "skipped"]),
+                    "duplicates": len([a for a in assets if a.status == "duplicate"]),
+                    "files": len([a for a in assets if a.kind != "image"]),
+                    "failures": [f.to_dict() for f in failures],
+                    "rebuild": rebuild.__dict__,
+                    "media": media_results,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        engine.dispose()
+        return 0
+
+    if args.command == "posts-seed":
+        post_store = PostStore(storage.root)
+        post_store.ensure()
+        engine = create_engine_for_url(database_url)
+        init_database(engine)
+        session_factory = make_session_factory(engine)
+        with session_factory() as session:
+            asset_keys = list(
+                session.scalars(
+                    select(AssetModel.asset_key)
+                    .where(AssetModel.deletion_status.is_(None))
+                    .order_by(AssetModel.asset_key)
+                    .limit(3)
+                ).all()
+            )
+            if args.force:
+                for post in sample_posts(asset_keys):
+                    post_store.write_post(post)
+                seeded = 2
+            else:
+                seeded = ensure_sample_posts(post_store, asset_keys=asset_keys)
+                seeded += link_sample_post_media(post_store, asset_keys=asset_keys)
+            result = rebuild_posts(session, post_store, replace=True)
+            session.commit()
+        print(
+            json.dumps(
+                {"seeded": seeded, "posts": result.posts, "attachments": result.attachments},
+                ensure_ascii=False,
+            )
+        )
+        engine.dispose()
+        return 0
+
     if args.command in {"rebuild-db", "create-user", "issue-token", "set-password", "security-config"}:
         catalog = _load_catalog(storage)
         engine = create_engine_for_url(database_url)
@@ -288,7 +772,10 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "rebuild-db":
                 media_results = []
                 if args.generate_cache:
-                    media_results = [item.__dict__ for item in MediaGenerator(storage).generate_all()]
+                    media_results = [
+                        item.__dict__
+                        for item in MediaGenerator(storage, limits=media_limits_from_config(config.media)).generate_all()
+                    ]
                 result = rebuild_database(session, storage, catalog, replace=not args.merge)
                 catalog.save(storage.tags_dir / "catalog.json")
                 print(
@@ -297,6 +784,8 @@ def main(argv: list[str] | None = None) -> int:
                             "assets": result.assets,
                             "tags": result.tags,
                             "duplicates": result.duplicates,
+                            "posts": result.posts,
+                            "post_attachments": result.post_attachments,
                             "media": media_results,
                         },
                         ensure_ascii=False,
@@ -359,7 +848,7 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
 
     if args.command == "generate-cache":
-        generator = MediaGenerator(storage)
+        generator = MediaGenerator(storage, limits=media_limits_from_config(config.media))
         if args.asset_key:
             results = [generator.generate_for_asset_key(args.asset_key).__dict__]
         else:
@@ -398,7 +887,7 @@ def main(argv: list[str] | None = None) -> int:
     media_results = []
     rebuild_result = None
     if args.generate_cache:
-        generator = MediaGenerator(storage)
+        generator = MediaGenerator(storage, limits=media_limits_from_config(config.media))
         for result in results:
             if result.status != "skipped":
                 media_results.append(generator.generate_for_asset_key(result.asset_key).__dict__)
@@ -482,7 +971,7 @@ def _setup(args, storage: GalleryStorage, database_url: str) -> dict[str, object
     session_factory = make_session_factory(engine)
     media_results = []
     if args.generate_cache:
-        media_results = [item.__dict__ for item in MediaGenerator(storage).generate_all()]
+        media_results = [item.__dict__ for item in MediaGenerator(storage, limits=media_limits_from_config(config.media)).generate_all()]
 
     with session_factory() as session:
         encrypted_credentials = encrypt_stored_pixiv_credentials(session)

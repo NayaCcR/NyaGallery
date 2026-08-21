@@ -9,6 +9,22 @@ import type {
   IssueTokenResponse,
   LoginResponse,
   MeResponse,
+  MisskeyConfigResponse,
+  MisskeySyncOptions,
+  MisskeySyncResponse,
+  MisskeyTokenListResponse,
+  MisskeyTokenSummary,
+  FanboxConfigResponse,
+  FanboxLoginResponse,
+  FanboxSessionListResponse,
+  FanboxSessionSummary,
+  FanboxSyncOptions,
+  FanboxSyncResponse,
+  XConfigResponse,
+  XSyncOptions,
+  XSyncResponse,
+  XTokenListResponse,
+  XTokenSummary,
   PixivConfigResponse,
   PixivCookieListResponse,
   PixivCookieSummary,
@@ -19,6 +35,9 @@ import type {
   PixivSyncResponse,
   PixivTokenListResponse,
   PixivTokenSummary,
+  Post,
+  PostListResponse,
+  PostSort,
   SearchOrder,
   RebuildResult,
   SearchResponse,
@@ -165,6 +184,21 @@ export const NyaApi = {
     return api<SearchResponse>(`/api/search?${search.toString()}`);
   },
 
+  posts: (
+    params: { limit?: number; offset?: number; source?: string; q?: string; sort?: PostSort; order?: SearchOrder } = {}
+  ) => {
+    const search = new URLSearchParams();
+    search.set("limit", String(params.limit ?? 20));
+    search.set("offset", String(params.offset ?? 0));
+    if (params.source) search.set("source", params.source);
+    if (params.q) search.set("q", params.q);
+    if (params.sort) search.set("sort", params.sort);
+    if (params.order) search.set("order", params.order);
+    return api<PostListResponse>(`/api/posts?${search.toString()}`);
+  },
+
+  post: (postKey: string) => api<Post>(`/api/posts/${encodeURIComponent(postKey)}`),
+
   asset: (assetKey: string) => api<Asset>(`/api/assets/${encodeURIComponent(assetKey)}`),
 
   assetSiblings: (assetKey: string) =>
@@ -216,7 +250,7 @@ export const NyaApi = {
     api<Asset>("/api/upload", { method: "POST", body: form, json: false }),
 
   rebuild: (generate_cache = false) =>
-    api<{ assets: number; tags: number; duplicates: number; media: unknown[] }>(
+    api<{ assets: number; tags: number; duplicates: number; posts?: number; post_attachments?: number; media: unknown[] }>(
       "/api/rebuild",
       { method: "POST", body: { generate_cache } }
     ),
@@ -322,6 +356,120 @@ export const NyaApi = {
     api<PixivSyncResponse>(
       `/api/sync/pixiv/bookmarks/${encodeURIComponent(uid)}`,
       { method: "POST", body: options }
+    ),
+
+  misskeyConfig: () => api<MisskeyConfigResponse>("/api/sync/misskey/config"),
+
+  misskeyLogs: (limit = 50, offset = 0) =>
+    api<UploadLogResponse>(`/api/sync/misskey/logs?limit=${limit}&offset=${offset}`),
+
+  syncMisskeyUser: (username: string, options: MisskeySyncOptions = {}) =>
+    api<MisskeySyncResponse>(
+      `/api/sync/misskey/user/${encodeURIComponent(username)}`,
+      { method: "POST", body: options }
+    ),
+
+  userMisskeyTokens: (username: string) =>
+    api<MisskeyTokenListResponse>(`/api/users/${encodeURIComponent(username)}/misskey-tokens`),
+
+  saveMisskeyToken: (
+    username: string,
+    payload: { token: string; label?: string; host?: string; misskey_user?: Record<string, unknown> | null }
+  ) =>
+    api<MisskeyTokenSummary>(
+      `/api/users/${encodeURIComponent(username)}/misskey-token`,
+      { method: "POST", body: payload }
+    ),
+
+  updateMisskeyToken: (tokenId: number, label: string) =>
+    api<MisskeyTokenSummary>(
+      `/api/misskey-tokens/${encodeURIComponent(String(tokenId))}`,
+      { method: "PATCH", body: { label } }
+    ),
+
+  revokeMisskeyToken: (tokenId: number) =>
+    api<MisskeyTokenSummary>(
+      `/api/misskey-tokens/${encodeURIComponent(String(tokenId))}`,
+      { method: "DELETE" }
+    ),
+
+  fanboxConfig: () => api<FanboxConfigResponse>("/api/sync/fanbox/config"),
+
+  fanboxLogs: (limit = 50, offset = 0) =>
+    api<UploadLogResponse>(`/api/sync/fanbox/logs?limit=${limit}&offset=${offset}`),
+
+  fanboxLogin: (payload: { cookie?: string; pixiv_cookie_id?: number; label?: string; headless?: boolean; save?: boolean }) =>
+    api<FanboxLoginResponse>("/api/sync/fanbox/login", { method: "POST", body: payload }),
+
+  syncFanboxCreator: (creatorId: string, options: FanboxSyncOptions = {}) =>
+    api<FanboxSyncResponse>(
+      `/api/sync/fanbox/creator/${encodeURIComponent(creatorId)}`,
+      { method: "POST", body: options }
+    ),
+
+  syncFanboxPosts: (targets: string[], options: FanboxSyncOptions = {}) =>
+    api<FanboxSyncResponse>("/api/sync/fanbox/posts", { method: "POST", body: { ...options, targets } }),
+
+  userFanboxSessions: (username: string) =>
+    api<FanboxSessionListResponse>(`/api/users/${encodeURIComponent(username)}/fanbox-sessions`),
+
+  saveFanboxSession: (
+    username: string,
+    payload: { session_id: string; label?: string; source?: string; fanbox_user?: Record<string, unknown> | null }
+  ) =>
+    api<FanboxSessionSummary>(
+      `/api/users/${encodeURIComponent(username)}/fanbox-session`,
+      { method: "POST", body: payload }
+    ),
+
+  updateFanboxSession: (sessionId: number, label: string) =>
+    api<FanboxSessionSummary>(
+      `/api/fanbox-sessions/${encodeURIComponent(String(sessionId))}`,
+      { method: "PATCH", body: { label } }
+    ),
+
+  revokeFanboxSession: (sessionId: number) =>
+    api<FanboxSessionSummary>(
+      `/api/fanbox-sessions/${encodeURIComponent(String(sessionId))}`,
+      { method: "DELETE" }
+    ),
+
+  xConfig: () => api<XConfigResponse>("/api/sync/x/config"),
+
+  xLogs: (limit = 50, offset = 0) =>
+    api<UploadLogResponse>(`/api/sync/x/logs?limit=${limit}&offset=${offset}`),
+
+  syncXUser: (screenName: string, options: XSyncOptions = {}) =>
+    api<XSyncResponse>(
+      `/api/sync/x/user/${encodeURIComponent(screenName)}`,
+      { method: "POST", body: options }
+    ),
+
+  syncXPosts: (targets: string[], options: XSyncOptions = {}) =>
+    api<XSyncResponse>("/api/sync/x/posts", { method: "POST", body: { ...options, targets } }),
+
+  userXTokens: (username: string) =>
+    api<XTokenListResponse>(`/api/users/${encodeURIComponent(username)}/x-tokens`),
+
+  saveXToken: (
+    username: string,
+    payload: { token: string; ct0?: string; label?: string; host?: string; x_user?: Record<string, unknown> | null }
+  ) =>
+    api<XTokenSummary>(
+      `/api/users/${encodeURIComponent(username)}/x-token`,
+      { method: "POST", body: payload }
+    ),
+
+  updateXToken: (tokenId: number, label: string) =>
+    api<XTokenSummary>(
+      `/api/x-tokens/${encodeURIComponent(String(tokenId))}`,
+      { method: "PATCH", body: { label } }
+    ),
+
+  revokeXToken: (tokenId: number) =>
+    api<XTokenSummary>(
+      `/api/x-tokens/${encodeURIComponent(String(tokenId))}`,
+      { method: "DELETE" }
     ),
 
   userPixivTokens: (username: string) =>

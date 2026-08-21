@@ -1,168 +1,478 @@
-# NyaGallery backend configuration.
+# NyaGallery backend configuration example / NyaGallery 后端配置示例。
 #
-# Copy this file to nyagallery.toml, or start with:
-#   nyagallery --config path\to\nyagallery.toml serve
+# Runtime precedence / 运行时优先级：CLI arguments > environment variables > this config file.
+# 命令行参数优先于环境变量，环境变量优先于本配置文件。
+# Common environment overrides / 常用环境变量覆盖：
+#   NYAGALLERY_CONFIG, NYAGALLERY_STORAGE, NYAGALLERY_DATABASE_URL,
+#   NYAGALLERY_HOST, NYAGALLERY_PORT, NYAGALLERY_SECURE_COOKIES,
+#   PIXIV_REFRESH_TOKEN, PIXIV_COOKIE, NYAGALLERY_SITE_ICP_BEIAN,
+#   NYAGALLERY_REDIS_URL, NYAGALLERY_STORAGE_STRATEGY,
+#   NYAGALLERY_SECRET_KEY, NYAGALLERY_NETWORK_PROXY,
+#   NYAGALLERY_MEDIA_MAX_FRAME_PIXELS, NYAGALLERY_MEDIA_MAX_IMAGE_PIXELS,
+#   NYAGALLERY_MEDIA_MAX_ANIMATION_FRAMES, NYAGALLERY_MEDIA_MAX_ZIP_UNCOMPRESSED_BYTES,
+#   NYAGALLERY_MEDIA_MAX_ZIP_FRAME_BYTES, NYAGALLERY_MEDIA_TASK_TIMEOUT_SECONDS,
+#   NYAGALLERY_MEDIA_MAX_CONCURRENCY, NYAGALLERY_UPLOAD_READ_CHUNK_BYTES,
+#   NYAGALLERY_CONFIG_EDITOR_ENABLED, NYAGALLERY_DEVELOPER_CONSOLE_ENABLED
 #
-# Environment variables still work and override this file:
-#   NYAGALLERY_STORAGE, NYAGALLERY_DATABASE_URL, NYAGALLERY_SECURE_COOKIES,
-#   PIXIV_REFRESH_TOKEN, NYAGALLERY_SITE_ICP_BEIAN, NYAGALLERY_REDIS_URL,
-#   NYAGALLERY_STORAGE_STRATEGY, NYAGALLERY_SECRET_KEY, NYAGALLERY_NETWORK_PROXY,
-#   NYAGALLERY_CONFIG_EDITOR_ENABLED, NYAGALLERY_DEVELOPER_CONSOLE_ENABLED, etc.
+# Secrets / 密钥说明：
+#   Keep real secrets only in nyagallery.toml or environment variables, not in git.
+#   真实密钥请只放在 nyagallery.toml 或环境变量里，不要提交到 git。
 
+# Module purpose: core paths and database connection. This decides where NyaGallery stores files and how it connects to the index database.
+# 模块作用：核心路径与数据库连接。决定 NyaGallery 把文件存到哪里，以及如何连接索引数据库。
 [core]
-# Required. Root directory for originals, metadata, cache, tags and logs.
+# Required. Storage root for originals, metadata, media cache, tags, logs and the default SQLite database.
+# 必填。图库根目录，用于原图、metadata、媒体缓存、标签、日志以及默认 SQLite 数据库。
 storage = "storage"
 
-# Optional. Empty uses storage/nyagallery.db.
-# Examples:
+# Optional. Empty means SQLite at storage/nyagallery.db.
+# 可选。留空时使用 storage/nyagallery.db。
+# Database support from code / 按代码确认的数据库支持：
+# - The backend passes database_url to SQLAlchemy create_engine().
+# - 后端会把 database_url 交给 SQLAlchemy create_engine()。
+# - SQLite is the built-in default. For SQLite, the code only adds check_same_thread=false.
+# - SQLite 是内置默认数据库；代码只对 sqlite: URL 额外设置 check_same_thread=false。
+# - The project ships an optional PostgreSQL extra: `python -m pip install -e ".[postgres]"`.
+# - 项目提供 PostgreSQL 可选依赖：`python -m pip install -e ".[postgres]"`。
+# - MySQL/MariaDB are possible through SQLAlchemy URLs if you install a matching driver yourself, e.g. mysql+pymysql://...
+# - MySQL/MariaDB 可通过 SQLAlchemy URL 使用，但需要自行安装对应驱动，例如 mysql+pymysql://...
+# - Other SQLAlchemy database URLs are also not blocked by code if the matching driver is installed, but they are not bundled/tested targets.
+# - 其他 SQLAlchemy 数据库 URL 在安装对应驱动后同样不会被代码主动拦截，但不是随项目打包/测试的目标。
+# - Redis is not a SQL database_url backend. Configure Redis in the separate [redis] section below.
+# - Redis 不是 database_url 使用的 SQL 数据库后端；Redis 请在下面独立的 [redis] 模块配置。
+# Examples / 示例：
 # database_url = "sqlite:///E:/Code/NyaGallery/storage/nyagallery.db"
 # database_url = "postgresql+psycopg://user:password@127.0.0.1:5432/nyagallery"
+# database_url = "mysql+pymysql://user:password@127.0.0.1:3306/nyagallery"
 database_url = ""
 
-# Optional. Empty uses storage/tags/catalog.json.
+# Optional. Empty means storage/tags/catalog.json.
+# 可选。留空时使用 storage/tags/catalog.json。
+# Example / 示例：
+# tag_catalog_path = "E:/Code/NyaGallery/storage/tags/catalog.json"
 tag_catalog_path = ""
 
-[original_storage]
-# Original file storage strategy used by upload and Pixiv sync when the request
-# does not choose a strategy explicitly. `local` is always available and writes
-# to storage/original. Remote originals are cached under storage/remote-cache
-# when they are downloaded or used for preview generation.
-default_strategy = "local"
-
-# Add remote strategies as needed. The admin upload and Pixiv panels will show
-# configured strategy names. Keep secrets in nyagallery.toml, not in git.
-#
-# [[original_storage.strategies]]
-# name = "webdav-main"
-# type = "webdav"
-# endpoint = "https://dav.example.com/nyagallery/"
-# username = ""
-# password = ""
-# token = ""
-# prefix = "original"
-# timeout_seconds = 60
-#
-# [[original_storage.strategies]]
-# name = "upyun-main"
-# type = "upyun"
-# endpoint = "https://v0.api.upyun.com"
-# bucket = "your-service"
-# username = "operator"
-# password = ""
-# prefix = "original"
-#
-# [[original_storage.strategies]]
-# name = "aliyun-oss-main"
-# type = "aliyun_oss"
-# endpoint = "https://oss-cn-hangzhou.aliyuncs.com"
-# bucket = "your-bucket"
-# access_key_id = ""
-# access_key_secret = ""
-# prefix = "original"
-#
-# [[original_storage.strategies]]
-# name = "onedrive-main"
-# type = "onedrive"
-# token = ""
-# drive_id = ""
-# root_path = "NyaGallery"
-# prefix = "original"
-
+# Module purpose: HTTP server runtime options, including listen address, port, access logs and secure-cookie behavior.
+# 模块作用：HTTP 服务运行参数，包括监听地址、端口、访问日志和安全 Cookie 行为。
 [server]
+# Backend listen host and port.
+# 后端监听地址与端口。
 host = "127.0.0.1"
 port = 8001
+
+# Enable uvicorn per-request access logs.
+# 是否开启 uvicorn 每请求访问日志。
 access_log = false
 
-# Enable when serving directly over HTTPS or behind a trusted HTTPS proxy
-# that preserves secure cookies correctly.
+# Enable when serving directly over HTTPS, or behind a trusted HTTPS proxy that preserves secure cookies correctly.
+# 仅在直接使用 HTTPS，或位于可信 HTTPS 反向代理后且能正确保留 Secure Cookie 时开启。
 secure_cookies = false
 
+# Module purpose: public site metadata shown by the frontend, such as project links and optional ICP filing text.
+# 模块作用：前端展示的公开站点信息，例如项目链接和可选 ICP 备案文本。
 [site]
 # Public project links shown by the frontend.
+# 前端展示的公开项目链接。
 project_homepage = "https://github.com/NayaCcR/NyaGallery"
 repository = "https://github.com/NayaCcR/NyaGallery"
 
 # Optional ICP filing number. Leave empty to hide it in the footer.
-# Example: icp_beian = "京ICP备00000000号-1"
+# 可选 ICP 备案号。留空时页脚不显示。
+# Example / 示例：
+# icp_beian = "沪ICP备00000000号-1"
 icp_beian = ""
 
+# Optional frontend branding overrides. Empty means the frontend's built-in defaults
+# (see FrontTemplate/README.md). Changing these needs no rebuild, only a page reload.
+# 可选的前端品牌覆盖。留空则使用前端内置默认值（见 FrontTemplate/README.md）。修改后无需重新构建，刷新页面即可生效。
+# Display name in the sidebar/top bar and the browser title.
+# 侧边栏/顶部栏和浏览器标题里显示的名称。
+# app_name = "MyGallery"
+app_name = ""
+
+# Logo path or absolute URL. Put files in frontend/public and reference them as "/name.png".
+# An empty string falls back to a tinted tile with the app initial, so a missing file never breaks the layout.
+# Logo 路径或完整 URL。文件放到 frontend/public 下，按 "/name.png" 引用。
+# 留空则回退为带首字母的色块，缺图不会导致布局出错。
+# logo_url = "/logo.png"
+logo_url = ""
+
+# Default shell layout for new visitors: "sidebar" (fixed left rail) or "topbar" (full-width top toolbar).
+# Visitors can switch it themselves; their choice is remembered locally and wins over this default.
+# 新访客的默认界面布局："sidebar"（左侧固定栏）或 "topbar"（整宽顶部工具栏）。
+# 访客可自行切换，其选择会记在本地并优先于此默认值。
+# layout = "sidebar"
+layout = ""
+
+# Module purpose: Pixiv integration defaults. These values provide deployment-wide credentials and default sync throttling options.
+# 模块作用：Pixiv 集成默认值。这里提供部署级凭据以及同步请求间隔、并发等默认参数。
 [pixiv]
-# Optional. Prefer saved per-user credentials in the admin page for daily use.
+# Optional deployment-wide Pixiv credentials. For daily use, prefer saving per-user credentials in the admin page.
+# 可选的部署级 Pixiv 凭据。日常使用更推荐在管理页面保存按用户区分的凭据。
 refresh_token = ""
 cookie = ""
 
-# Defaults shown in the admin Pixiv panel.
-default_request_delay_seconds = 1.0
+# Defaults shown in the admin Pixiv sync panel.
+# 管理页 Pixiv 同步面板显示的默认参数。
+default_request_delay_seconds = 1
 max_concurrency = 1
 
+# Module purpose: Misskey integration defaults. Note media is archived as regular gallery assets; note text becomes a post.
+# 模块作用：Misskey 集成默认值。帖子里的图片会作为普通图库资产归档，正文则保存为帖子。
+[misskey]
+# API token from Misskey settings/api. Encrypted at rest when [security].secret_key is set. Also readable from MISSKEY_TOKEN.
+# Misskey 设置/API 里生成的访问令牌。配置了 [security].secret_key 时会加密存储，也可用 MISSKEY_TOKEN 环境变量提供。
+token = ""
+
+# Instance host. Include a scheme only for self-hosted instances on http or a custom port, e.g. "http://misskey.lan:3000".
+# 实例地址。仅自建实例需要写协议或端口，例如 "http://misskey.lan:3000"。
+host = "misskey.io"
+
+# Seconds between Misskey API requests. Keep at or above 1 to avoid rate limiting.
+# Misskey API 请求间隔秒数。建议不低于 1，避免触发限流。
+default_request_delay_seconds = 1
+
+# Notes fetched per API request, 1-100. Misskey caps this at 100.
+# 每次 API 请求抓取的帖子数，取值 1-100。Misskey 上限为 100。
+page_size = 100
+
+# Parallel media downloads per note, 1-16.
+# 单条帖子内并行下载媒体的数量，取值 1-16。
+download_concurrency = 5
+
+# Module purpose: X (Twitter) integration defaults. Photos and videos are archived as regular gallery assets at their
+# original quality; the post text, metrics and tags become a post shown on the posts page.
+# 模块作用：X（Twitter）集成默认值。图片和视频会按原始画质作为普通图库资产归档，正文、互动数据和标签则保存为帖子并显示在帖子页。
+[x]
+# Session cookie auth_token from a logged-in x.com browser session. Leave empty to use the public read path, which
+# resolves single public posts without credentials but cannot list a user's timeline and omits repost/view counts.
+# 已登录 x.com 浏览器会话中的 auth_token cookie。留空则走公开读取通道：无需凭据即可解析单条公开帖子，
+# 但无法遍历用户时间线，也读不到转发数和浏览量。
+# Encrypted at rest when [security].secret_key is set. Also readable from X_AUTH_TOKEN.
+# 配置了 [security].secret_key 时会加密存储，也可用 X_AUTH_TOKEN 环境变量提供。
+auth_token = ""
+
+# Session cookie ct0 (CSRF token) from the same browser session. Required together with auth_token.
+# 同一浏览器会话中的 ct0 cookie（CSRF 令牌）。必须与 auth_token 成对提供。
+# Encrypted at rest when [security].secret_key is set. Also readable from X_CT0.
+# 配置了 [security].secret_key 时会加密存储，也可用 X_CT0 环境变量提供。
+ct0 = ""
+
+# Seconds between X API requests. X rate limits aggressively; keep at or above 2.
+# X API 请求间隔秒数。X 的限流较严格，建议不低于 2。
+default_request_delay_seconds = 2
+
+# Posts fetched per timeline request, 1-100.
+# 每次时间线请求抓取的帖子数，取值 1-100。
+page_size = 20
+
+# Parallel media downloads per post, 1-16.
+# 单条帖子内并行下载媒体的数量，取值 1-16。
+download_concurrency = 4
+
+# GraphQL query ids. X rotates these without notice; when a sync starts failing with "404" or "query id" errors,
+# open x.com in a browser, find the matching request under DevTools > Network > graphql, and copy the id from its URL
+# (the path segment between /graphql/ and the operation name).
+# GraphQL 查询 id。X 会不定期轮换这些 id；当同步开始报 "404" 或 query id 相关错误时，
+# 在浏览器打开 x.com，于 开发者工具 > 网络 > graphql 中找到对应请求，从 URL 里复制 id
+# （即 /graphql/ 与操作名之间的那段路径）。
+tweet_detail_query_id = "4Siu98E55GquhG52zHdY5w"
+user_by_screen_name_query_id = "32pL5BWe9WKeSK1MoPvFQQ"
+user_tweets_query_id = "V7H0Ap3_Hh2FyS75OCDO3Q"
+user_media_query_id = "dexO_2tohK86JDudXXG3Yw"
+
+# Module purpose: Pixiv FANBOX integration defaults. Post images and attachments are archived as regular gallery
+# assets; the post title, body text, tags and like/comment counts become a post shown on the posts page.
+# 模块作用：Pixiv FANBOX 集成默认值。投稿里的图片和附件会作为普通图库资产归档，标题、正文、标签和点赞/评论数则保存为帖子。
+[fanbox]
+# FANBOXSESSID cookie from a logged-in fanbox.cc browser session.
+# 已登录 fanbox.cc 浏览器会话中的 FANBOXSESSID cookie。
+# FANBOX does NOT accept a Pixiv cookie or refresh_token: it authenticates with its own FANBOXSESSID on .fanbox.cc,
+# while Pixiv uses PHPSESSID on .pixiv.net. Post bodies (images/files) always require this session, even for free posts.
+# FANBOX 不能直接使用 Pixiv 的 cookie 或 refresh_token：它用自己的 FANBOXSESSID（域 .fanbox.cc），
+# 而 Pixiv 用的是 PHPSESSID（域 .pixiv.net）。投稿正文（图片/附件）即使是免费投稿也必须有此会话。
+# The admin page can derive one automatically from a saved Pixiv cookie, because www.fanbox.cc/login redirects to
+# accounts.pixiv.net and hands back a FANBOXSESSID; that exchange needs the optional pixiv-login dependency.
+# 管理页可以用已保存的 Pixiv cookie 自动换取：www.fanbox.cc/login 会跳转到 accounts.pixiv.net 并发回 FANBOXSESSID；
+# 该交换需要可选依赖 pixiv-login。
+# Encrypted at rest when [security].secret_key is set. Also readable from FANBOXSESSID.
+# 配置了 [security].secret_key 时会加密存储，也可用 FANBOXSESSID 环境变量提供。
+session_id = ""
+
+# Seconds between FANBOX API requests. Keep at or above 1 to avoid rate limiting.
+# FANBOX API 请求间隔秒数。建议不低于 1，避免触发限流。
+default_request_delay_seconds = 1
+
+# Posts fetched per list request, 1-300.
+# 每次列表请求抓取的投稿数，取值 1-300。
+page_size = 10
+
+# Parallel media downloads per post, 1-16.
+# 单条投稿内并行下载媒体的数量，取值 1-16。
+download_concurrency = 3
+
+# Archive non-image attachments too (zip/psd/clip/mp4/pdf...). Disable to keep images only.
+# 是否同时归档非图片附件（zip/psd/clip/mp4/pdf 等）。关闭则只保留图片。
+download_files = true
+
+# Module purpose: media decoding, preview generation, upload streaming and background transcode limits.
+# 模块作用：媒体解码、预览图生成、上传分块读取和后台转码任务限制。
+[media]
+# Maximum pixels allowed for one decoded frame before resizing. Default 50,000,000.
+# 单帧解码后、缩放前允许的最大像素数。默认 50,000,000。
+max_frame_pixels = 50000000
+
+# Pillow decompression-bomb guard. Default 100,000,000 pixels.
+# Pillow 解压炸弹保护阈值。默认 100,000,000 像素。
+max_image_pixels = 100000000
+
+# Maximum animation frames for GIF/APNG/WebP and Pixiv ugoira ZIP. Default 500 frames.
+# GIF/APNG/WebP 与 Pixiv ugoira ZIP 允许的最大动画帧数。默认 500 帧。
+# If you keep very large APNG files, raise this only together with stricter pixel/timeout/concurrency limits.
+# 如果需要保存很大的 APNG，只建议在同时收紧像素、超时、并发限制时调高此值。
+max_animation_frames = 500
+
+# Maximum total uncompressed ZIP bytes counted from ZipInfo plus actual reads. Default 512 MiB.
+# ZIP 条目声明大小及实际读取累计允许的最大解压后总字节数。默认 512 MiB。
+# Example / 示例：
+# max_zip_uncompressed_bytes = 1073741824  # 1 GiB
+max_zip_uncompressed_bytes = 536870912
+
+# Maximum uncompressed bytes for one image frame inside an ugoira ZIP. Default 64 MiB.
+# ugoira ZIP 内单张图片帧允许的最大解压后字节数。默认 64 MiB。
+max_zip_frame_bytes = 67108864
+
+# Soft deadline used inside media generation code. Default 300 seconds.
+# 媒体生成代码内部软超时时间。默认 300 秒。
+generation_timeout_seconds = 300
+
+# Hard timeout enforced by the parent process; timed-out workers are terminated/killed. Default 300 seconds.
+# 父进程强制执行的硬超时；超时的 worker 会被 terminate/kill。默认 300 秒。
+task_timeout_seconds = 300
+
+# Maximum concurrent media generation jobs per backend process. Default 2.
+# 每个后端进程允许同时运行的媒体生成任务数。默认 2。
+max_concurrency = 2
+
+# Upload read chunk size. Uploads are read in chunks and checked against max_upload_bytes from security settings.
+# 上传读取分块大小。上传会分块读取，并按安全设置里的 max_upload_bytes 检查大小。
+upload_read_chunk_bytes = 1048576
+
+# Preview/thumbnail maximum edge after resizing.
+# 预览图/缩略图缩放后的最长边。
+preview_max_edge = 1800
+thumb_max_edge = 420
+
+# Output quality for AVIF previews/thumbs and animated WebP previews. Range 1-100.
+# AVIF 预览/缩略图与动态 WebP 预览的输出质量。范围 1-100。
+avif_quality = 82
+webp_quality = 82
+
+# Module purpose: outbound network routing. Define reusable proxy profiles and choose which source uses which proxy.
+# 模块作用：出站网络路由。定义可复用代理档案，并指定不同来源使用哪个代理。
 [network]
-# Proxy profile name used when a source has no explicit rule. Empty/direct/none
-# means direct connection. You may also set NYAGALLERY_NETWORK_PROXY to provide
-# a deployment-wide default proxy URL without editing this file.
+# Proxy profile name used when a source has no explicit rule. Empty/direct/none/off/false means direct connection.
+# 当来源没有显式代理规则时使用的代理档案名。空值/direct/none/off/false 表示直连。
+# You can also set NYAGALLERY_NETWORK_PROXY or pass --network-proxy for a deployment-wide proxy URL.
+# 也可以设置 NYAGALLERY_NETWORK_PROXY 或传入 --network-proxy 作为部署级代理 URL。
 default_proxy = "direct"
 
+# Module purpose: one reusable proxy profile. Add more [[network.proxies]] tables for additional proxy endpoints.
+# 模块作用：一个可复用代理档案。需要多个代理端点时，可继续添加多个 [[network.proxies]] 表。
 [[network.proxies]]
+# Built-in direct profile. Keep url empty for no proxy.
+# 内置直连档案。url 留空表示不使用代理。
 name = "direct"
 url = ""
 auth_enabled = false
 username = ""
 password = ""
 
-# Proxy URLs are saved as plain server addresses. If the proxy requires
-# authentication, enable auth_enabled and put credentials in username/password;
-# password is encrypted when security.secret_key is present.
-#
+# Example: local HTTP proxy without authentication.
+# 示例：不需要认证的本地 HTTP 代理。
 # [[network.proxies]]
 # name = "local"
 # url = "http://127.0.0.1:7890"
 # auth_enabled = false
 # username = ""
 # password = ""
-#
+
+# Example: remote proxy with username/password authentication.
+# 示例：需要用户名/密码认证的远端代理。
 # [[network.proxies]]
 # name = "jp"
-# url = "http://example.com:8080"
+# url = "http://proxy.example.com:8080"
 # auth_enabled = true
 # username = "user"
-# password = ""
+# password = "password"
 
+# Module purpose: source-specific proxy rule for Pixiv requests.
+# 模块作用：Pixiv 请求的来源级代理规则。
 [network.sources.pixiv]
-# The table name matches the backend source key used by a fetcher, not a URL or
-# domain pattern. Pixiv currently uses "pixiv"; later fetchers can add their own
-# keys, e.g. [network.sources.x], [network.sources.fanbox], [network.sources.misskey_io].
+# The table name is the backend source key, not a URL/domain pattern. Pixiv currently uses "pixiv".
+# 表名是后端来源 key，不是 URL 或域名匹配模式。Pixiv 当前使用 "pixiv"。
+# Future fetchers can add their own keys, e.g. [network.sources.fanbox], [network.sources.misskey_io].
+# 后续抓取器可添加自己的 key，例如 [network.sources.fanbox]、[network.sources.misskey_io]。
 proxy = "direct"
 
+# Module purpose: per-source proxy rule for X (Twitter) requests, covering both the API calls and media downloads.
+# 模块作用：X（Twitter）请求的来源级代理规则，同时作用于 API 调用和媒体下载。
+[network.sources.x]
+proxy = "direct"
+
+# Module purpose: per-source proxy rule for Pixiv FANBOX requests, covering both the API calls and media downloads.
+# 模块作用：Pixiv FANBOX 请求的来源级代理规则，同时作用于 API 调用和媒体下载。
+[network.sources.fanbox]
+proxy = "direct"
+
+# Module purpose: optional Redis integration for shared runtime state, distributed security limits and multi-instance deployments.
+# 模块作用：可选 Redis 集成，用于共享运行时状态、分布式安全限制和多后端实例部署。
 [redis]
-# Optional. Empty disables Redis and keeps all runtime state local to the process.
-# Install support with:
+# Optional. Empty disables Redis and keeps runtime state local to this process.
+# 可选。留空时禁用 Redis，运行时状态仅保存在当前进程内。
+# Install support / 安装支持：
 #   python -m pip install -e ".[redis]"
-#
-# Examples:
+# Examples / 示例：
 # url = "redis://127.0.0.1:6379/0"
 # url = "rediss://:password@example.redis.cloud:6380/0"
 url = ""
 
 # Prefix for all NyaGallery Redis keys. Use a unique value per deployment.
+# 所有 NyaGallery Redis key 的前缀。每个部署建议使用唯一值。
 key_prefix = "nyagallery"
 
-# When true, request concurrency/rate/traffic limits are shared through Redis
-# instead of being tracked in local process memory. Useful once multiple API
-# instances are running behind the same frontend/proxy.
+# When true, request concurrency/rate/traffic limits are shared through Redis instead of local process memory.
+# 开启后，请求并发/频率/流量限制会通过 Redis 在多后端实例之间共享，而不是只存在本进程内存中。
 security_limiter = false
 
+# Module purpose: deployment secret management. The secret key encrypts saved third-party credentials at rest.
+# 模块作用：部署密钥管理。secret_key 用于加密落盘保存的第三方凭据。
 [security]
-# Deployment secret used to encrypt reusable third-party credentials such as
-# Pixiv Token/Cookie, proxy passwords and cloud storage password/token/access_key_secret.
-# `nyagallery setup`, backend startup with this config file, and the developer
-# config editor generate one automatically when this is empty. Keep the same
-# value across restarts and backend instances.
+# Deployment secret used to encrypt reusable third-party credentials such as Pixiv Token/Cookie,
+# proxy passwords and cloud-storage password/token/access_key_secret.
+# 用于加密可复用第三方凭据的部署密钥，例如 Pixiv Token/Cookie、代理密码、云存储 password/token/access_key_secret。
+# `nyagallery setup`, backend startup with this config file, and the developer config editor generate one automatically when this is empty.
+# 当这里为空时，`nyagallery setup`、使用本配置启动后端、以及开发者配置编辑器都会自动生成一个。
+# Keep the same value across restarts and backend instances.
+# 重启和多后端实例之间必须保持同一个值；丢失后，已加密的第三方凭据需要重新填写。
 secret_key = ""
 
+# Module purpose: immutable original-file storage. Choose local storage or configure remote strategies such as WebDAV, Upyun, Aliyun OSS, S3-compatible object storage and OneDrive.
+# 模块作用：不可变原图存储。可使用本地存储，或配置 WebDAV、又拍云、阿里云 OSS、S3 兼容对象存储、OneDrive 等远端策略。
+[original_storage]
+# Original file storage strategy used by upload and Pixiv sync when the request does not choose a strategy explicitly.
+# 上传和 Pixiv 同步没有显式选择策略时使用的原图存储策略。
+# `local` is always available and writes to storage/original.
+# `local` 始终可用，会写入 storage/original。
+# Remote originals are cached under storage/remote-cache when downloaded or used for preview generation.
+# 远端原图在下载或生成预览时会缓存到 storage/remote-cache。
+default_strategy = "local"
+
+# Add remote strategies as needed. The admin upload and Pixiv panels will show configured strategy names.
+# 按需添加远端存储策略。管理页上传和 Pixiv 面板会显示已配置的策略名。
+
+# Local folder on another disk / 数据盘本地目录示例：
+# [[original_storage.strategies]]
+# name = "data-disk"
+# type = "local"
+# root_path = "D:/NyaGallery/original"  |  root_path = "/data/nyagallery/original"
+# timeout_seconds = 60
+# WebDAV example / WebDAV 示例：
+# [[original_storage.strategies]]
+# name = "webdav-main"
+# type = "webdav"
+# prefix = "original"
+# endpoint = "https://dav.example.com/nyagallery/"
+# bucket = ""
+# region = ""
+# username = ""
+# password = ""
+# token = ""
+# access_key_id = ""
+# access_key_secret = ""
+# drive_id = ""
+# root_path = ""
+# timeout_seconds = 60
+
+# Upyun example / 又拍云示例：
+# [[original_storage.strategies]]
+# name = "upyun-main"
+# type = "upyun"
+# prefix = "original"
+# endpoint = "https://v0.api.upyun.com"
+# bucket = "your-service"
+# region = ""
+# username = "operator"
+# password = "password"
+# token = ""
+# access_key_id = ""
+# access_key_secret = ""
+# drive_id = ""
+# root_path = ""
+# timeout_seconds = 60
+
+# Aliyun OSS example / 阿里云 OSS 示例：
+# [[original_storage.strategies]]
+# name = "aliyun-oss-main"
+# type = "aliyun_oss"
+# prefix = "original"
+# endpoint = "https://oss-cn-hangzhou.aliyuncs.com"
+# bucket = "your-bucket"
+# region = ""
+# username = ""
+# password = ""
+# token = ""
+# access_key_id = "your-access-key-id"
+# access_key_secret = "your-access-key-secret"
+# drive_id = ""
+# root_path = ""
+# timeout_seconds = 60
+
+# S3 example (AWS S3 and compatible services such as MinIO / Cloudflare R2) / S3 示例（AWS S3 及 MinIO、Cloudflare R2 等兼容服务）：
+# Leave endpoint empty for AWS (derived from region). For MinIO/R2, set endpoint to the service URL; path-style addressing is used automatically.
+# 使用 AWS 时 endpoint 可留空（由 region 推导）。MinIO/R2 等自建服务填写服务地址，会自动使用 path-style 寻址。
+# [[original_storage.strategies]]
+# name = "s3-main"
+# type = "s3"
+# prefix = "original"
+# endpoint = ""
+# bucket = "your-bucket"
+# region = "us-east-1"
+# username = ""
+# password = ""
+# token = ""
+# access_key_id = "your-access-key-id"
+# access_key_secret = "your-secret-access-key"
+# drive_id = ""
+# root_path = ""
+# timeout_seconds = 60
+
+# OneDrive example / OneDrive 示例：
+# [[original_storage.strategies]]
+# name = "onedrive-main"
+# type = "onedrive"
+# prefix = "original"
+# endpoint = "https://graph.microsoft.com/v1.0"
+# bucket = ""
+# region = ""
+# username = ""
+# password = ""
+# token = "access-token"
+# access_key_id = ""
+# access_key_secret = ""
+# drive_id = ""
+# root_path = "NyaGallery"
+# timeout_seconds = 60
+
+# Module purpose: developer-only maintenance switches, including the admin config editor and controlled web maintenance console.
+# 模块作用：developer 专用维护开关，包括管理页配置编辑器和受控 Web 维护操作台。
 [developer]
 # Allows users with the developer role to edit this TOML file from the admin UI.
+# 允许 developer 角色用户在管理界面编辑此 TOML 配置文件。
 config_editor_enabled = true
 
-# Enables the web developer console allowlist. Keep false unless this backend is
-# protected by trusted network/auth controls. The console does not expose
-# arbitrary shell execution; it only enables explicit maintenance actions.
+# Enables the web developer console allowlist. Keep false unless this backend is protected by trusted network/auth controls.
+# 开启 Web 开发者操作台白名单。除非后端受可信网络/认证控制保护，否则建议保持 false。
+# The console does not expose arbitrary shell execution; it only enables explicit maintenance actions.
+# 操作台不暴露任意 shell 执行，只开放明确实现的维护操作。
 console_enabled = false
