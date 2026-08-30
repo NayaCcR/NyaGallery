@@ -1,0 +1,21 @@
+version: 2
+
+registries:
+  nyastack:
+    type: npm-registry
+    url: https://npm.pkg.github.com
+    token: ${{ secrets.GH_PACKAGES_TOKEN }}
+
+updates:
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    registries:
+      - nyastack
+    allow:
+      - dependency-name: "@nayaccr/*"
+    groups:
+      nyastack:
+        patterns:
+          - "@nayaccr/*"
