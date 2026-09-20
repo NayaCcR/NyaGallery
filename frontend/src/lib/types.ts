@@ -193,6 +193,11 @@ export interface Asset {
   duplicate_of: string | null;
 }
 
+export interface AssetApiExamplesResponse {
+  asset_key: string;
+  formats: Record<string, Record<string, string>>;
+}
+
 export interface PixivTagDetail {
   name: string;
   translated_name: string | null;

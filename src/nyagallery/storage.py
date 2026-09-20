@@ -1188,6 +1188,18 @@ class GalleryStorage:
         return None
 
     def _metadata_items_from_json(self, data: dict) -> list[GalleryMetadata]:
+        if isinstance(data, dict) and data.get("schema") == "nyagallery.asset.v1":
+            from nyagallery.asset import Asset
+
+            asset = Asset.from_dict(data)
+            metadata = dict(asset.metadata)
+            metadata.setdefault("file_sha256", asset.blob.sha256)
+            metadata.setdefault("original_filename", asset.blob.original_filename)
+            metadata.setdefault("original_path", asset.blob.storage_key)
+            metadata.setdefault("mime_type", asset.blob.mime)
+            metadata.setdefault("width", asset.blob.width)
+            metadata.setdefault("height", asset.blob.height)
+            return [GalleryMetadata.from_dict(metadata)]
         if isinstance(data, dict) and isinstance(data.get("assets"), list):
             return [GalleryMetadata.from_dict(item) for item in data["assets"]]
         return [GalleryMetadata.from_dict(data)]

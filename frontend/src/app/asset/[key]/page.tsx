@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Check, Copy, Download, ExternalLink, Tags as TagsIcon, Trash2, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Check, Copy, Download, ExternalLink, Tags as TagsIcon, Trash2, AlertTriangle, Code2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useAsset, useAssetSiblings } from "@/lib/hooks";
 import { ApiError, downloadOriginalAsset, fileUrl, NyaApi, readToken } from "@/lib/api";
@@ -560,6 +560,19 @@ function ApiLinksSection({
 }) {
   const { locale, t } = useI18n();
   const assetKey = asset.asset_key;
+  const [exampleFormat, setExampleFormat] = useState<"curl" | "fetch" | "python">("curl");
+  const [examples, setExamples] = useState<Record<string, Record<string, string>> | null>(null);
+  const [examplesError, setExamplesError] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    NyaApi.assetApiExamples(assetKey).then((response) => {
+      if (active) setExamples(response.formats);
+    }).catch(() => {
+      if (active) setExamplesError(true);
+    });
+    return () => { active = false; };
+  }, [assetKey]);
   const links = useMemo<ApiLink[]>(() => {
     const items: ApiLink[] = [
       {
@@ -629,7 +642,57 @@ function ApiLinksSection({
       <p className="text-[11px] text-muted-foreground">
         {t("pages.asset.resourceLinksHint")}
       </p>
+      {examples && (
+        <section className="space-y-2 rounded-lg border border-border bg-muted/30 p-2">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="flex items-center gap-1.5 text-xs font-medium"><Code2 className="h-3.5 w-3.5" />{t("pages.asset.apiExamples")}</h3>
+            <select
+              value={exampleFormat}
+              onChange={(event) => setExampleFormat(event.target.value as typeof exampleFormat)}
+              className="h-7 rounded-md border border-border bg-background px-2 text-xs"
+              aria-label={t("pages.asset.apiExampleFormat")}
+            >
+              <option value="curl">curl</option>
+              <option value="fetch">fetch</option>
+              <option value="python">Python requests</option>
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            {Object.entries(examples[exampleFormat] ?? {}).map(([name, value]) => (
+              <ExampleCode key={name} label={name} value={value} />
+            ))}
+          </div>
+        </section>
+      )}
+      {examplesError && <p className="text-[11px] text-muted-foreground">{t("pages.asset.apiExamplesUnavailable")}</p>}
     </section>
+  );
+}
+
+function ExampleCode({ label, value }: { label: string; value: string }) {
+  const toast = useToast();
+  const { t } = useI18n();
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      toast.success(t("common.copied"));
+      window.setTimeout(() => setCopied(false), 1200);
+    } catch {
+      toast.error(t("pages.asset.copyFailed"));
+    }
+  }
+  return (
+    <div className="flex items-start gap-2 rounded-md border border-border bg-background p-2">
+      <div className="min-w-0 flex-1">
+        <div className="mb-1 text-[10px] uppercase text-muted-foreground">{label}</div>
+        <code className="block whitespace-pre-wrap break-all text-[11px] text-foreground">{value}</code>
+      </div>
+      <button type="button" onClick={copy} title={t("common.copyLink")} className="rounded-md border border-border p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground">
+        {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+      </button>
+    </div>
   );
 }
 

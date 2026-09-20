@@ -26,6 +26,7 @@ MiB = 1024 * 1024
 class CoreConfig:
     storage: str = "storage"
     database_url: str | None = None
+    metadata_mode: str = "database"
     tag_catalog_path: str | None = None
     name_media_by_post_id: bool = True
 
@@ -242,6 +243,7 @@ def config_to_dict(config: NyaGalleryConfig, *, redact_secrets: bool = False) ->
         "core": {
             "storage": config.core.storage,
             "database_url": config.core.database_url or "",
+            "metadata_mode": config.core.metadata_mode,
             "tag_catalog_path": config.core.tag_catalog_path or "",
             "name_media_by_post_id": config.core.name_media_by_post_id,
         },
@@ -375,6 +377,7 @@ def render_config(config: NyaGalleryConfig) -> str:
         "[core]",
         f"storage = {_toml_string(config.core.storage)}",
         f"database_url = {_toml_string(config.core.database_url or '')}",
+        f"metadata_mode = {_toml_string(config.core.metadata_mode)}",
         f"tag_catalog_path = {_toml_string(config.core.tag_catalog_path or '')}",
         f"name_media_by_post_id = {_toml_bool(config.core.name_media_by_post_id)}",
         "",
@@ -589,6 +592,7 @@ def _config_from_dict(data: dict[str, Any], path: Path | None) -> NyaGalleryConf
         core=CoreConfig(
             storage=_str(core.get("storage"), "storage"),
             database_url=_optional_str(core.get("database_url")),
+            metadata_mode=_str(core.get("metadata_mode"), "database").strip().casefold() if _str(core.get("metadata_mode"), "database").strip().casefold() in {"file", "database"} else "database",
             tag_catalog_path=_optional_str(core.get("tag_catalog_path")),
             name_media_by_post_id=_bool(core.get("name_media_by_post_id"), True),
         ),

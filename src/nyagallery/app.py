@@ -116,6 +116,7 @@ from nyagallery.db import (
     revoke_pixiv_token,
     revoke_login_session,
     search_assets,
+    can_view_asset,
     save_misskey_token,
     save_x_token,
     save_pixiv_cookie,
@@ -139,6 +140,7 @@ from nyagallery.db import (
 )
 from nyagallery.metadata import GalleryMetadata, make_asset_key, parse_pixiv_filename, utc_now_iso
 from nyagallery.media import MediaGenerator, is_animated_raster, media_limits_from_config, probe_media_size
+from nyagallery.virtual_folders import VirtualFolder, VirtualFolderCatalog
 from nyagallery.fanbox import (
     FanboxAuthError,
     FanboxClient,
@@ -528,6 +530,13 @@ class DeveloperPasswordResetRequest(BaseModel):
     new_password: str = Field(min_length=1)
 
 
+class VirtualFolderUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    query: str = Field(min_length=1, max_length=2000)
+    group: str = Field(default="custom", max_length=80)
+    description: str = Field(default="", max_length=500)
+
+
 def create_app(
     *,
     storage_root: str | Path | None = None,
@@ -548,6 +557,8 @@ def create_app(
     post_store = PostStore(storage.root)
     post_store.ensure()
     catalog = _load_catalog(storage, tag_catalog_path or config.core.tag_catalog_path)
+    virtual_folders = VirtualFolderCatalog(storage.tags_dir / "virtual_folders.json")
+    virtual_folders.load()
     engine = create_engine_for_url(database_url or config.core.database_url or default_database_url(storage))
     init_database(engine)
     session_factory = make_session_factory(engine)
@@ -732,7 +743,10 @@ def create_app(
         sort_key = normalize_asset_sort(sort)
         sort_order = normalize_sort_order(order)
         q = _query_with_guest_safety(q, principal)
-        asset_items = search_asset_dicts(db, catalog, q, limit=limit, offset=offset, sort=sort_key, order=sort_order)
+        asset_items = search_asset_dicts(
+            db, catalog, q, limit=limit, offset=offset, sort=sort_key, order=sort_order,
+            user_id=principal.user_id, is_admin=_is_admin_principal(principal),
+        )
         return {
             "items": asset_items,
             "limit": limit,
@@ -796,9 +810,10 @@ def create_app(
         original: bool = False,
     ) -> FileResponse:
         q = _query_with_guest_safety(q or "", principal)
-        asset = random_asset(db, catalog, q, exclude_ratings=_hidden_post_ratings(principal))
+        asset = random_asset(db, catalog, q, exclude_ratings=_hidden_post_ratings(principal), user_id=principal.user_id, is_admin=_is_admin_principal(principal))
         if asset is None:
             raise HTTPException(status_code=404, detail="no matching asset")
+        _require_asset_access(db, asset, principal)
         return _file_response(storage, asset, "original" if original else "preview")
 
     @app.get("/api/img/{tag}")
@@ -809,20 +824,51 @@ def create_app(
         original: bool = False,
     ) -> FileResponse:
         tag = _query_with_guest_safety(tag, principal)
-        asset = random_asset(db, catalog, tag, exclude_ratings=_hidden_post_ratings(principal))
+        asset = random_asset(db, catalog, tag, exclude_ratings=_hidden_post_ratings(principal), user_id=principal.user_id, is_admin=_is_admin_principal(principal))
         if asset is None:
             raise HTTPException(status_code=404, detail="no matching asset")
+        _require_asset_access(db, asset, principal)
         return _file_response(storage, asset, "original" if original else "preview")
 
     @app.get("/api/assets/{asset_key}")
     def api_asset(asset_key: str, db: DbSession, principal: ViewPrincipal) -> dict[str, object]:
         asset = _get_asset(db, asset_key)
+        _require_asset_access(db, asset, principal)
         _require_sensitive_view(asset, principal)
         return _asset_response(storage, asset, catalog)
+
+    @app.get("/api/assets/{asset_key}/api-examples")
+    def api_asset_examples(asset_key: str, db: DbSession, principal: ViewPrincipal) -> dict[str, object]:
+        """Return copyable examples with a placeholder token only."""
+        asset = _get_asset(db, asset_key)
+        _require_asset_access(db, asset, principal)
+        _require_sensitive_view(asset, principal)
+        base = "https://your-host"
+        endpoint = f"/api/assets/{asset.asset_key}"
+        token = "<token>"
+        return {
+            "asset_key": asset.asset_key,
+            "formats": {
+                "curl": {
+                    "metadata": f'curl -H "Authorization: Bearer {token}" {base}{endpoint}',
+                    "original": f'curl -H "Authorization: Bearer {token}" -o original{Path(asset.original_filename).suffix or ".bin"} {base}{endpoint}/original',
+                    "upload": f'curl -X POST -H "Authorization: Bearer {token}" -F "file=@image.jpg" -F "visibility=private" {base}/api/assets',
+                },
+                "fetch": {
+                    "metadata": f"fetch('{base}{endpoint}', {{ headers: {{ Authorization: 'Bearer {token}' }} }})",
+                    "original": f"fetch('{base}{endpoint}/original', {{ headers: {{ Authorization: 'Bearer {token}' }} }})",
+                },
+                "python": {
+                    "metadata": f"requests.get('{base}{endpoint}', headers={{'Authorization': 'Bearer {token}'}})",
+                    "original": f"requests.get('{base}{endpoint}/original', headers={{'Authorization': 'Bearer {token}'}})",
+                },
+            },
+        }
 
     @app.get("/api/assets/{asset_key}/siblings")
     def api_asset_siblings(asset_key: str, db: DbSession, principal: ViewPrincipal) -> dict[str, object]:
         asset = _get_asset(db, asset_key)
+        _require_asset_access(db, asset, principal)
         _require_sensitive_view(asset, principal)
         statement = (
             select(AssetModel)
@@ -840,7 +886,7 @@ def create_app(
         siblings = [
             item
             for item in db.scalars(statement).all()
-            if item.asset_key == asset.asset_key or _can_view_asset(item, principal)
+            if item.asset_key == asset.asset_key or can_view_asset(db, item, user_id=principal.user_id, is_admin=_is_admin_principal(principal))
         ]
         return {
             "items": [_asset_response(storage, item, catalog) for item in siblings],
@@ -873,17 +919,21 @@ def create_app(
 
     @app.get("/api/assets/{asset_key}/original")
     def api_asset_original(asset_key: str, db: DbSession, _principal: DownloadPrincipal) -> FileResponse:
-        return _file_response(storage, _get_asset(db, asset_key), "original")
+        asset = _get_asset(db, asset_key)
+        _require_asset_access(db, asset, _principal)
+        return _file_response(storage, asset, "original")
 
     @app.get("/api/assets/{asset_key}/preview")
     def api_asset_preview(asset_key: str, db: DbSession, principal: ViewPrincipal) -> FileResponse:
         asset = _get_asset(db, asset_key)
+        _require_asset_access(db, asset, principal)
         _require_sensitive_view(asset, principal)
         return _file_response(storage, asset, "preview")
 
     @app.get("/api/assets/{asset_key}/thumb")
     def api_asset_thumb(asset_key: str, db: DbSession, principal: ViewPrincipal) -> FileResponse:
         asset = _get_asset(db, asset_key)
+        _require_asset_access(db, asset, principal)
         _require_sensitive_view(asset, principal)
         return _file_response(storage, asset, "thumb")
 
@@ -898,6 +948,25 @@ def create_app(
     @app.get("/api/tags/summary")
     def api_tag_summary(db: DbSession, _principal: ViewPrincipal) -> dict[str, object]:
         return tag_summary(db, catalog)
+
+    @app.get("/api/virtual-folders")
+    def api_virtual_folders(_principal: ViewPrincipal) -> dict[str, object]:
+        return {"items": [folder.to_dict() for folder in virtual_folders.list()]}
+
+    @app.put("/api/virtual-folders/{folder_name}")
+    def api_put_virtual_folder(folder_name: str, update: VirtualFolderUpdate, _principal: AdminPrincipal) -> dict[str, object]:
+        if folder_name != update.name:
+            raise HTTPException(status_code=400, detail="folder name in path and body must match")
+        virtual_folders.put(VirtualFolder(update.name, update.query, update.group, update.description))
+        virtual_folders.save()
+        return update.model_dump()
+
+    @app.delete("/api/virtual-folders/{folder_name}")
+    def api_delete_virtual_folder(folder_name: str, _principal: AdminPrincipal) -> dict[str, object]:
+        if not virtual_folders.remove(folder_name):
+            raise HTTPException(status_code=404, detail="virtual folder not found")
+        virtual_folders.save()
+        return {"name": folder_name, "deleted": True}
 
     @app.post("/api/tags/summary/export")
     def api_export_tag_summary(db: DbSession, _principal: AdminPrincipal) -> dict[str, object]:
@@ -5194,6 +5263,11 @@ def _get_asset(db: Session, asset_key: str) -> AssetModel:
     if asset is None or asset.deletion_status is not None:
         raise HTTPException(status_code=404, detail="asset not found")
     return asset
+
+
+def _require_asset_access(db: Session, asset: AssetModel, principal: Principal) -> None:
+    if not can_view_asset(db, asset, user_id=principal.user_id, is_admin=_is_admin_principal(principal)):
+        raise HTTPException(status_code=404, detail="asset not found")
 
 
 def _require_asset_owner_or_admin(asset: AssetModel, principal: Principal) -> None:

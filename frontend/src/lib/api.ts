@@ -3,6 +3,7 @@ import type {
   AssetSiblingResponse,
   ApiTokenListResponse,
   Asset,
+  AssetApiExamplesResponse,
   BackendConfig,
   DeveloperConfigResponse,
   DeveloperConsoleResponse,
@@ -200,6 +201,9 @@ export const NyaApi = {
   post: (postKey: string) => api<Post>(`/api/posts/${encodeURIComponent(postKey)}`),
 
   asset: (assetKey: string) => api<Asset>(`/api/assets/${encodeURIComponent(assetKey)}`),
+
+  assetApiExamples: (assetKey: string) =>
+    api<AssetApiExamplesResponse>(`/api/assets/${encodeURIComponent(assetKey)}/api-examples`),
 
   assetSiblings: (assetKey: string) =>
     api<AssetSiblingResponse>(`/api/assets/${encodeURIComponent(assetKey)}/siblings`),

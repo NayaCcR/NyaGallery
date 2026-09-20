@@ -7,7 +7,7 @@ from typing import Iterable
 import uuid
 from types import SimpleNamespace
 
-from sqlalchemy import JSON, BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, delete, event, exists, func, inspect, or_, select, text, update
+from sqlalchemy import JSON, BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, and_, create_engine, delete, event, exists, func, inspect, or_, select, text, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
@@ -418,6 +418,73 @@ class AccessLogModel(Base):
     rejection_reason: Mapped[str | None] = mapped_column(String(500), nullable=True, index=True)
     error: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, index=True)
+
+
+class GlobalSourceAssetModel(Base):
+    """One globally fetched source work shared by many user references."""
+
+    __tablename__ = "global_source_assets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source: Mapped[str] = mapped_column(String(40), index=True)
+    source_id: Mapped[str] = mapped_column(String(180), index=True)
+    artist_id: Mapped[str] = mapped_column(String(180), default="", index=True)
+    status: Mapped[str] = mapped_column(String(40), default="ready", index=True)
+    asset_key: Mapped[str | None] = mapped_column(String(160), ForeignKey("assets.asset_key"), nullable=True, index=True)
+    failure_count: Mapped[int] = mapped_column(Integer, default=0)
+    next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class UserSubscriptionModel(Base):
+    __tablename__ = "user_subscriptions"
+    __table_args__ = (UniqueConstraint("user_id", "source", "artist_id", name="uq_user_subscription"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    source: Mapped[str] = mapped_column(String(40), index=True)
+    artist_id: Mapped[str] = mapped_column(String(180), index=True)
+    auto_sync: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class UserAssetModel(Base):
+    __tablename__ = "user_assets"
+    __table_args__ = (UniqueConstraint("user_id", "asset_key", name="uq_user_asset"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    asset_key: Mapped[str] = mapped_column(String(160), ForeignKey("assets.asset_key", ondelete="CASCADE"), index=True)
+    visibility: Mapped[str] = mapped_column(String(20), default="private", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class AssetAclModel(Base):
+    __tablename__ = "asset_acl"
+    __table_args__ = (UniqueConstraint("asset_key", "subject_type", "subject_id", "permission", name="uq_asset_acl"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    asset_key: Mapped[str] = mapped_column(String(160), ForeignKey("assets.asset_key", ondelete="CASCADE"), index=True)
+    subject_type: Mapped[str] = mapped_column(String(20), default="user", index=True)
+    subject_id: Mapped[str] = mapped_column(String(180), index=True)
+    permission: Mapped[str] = mapped_column(String(20), default="view", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class ShareGroupModel(Base):
+    __tablename__ = "share_groups"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    owner_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class ShareGroupMemberModel(Base):
+    __tablename__ = "share_group_members"
+    __table_args__ = (UniqueConstraint("group_id", "user_id", name="uq_share_group_member"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    group_id: Mapped[int] = mapped_column(Integer, ForeignKey("share_groups.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
 
 class SecuritySettingsModel(Base):
@@ -905,6 +972,8 @@ def search_assets(
     sort: str = "asset_key",
     order: str = "asc",
     include_deleted: bool = False,
+    user_id: int | None = None,
+    is_admin: bool = False,
 ) -> list[AssetModel]:
     parsed = catalog.parse_query(query) if isinstance(query, str) else query
     if parsed.unknown_required:
@@ -927,6 +996,8 @@ def search_asset_dicts(
     sort: str = "asset_key",
     order: str = "asc",
     include_deleted: bool = False,
+    user_id: int | None = None,
+    is_admin: bool = False,
 ) -> list[dict[str, object]]:
     """Return search results through SQLAlchemy Core and the normal API mapper."""
     parsed = catalog.parse_query(query) if isinstance(query, str) else query
@@ -937,6 +1008,21 @@ def search_asset_dicts(
     statement = select(*assets.c)
     if not include_deleted:
         statement = statement.where(assets.c.deletion_status.is_(None))
+        if is_admin:
+            pass
+        elif user_id is None:
+            statement = statement.where(or_(assets.c.uploader_user_id.is_(None), exists(select(1).where(
+                UserAssetModel.asset_key == assets.c.asset_key,
+                UserAssetModel.visibility == "public",
+            ))))
+        else:
+            statement = statement.where(or_(
+                assets.c.uploader_user_id.is_(None),
+                assets.c.uploader_user_id == user_id,
+                exists(select(1).where(UserAssetModel.asset_key == assets.c.asset_key, UserAssetModel.visibility == "public")),
+                exists(select(1).where(AssetAclModel.asset_key == assets.c.asset_key, AssetAclModel.subject_type == "user", AssetAclModel.subject_id == str(user_id), AssetAclModel.permission == "view")),
+                exists(select(1).select_from(AssetAclModel).join(ShareGroupMemberModel, and_(ShareGroupMemberModel.group_id == AssetAclModel.subject_id.cast(Integer), ShareGroupMemberModel.user_id == user_id)).where(AssetAclModel.asset_key == assets.c.asset_key, AssetAclModel.subject_type == "group", AssetAclModel.permission == "view")),
+            ))
     for tag in parsed.required:
         statement = statement.where(exists(select(asset_tags.c.asset_key).where(
             asset_tags.c.asset_key == assets.c.asset_key,
@@ -1006,6 +1092,8 @@ def random_asset(
     *,
     include_deleted: bool = False,
     exclude_ratings: Iterable[str] = (),
+    user_id: int | None = None,
+    is_admin: bool = False,
 ) -> AssetModel | None:
     parsed = catalog.parse_query(query or "")
     if parsed.unknown_required:
@@ -1013,6 +1101,7 @@ def random_asset(
     statement = select(AssetModel).order_by(func.random()).limit(1)
     if not include_deleted:
         statement = statement.where(AssetModel.deletion_status.is_(None))
+        statement = statement.where(asset_visibility_clause(user_id=user_id, is_admin=is_admin))
     ratings = tuple(str(rating).strip().casefold() for rating in exclude_ratings if str(rating).strip())
     if ratings:
         statement = statement.where(or_(AssetModel.age_rating.is_(None), func.lower(AssetModel.age_rating).notin_(ratings)))
@@ -2012,6 +2101,130 @@ def revoke_login_session(session: Session, session_token: str) -> LoginSessionMo
 
 def any_users(session: Session) -> bool:
     return session.scalar(select(UserModel.id).limit(1)) is not None
+
+
+VISIBILITY_LEVELS = frozenset({"private", "shared", "group", "public"})
+ACL_PERMISSIONS = frozenset({"view", "download", "edit"})
+
+
+def normalize_visibility(value: str | None) -> str:
+    candidate = str(value or "private").strip().casefold()
+    return candidate if candidate in VISIBILITY_LEVELS else "private"
+
+
+def upsert_user_asset(session: Session, *, user_id: int, asset_key: str, visibility: str = "private") -> UserAssetModel:
+    row = session.scalar(select(UserAssetModel).where(
+        UserAssetModel.user_id == user_id,
+        UserAssetModel.asset_key == asset_key,
+    ))
+    if row is None:
+        row = UserAssetModel(user_id=user_id, asset_key=asset_key)
+        session.add(row)
+    row.visibility = normalize_visibility(visibility)
+    session.flush()
+    return row
+
+
+def add_asset_acl(
+    session: Session,
+    *,
+    asset_key: str,
+    subject_type: str,
+    subject_id: str,
+    permission: str = "view",
+) -> AssetAclModel:
+    normalized_type = str(subject_type or "user").strip().casefold()
+    normalized_permission = str(permission or "view").strip().casefold()
+    if normalized_type not in {"user", "group"}:
+        raise ValueError("subject_type must be user or group")
+    if normalized_permission not in ACL_PERMISSIONS:
+        raise ValueError("permission must be view, download, or edit")
+    row = session.scalar(select(AssetAclModel).where(
+        AssetAclModel.asset_key == asset_key,
+        AssetAclModel.subject_type == normalized_type,
+        AssetAclModel.subject_id == str(subject_id),
+        AssetAclModel.permission == normalized_permission,
+    ))
+    if row is None:
+        row = AssetAclModel(
+            asset_key=asset_key,
+            subject_type=normalized_type,
+            subject_id=str(subject_id),
+            permission=normalized_permission,
+        )
+        session.add(row)
+    session.flush()
+    return row
+
+
+def can_view_asset(session: Session, asset: AssetModel, *, user_id: int | None, is_admin: bool = False) -> bool:
+    if is_admin or asset.uploader_user_id is None:
+        return True
+    if user_id is not None and asset.uploader_user_id == user_id:
+        return True
+    public = session.scalar(select(UserAssetModel.id).where(
+        UserAssetModel.asset_key == asset.asset_key,
+        UserAssetModel.visibility == "public",
+    ).limit(1))
+    if public is not None:
+        return True
+    if user_id is None:
+        return False
+    direct = session.scalar(select(AssetAclModel.id).where(
+        AssetAclModel.asset_key == asset.asset_key,
+        AssetAclModel.subject_type == "user",
+        AssetAclModel.subject_id == str(user_id),
+        AssetAclModel.permission == "view",
+    ).limit(1))
+    if direct is not None:
+        return True
+    group = session.scalar(select(AssetAclModel.id).join(
+        ShareGroupMemberModel,
+        (ShareGroupMemberModel.group_id == AssetAclModel.subject_id.cast(Integer)) &
+        (ShareGroupMemberModel.user_id == user_id),
+    ).where(
+        AssetAclModel.asset_key == asset.asset_key,
+        AssetAclModel.subject_type == "group",
+        AssetAclModel.permission == "view",
+    ).limit(1))
+    return group is not None
+
+
+def asset_visibility_clause(*, user_id: int | None, is_admin: bool = False):
+    """Return a dialect-neutral SQLAlchemy predicate for gallery visibility."""
+    if is_admin:
+        return True
+    public = exists(select(1).where(
+        UserAssetModel.asset_key == AssetModel.asset_key,
+        UserAssetModel.visibility == "public",
+    ))
+    legacy_guest = AssetModel.uploader_user_id.is_(None) if user_id is None else False
+    if user_id is None:
+        return or_(legacy_guest, public)
+    owner = or_(AssetModel.uploader_user_id.is_(None), AssetModel.uploader_user_id == user_id)
+    direct = exists(select(1).where(
+        AssetAclModel.asset_key == AssetModel.asset_key,
+        AssetAclModel.subject_type == "user",
+        AssetAclModel.subject_id == str(user_id),
+        AssetAclModel.permission == "view",
+    ))
+    group = exists(
+        select(1)
+        .select_from(AssetAclModel)
+        .join(
+            ShareGroupMemberModel,
+            and_(
+                ShareGroupMemberModel.group_id == AssetAclModel.subject_id.cast(Integer),
+                ShareGroupMemberModel.user_id == user_id,
+            ),
+        )
+        .where(
+            AssetAclModel.asset_key == AssetModel.asset_key,
+            AssetAclModel.subject_type == "group",
+            AssetAclModel.permission == "view",
+        )
+    )
+    return or_(owner, public, direct, group)
 
 
 def asset_to_dict(asset: AssetModel, catalog: TagCatalog | None = None) -> dict[str, object]:
