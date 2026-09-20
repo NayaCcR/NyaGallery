@@ -5,8 +5,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable
 import uuid
+from types import SimpleNamespace
 
-from sqlalchemy import JSON, BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, delete, exists, func, inspect, or_, select, text, update
+from sqlalchemy import JSON, BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, delete, event, exists, func, inspect, or_, select, text, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
@@ -452,7 +453,20 @@ class SourceTagBackfillResult:
 
 def create_engine_for_url(database_url: str) -> Engine:
     connect_args = {"check_same_thread": False} if database_url.startswith("sqlite:") else {}
-    return create_engine(database_url, future=True, connect_args=connect_args)
+    engine = create_engine(database_url, future=True, connect_args=connect_args)
+    if engine.dialect.name == "sqlite":
+        @event.listens_for(engine, "connect")
+        def _configure_sqlite(dbapi_connection, _connection_record):
+            cursor = dbapi_connection.cursor()
+            try:
+                for pragma in ("PRAGMA journal_mode=WAL", "PRAGMA synchronous=NORMAL"):
+                    try:
+                        cursor.execute(pragma)
+                    except Exception:
+                        pass
+            finally:
+                cursor.close()
+    return engine
 
 
 def make_session_factory(engine: Engine) -> sessionmaker[Session]:
@@ -901,6 +915,88 @@ def search_assets(
     statement = _apply_tag_filters(statement, parsed)
     statement = _apply_sort(statement, sort, order)
     return list(session.scalars(statement.limit(limit).offset(offset)).all())
+
+
+def search_asset_dicts(
+    session: Session,
+    catalog: TagCatalog,
+    query: str | SearchQuery,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+    sort: str = "asset_key",
+    order: str = "asc",
+    include_deleted: bool = False,
+) -> list[dict[str, object]]:
+    """Return search results through SQLAlchemy Core and the normal API mapper."""
+    parsed = catalog.parse_query(query) if isinstance(query, str) else query
+    if parsed.unknown_required:
+        return []
+    assets = AssetModel.__table__
+    asset_tags = AssetTagModel.__table__
+    statement = select(*assets.c)
+    if not include_deleted:
+        statement = statement.where(assets.c.deletion_status.is_(None))
+    for tag in parsed.required:
+        statement = statement.where(exists(select(asset_tags.c.asset_key).where(
+            asset_tags.c.asset_key == assets.c.asset_key,
+            asset_tags.c.tag == tag,
+        )))
+    for tag in parsed.excluded:
+        statement = statement.where(~exists(select(asset_tags.c.asset_key).where(
+            asset_tags.c.asset_key == assets.c.asset_key,
+            asset_tags.c.tag == tag,
+        )))
+    if parsed.exclude_hidden:
+        statement = statement.where(~exists(select(asset_tags.c.asset_key).where(
+            asset_tags.c.asset_key == assets.c.asset_key,
+            or_(
+                asset_tags.c.tag == HIDDEN_TAG,
+                asset_tags.c.tag.like("meta:hide\\_%", escape="\\"),
+                asset_tags.c.tag.like("meta:hide-%", escape="\\"),
+            ),
+        )))
+    filename_column = func.lower(assets.c.original_filename)
+    for term in parsed.filename_required:
+        statement = statement.where(filename_column.like(_contains_pattern(term), escape="\\"))
+    for term in parsed.filename_excluded:
+        statement = statement.where(~filename_column.like(_contains_pattern(term), escape="\\"))
+    sort_columns = {
+        "artwork_date": assets.c.artwork_date,
+        "pixiv_upload_date": assets.c.pixiv_upload_date,
+        "uploaded_at": assets.c.crawl_time,
+        "original_filename": func.lower(assets.c.original_filename),
+        "title": func.lower(assets.c.title),
+        "artist": func.lower(assets.c.artist_name),
+        "source": func.lower(assets.c.source),
+        "source_id": func.lower(assets.c.source_id),
+        "asset_key": assets.c.asset_key,
+    }
+    expression = sort_columns.get(normalize_asset_sort(sort), assets.c.asset_key)
+    sorted_expression = expression.desc() if normalize_sort_order(order) == "desc" else expression.asc()
+    group = assets.c.source_id.desc() if normalize_sort_order(order) == "desc" else assets.c.source_id.asc()
+    statement = statement.order_by(
+        (func.coalesce(expression, "") == "").asc(),
+        sorted_expression,
+        group,
+        assets.c.page_index.is_(None).asc(),
+        assets.c.page_index.asc(),
+        assets.c.asset_key.asc(),
+    ).limit(limit).offset(offset)
+    rows = session.execute(statement).mappings().all()
+    if not rows:
+        return []
+    keys = [str(row["asset_key"]) for row in rows]
+    tag_rows = session.execute(
+        select(asset_tags.c.asset_key, asset_tags.c.tag).where(asset_tags.c.asset_key.in_(keys))
+    ).all()
+    tags_by_asset: dict[str, list[SimpleNamespace]] = {key: [] for key in keys}
+    for asset_key, tag in tag_rows:
+        tags_by_asset.setdefault(str(asset_key), []).append(SimpleNamespace(tag=str(tag)))
+    return [
+        asset_to_dict(SimpleNamespace(**dict(row), tags=tags_by_asset.get(str(row["asset_key"]), [])), catalog)
+        for row in rows
+    ]
 
 
 def random_asset(
@@ -2395,6 +2491,8 @@ def create_access_log(
     rejection_reason: str | None = None,
     error: str | None = None,
     retention: int = 5000,
+    prune: bool = True,
+    flush: bool = True,
 ) -> AccessLogModel:
     log = AccessLogModel(
         client_ip=client_ip,
@@ -2415,9 +2513,12 @@ def create_access_log(
         error=error[:1000] if error else None,
     )
     session.add(log)
-    session.flush()
-    _prune_access_logs(session, retention)
-    session.flush()
+    if flush:
+        session.flush()
+    if prune:
+        _prune_access_logs(session, retention)
+        if flush:
+            session.flush()
     return log
 
 

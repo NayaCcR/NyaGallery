@@ -4,9 +4,11 @@ from dataclasses import dataclass
 from io import BytesIO
 import os
 from pathlib import Path
+import threading
 from typing import Callable
 import time
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 
 from nyagallery.config import MediaConfig
 from nyagallery.metadata import GalleryMetadata
@@ -41,6 +43,7 @@ def _bounded_int(value: object, default: int, *, minimum: int, maximum: int) -> 
 MAX_FRAME_PIXELS = _env_int("NYAGALLERY_MEDIA_MAX_FRAME_PIXELS", 50_000_000)
 MAX_IMAGE_PIXELS = _env_int("NYAGALLERY_MEDIA_MAX_IMAGE_PIXELS", 100_000_000)
 MAX_ANIMATION_FRAMES = _env_int("NYAGALLERY_MEDIA_MAX_ANIMATION_FRAMES", 500)
+MAX_ANIMATION_MEMORY_BYTES = _env_int("NYAGALLERY_MEDIA_MAX_ANIMATION_MEMORY_BYTES", 512 * MiB)
 MAX_ZIP_UNCOMPRESSED_BYTES = _env_int("NYAGALLERY_MEDIA_MAX_ZIP_UNCOMPRESSED_BYTES", 512 * MiB)
 MAX_ZIP_FRAME_BYTES = _env_int("NYAGALLERY_MEDIA_MAX_ZIP_FRAME_BYTES", 64 * MiB)
 MAX_VIDEO_BYTES = _env_int("NYAGALLERY_MEDIA_MAX_VIDEO_BYTES", 128 * MiB)
@@ -55,14 +58,16 @@ class MediaLimits:
     max_frame_pixels: int = MAX_FRAME_PIXELS
     max_image_pixels: int = MAX_IMAGE_PIXELS
     max_animation_frames: int = MAX_ANIMATION_FRAMES
+    max_animation_memory_bytes: int = MAX_ANIMATION_MEMORY_BYTES
     max_zip_uncompressed_bytes: int = MAX_ZIP_UNCOMPRESSED_BYTES
     max_zip_frame_bytes: int = MAX_ZIP_FRAME_BYTES
     max_video_bytes: int = MAX_VIDEO_BYTES
     generation_timeout_seconds: int = DEFAULT_MEDIA_GENERATION_TIMEOUT_SECONDS
     preview_max_edge: int = 1800
     thumb_max_edge: int = 420
-    avif_quality: int = 82
-    webp_quality: int = 82
+    avif_quality: int = 70
+    webp_quality: int = 75
+    max_concurrency: int = 0
 
 
 def media_limits_from_config(config: MediaConfig | None = None) -> MediaLimits:
@@ -72,14 +77,19 @@ def media_limits_from_config(config: MediaConfig | None = None) -> MediaLimits:
         max_frame_pixels=_positive_int(config.max_frame_pixels, MAX_FRAME_PIXELS),
         max_image_pixels=_positive_int(config.max_image_pixels, MAX_IMAGE_PIXELS),
         max_animation_frames=_positive_int(config.max_animation_frames, MAX_ANIMATION_FRAMES),
+        max_animation_memory_bytes=_positive_int(
+            getattr(config, "max_animation_memory_bytes", MAX_ANIMATION_MEMORY_BYTES),
+            MAX_ANIMATION_MEMORY_BYTES,
+        ),
         max_zip_uncompressed_bytes=_positive_int(config.max_zip_uncompressed_bytes, MAX_ZIP_UNCOMPRESSED_BYTES),
         max_zip_frame_bytes=_positive_int(config.max_zip_frame_bytes, MAX_ZIP_FRAME_BYTES),
         max_video_bytes=_positive_int(config.max_video_bytes, MAX_VIDEO_BYTES),
         generation_timeout_seconds=_positive_int(config.generation_timeout_seconds, DEFAULT_MEDIA_GENERATION_TIMEOUT_SECONDS),
         preview_max_edge=_positive_int(config.preview_max_edge, 1800),
         thumb_max_edge=_positive_int(config.thumb_max_edge, 420),
-        avif_quality=_bounded_int(config.avif_quality, 82, minimum=1, maximum=100),
-        webp_quality=_bounded_int(config.webp_quality, 82, minimum=1, maximum=100),
+        avif_quality=_bounded_int(config.avif_quality, 70, minimum=1, maximum=100),
+        webp_quality=_bounded_int(config.webp_quality, 75, minimum=1, maximum=100),
+        max_concurrency=max(0, int(config.max_concurrency or 0)),
     )
 
 
@@ -97,6 +107,23 @@ class MediaGenerationError(RuntimeError):
 
 class MediaGenerationTimeout(MediaGenerationError):
     pass
+
+
+def resolve_media_concurrency(value: int = 0) -> int:
+    """Resolve the conservative media worker count.
+
+    Zero selects half the available CPUs capped at four; one keeps the
+    historical serial behavior. Invalid negative values are treated as one.
+    """
+    configured = int(value or 0)
+    if configured < 0:
+        return 1
+    if configured == 1:
+        return 1
+    if configured > 1:
+        return configured
+    cpu_count = os.cpu_count() or 1
+    return max(1, min(4, cpu_count // 2))
 
 
 def is_cover_only_original(metadata: GalleryMetadata) -> bool:
@@ -120,8 +147,8 @@ class MediaGenerator:
         *,
         preview_max_edge: int = 1800,
         thumb_max_edge: int = 420,
-        avif_quality: int = 82,
-        webp_quality: int = 82,
+        avif_quality: int = 70,
+        webp_quality: int = 75,
         timeout_seconds: int = DEFAULT_MEDIA_GENERATION_TIMEOUT_SECONDS,
         limits: MediaLimits | None = None,
     ) -> None:
@@ -129,10 +156,11 @@ class MediaGenerator:
             generation_timeout_seconds=_positive_int(timeout_seconds, DEFAULT_MEDIA_GENERATION_TIMEOUT_SECONDS),
             preview_max_edge=_positive_int(preview_max_edge, 1800),
             thumb_max_edge=_positive_int(thumb_max_edge, 420),
-            avif_quality=_bounded_int(avif_quality, 82, minimum=1, maximum=100),
-            webp_quality=_bounded_int(webp_quality, 82, minimum=1, maximum=100),
+            avif_quality=_bounded_int(avif_quality, 70, minimum=1, maximum=100),
+            webp_quality=_bounded_int(webp_quality, 75, minimum=1, maximum=100),
         )
         self.storage = storage
+        self._metadata_lock = threading.Lock()
         self.preview_max_edge = self.limits.preview_max_edge
         self.thumb_max_edge = self.limits.thumb_max_edge
         self.avif_quality = self.limits.avif_quality
@@ -140,11 +168,15 @@ class MediaGenerator:
         self.timeout_seconds = self.limits.generation_timeout_seconds
 
     def generate_all(self) -> list[GeneratedMedia]:
-        return [
-            self.generate_for_metadata(metadata)
-            for metadata in self.storage.iter_metadata()
+        metadata_items = [
+            metadata for metadata in self.storage.iter_metadata()
             if not is_cover_only_original(metadata)
         ]
+        workers = resolve_media_concurrency(self.limits.max_concurrency)
+        if workers <= 1 or len(metadata_items) <= 1:
+            return [self.generate_for_metadata(metadata) for metadata in metadata_items]
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="nyagallery-media") as executor:
+            return list(executor.map(self.generate_for_metadata, metadata_items))
 
     def generate_for_asset_key(
         self,
@@ -224,7 +256,8 @@ class MediaGenerator:
             _emit_progress(progress, stage="reading_image", progress=20.0, message="reading image")
             image = ImageOps.exif_transpose(source)
             _validate_frame_size(image.size, label="image", limits=self.limits)
-            _write_media_metadata_if_changed(self.storage, metadata, image.size, is_animated=False)
+            with self._metadata_lock:
+                _write_media_metadata_if_changed(self.storage, metadata, image.size, is_animated=False)
             _check_deadline(deadline)
             preview = _fit_image(image, self.preview_max_edge)
             thumb = _fit_image(image, self.thumb_max_edge)
@@ -263,6 +296,7 @@ class MediaGenerator:
                 raise MediaGenerationError(
                     f"animated image has too many frames: {total_frames} > {self.limits.max_animation_frames}"
                 )
+            _check_animation_memory(total_frames, source.size, self.limits)
             start = time.perf_counter()
             last_emit = 0.0
             for index, frame in enumerate(ImageSequence.Iterator(source), 1):
@@ -274,6 +308,7 @@ class MediaGenerator:
                 _validate_frame_size(frame.size, label=f"frame {index}", limits=self.limits)
                 image = ImageOps.exif_transpose(frame)
                 _validate_frame_size(image.size, label=f"frame {index}", limits=self.limits)
+                _check_animation_memory(total_frames, image.size, self.limits)
                 if first_frame_size is None:
                     first_frame_size = image.size
                 frames.append(_fit_image(image.convert("RGBA"), self.preview_max_edge))
@@ -296,7 +331,8 @@ class MediaGenerator:
         if not frames:
             raise MediaGenerationError(f"animated image has no frames: {original_path}")
         if first_frame_size:
-            _write_media_metadata_if_changed(self.storage, metadata, first_frame_size, is_animated=True)
+            with self._metadata_lock:
+                _write_media_metadata_if_changed(self.storage, metadata, first_frame_size, is_animated=True)
 
         preview_path = self.storage.preview_path(metadata.asset_key, ".webp")
         thumb_path = self.storage.thumb_path(metadata.asset_key, ".avif")
@@ -370,6 +406,7 @@ class MediaGenerator:
                     _validate_frame_size(frame_source.size, label=f"frame {index}", limits=self.limits)
                     frame = frame_source.convert("RGBA")
                 _validate_frame_size(frame.size, label=f"frame {index}", limits=self.limits)
+                _check_animation_memory(total_frames, frame.size, self.limits)
                 if first_frame_size is None:
                     first_frame_size = frame.size
                 frames.append(_fit_image(frame, self.preview_max_edge))
@@ -388,7 +425,8 @@ class MediaGenerator:
                     )
                     last_emit = now
         if first_frame_size:
-            _write_media_metadata_if_changed(self.storage, metadata, first_frame_size, is_animated=True)
+            with self._metadata_lock:
+                _write_media_metadata_if_changed(self.storage, metadata, first_frame_size, is_animated=True)
 
         preview_path = self.storage.preview_path(metadata.asset_key, ".webp")
         _remove_if_exists(self.storage.preview_path(metadata.asset_key, ".avif"))
@@ -409,7 +447,7 @@ class MediaGenerator:
             duration=durations,
             loop=0,
             quality=self.webp_quality,
-            method=6,
+            method=4,
         )
         thumb = _fit_image(frames[0], self.thumb_max_edge)
         thumb_path = self.storage.thumb_path(metadata.asset_key, ".avif")
@@ -500,6 +538,18 @@ def _validate_frame_size(size: tuple[int, int], *, label: str, limits: MediaLimi
         )
 
 
+def _check_animation_memory(frame_count: int, size: tuple[int, int], limits: MediaLimits) -> None:
+    width, height = int(size[0]), int(size[1])
+    estimated = max(0, int(frame_count)) * width * height * 4
+    if estimated > limits.max_animation_memory_bytes:
+        raise MediaGenerationError(
+            "animated image exceeds memory budget: "
+            f"{frame_count} frames at {width}x{height} require about {estimated} bytes, "
+            f"limit is {limits.max_animation_memory_bytes}; reduce dimensions/frames or "
+            "raise NYAGALLERY_MEDIA_MAX_ANIMATION_MEMORY_BYTES"
+        )
+
+
 def _validate_ugoira_zip_archive(archive: zipfile.ZipFile, *, limits: MediaLimits) -> list[zipfile.ZipInfo]:
     entries = [info for info in archive.infolist() if not info.is_dir()]
     total_uncompressed = 0
@@ -586,7 +636,7 @@ def _save_animated_webp(frames, durations: list[int], path: Path, quality: int, 
         duration=durations,
         loop=loop,
         quality=quality,
-        method=6,
+        method=4,
     )
 
 

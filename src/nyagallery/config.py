@@ -92,17 +92,18 @@ class MediaConfig:
     max_frame_pixels: int = 50_000_000
     max_image_pixels: int = 100_000_000
     max_animation_frames: int = 500
+    max_animation_memory_bytes: int = 512 * MiB
     max_zip_uncompressed_bytes: int = 512 * MiB
     max_zip_frame_bytes: int = 64 * MiB
     max_video_bytes: int = 128 * MiB
     generation_timeout_seconds: int = 300
     task_timeout_seconds: int = 300
-    max_concurrency: int = 2
+    max_concurrency: int = 0
     upload_read_chunk_bytes: int = MiB
     preview_max_edge: int = 1800
     thumb_max_edge: int = 420
-    avif_quality: int = 82
-    webp_quality: int = 82
+    avif_quality: int = 70
+    webp_quality: int = 75
 
 
 @dataclass(frozen=True)
@@ -219,6 +220,7 @@ def apply_config_environment(config: NyaGalleryConfig) -> None:
     os.environ.setdefault("NYAGALLERY_MEDIA_MAX_FRAME_PIXELS", str(config.media.max_frame_pixels))
     os.environ.setdefault("NYAGALLERY_MEDIA_MAX_IMAGE_PIXELS", str(config.media.max_image_pixels))
     os.environ.setdefault("NYAGALLERY_MEDIA_MAX_ANIMATION_FRAMES", str(config.media.max_animation_frames))
+    os.environ.setdefault("NYAGALLERY_MEDIA_MAX_ANIMATION_MEMORY_BYTES", str(config.media.max_animation_memory_bytes))
     os.environ.setdefault("NYAGALLERY_MEDIA_MAX_ZIP_UNCOMPRESSED_BYTES", str(config.media.max_zip_uncompressed_bytes))
     os.environ.setdefault("NYAGALLERY_MEDIA_MAX_ZIP_FRAME_BYTES", str(config.media.max_zip_frame_bytes))
     os.environ.setdefault("NYAGALLERY_MEDIA_MAX_VIDEO_BYTES", str(config.media.max_video_bytes))
@@ -292,6 +294,7 @@ def config_to_dict(config: NyaGalleryConfig, *, redact_secrets: bool = False) ->
             "max_frame_pixels": config.media.max_frame_pixels,
             "max_image_pixels": config.media.max_image_pixels,
             "max_animation_frames": config.media.max_animation_frames,
+            "max_animation_memory_bytes": config.media.max_animation_memory_bytes,
             "max_zip_uncompressed_bytes": config.media.max_zip_uncompressed_bytes,
             "max_zip_frame_bytes": config.media.max_zip_frame_bytes,
             "max_video_bytes": config.media.max_video_bytes,
@@ -424,6 +427,7 @@ def render_config(config: NyaGalleryConfig) -> str:
         f"max_frame_pixels = {int(config.media.max_frame_pixels)}",
         f"max_image_pixels = {int(config.media.max_image_pixels)}",
         f"max_animation_frames = {int(config.media.max_animation_frames)}",
+        f"max_animation_memory_bytes = {int(config.media.max_animation_memory_bytes)}",
         f"max_zip_uncompressed_bytes = {int(config.media.max_zip_uncompressed_bytes)}",
         f"max_zip_frame_bytes = {int(config.media.max_zip_frame_bytes)}",
         f"max_video_bytes = {int(config.media.max_video_bytes)}",
@@ -639,17 +643,18 @@ def _config_from_dict(data: dict[str, Any], path: Path | None) -> NyaGalleryConf
             max_frame_pixels=_positive_int(media.get("max_frame_pixels"), 50_000_000),
             max_image_pixels=_positive_int(media.get("max_image_pixels"), 100_000_000),
             max_animation_frames=_positive_int(media.get("max_animation_frames"), 500),
+            max_animation_memory_bytes=_positive_int(media.get("max_animation_memory_bytes"), 512 * MiB),
             max_zip_uncompressed_bytes=_positive_int(media.get("max_zip_uncompressed_bytes"), 512 * MiB),
             max_zip_frame_bytes=_positive_int(media.get("max_zip_frame_bytes"), 64 * MiB),
             max_video_bytes=_positive_int(media.get("max_video_bytes"), 128 * MiB),
             generation_timeout_seconds=_positive_int(media.get("generation_timeout_seconds"), 300),
             task_timeout_seconds=_positive_int(media.get("task_timeout_seconds"), 300),
-            max_concurrency=_positive_int(media.get("max_concurrency"), 2),
+            max_concurrency=max(0, _int(media.get("max_concurrency"), 0)),
             upload_read_chunk_bytes=max(64 * 1024, _positive_int(media.get("upload_read_chunk_bytes"), MiB)),
             preview_max_edge=_positive_int(media.get("preview_max_edge"), 1800),
             thumb_max_edge=_positive_int(media.get("thumb_max_edge"), 420),
-            avif_quality=_bounded_int(media.get("avif_quality"), 82, minimum=1, maximum=100),
-            webp_quality=_bounded_int(media.get("webp_quality"), 82, minimum=1, maximum=100),
+            avif_quality=_bounded_int(media.get("avif_quality"), 70, minimum=1, maximum=100),
+            webp_quality=_bounded_int(media.get("webp_quality"), 75, minimum=1, maximum=100),
         ),
         network=_network_from_dict(network, secret_key=secret_key),
         redis=RedisConfig(
@@ -765,6 +770,10 @@ def _with_env_overrides(config: NyaGalleryConfig) -> NyaGalleryConfig:
         max_frame_pixels=_positive_int(os.environ.get("NYAGALLERY_MEDIA_MAX_FRAME_PIXELS"), config.media.max_frame_pixels),
         max_image_pixels=_positive_int(os.environ.get("NYAGALLERY_MEDIA_MAX_IMAGE_PIXELS"), config.media.max_image_pixels),
         max_animation_frames=_positive_int(os.environ.get("NYAGALLERY_MEDIA_MAX_ANIMATION_FRAMES"), config.media.max_animation_frames),
+        max_animation_memory_bytes=_positive_int(
+            os.environ.get("NYAGALLERY_MEDIA_MAX_ANIMATION_MEMORY_BYTES"),
+            config.media.max_animation_memory_bytes,
+        ),
         max_zip_uncompressed_bytes=_positive_int(
             os.environ.get("NYAGALLERY_MEDIA_MAX_ZIP_UNCOMPRESSED_BYTES"),
             config.media.max_zip_uncompressed_bytes,
@@ -779,7 +788,7 @@ def _with_env_overrides(config: NyaGalleryConfig) -> NyaGalleryConfig:
             os.environ.get("NYAGALLERY_MEDIA_TASK_TIMEOUT_SECONDS"),
             config.media.task_timeout_seconds,
         ),
-        max_concurrency=_positive_int(os.environ.get("NYAGALLERY_MEDIA_MAX_CONCURRENCY"), config.media.max_concurrency),
+        max_concurrency=max(0, _int(os.environ.get("NYAGALLERY_MEDIA_MAX_CONCURRENCY"), config.media.max_concurrency)),
         upload_read_chunk_bytes=max(
             64 * 1024,
             _positive_int(os.environ.get("NYAGALLERY_UPLOAD_READ_CHUNK_BYTES"), config.media.upload_read_chunk_bytes),

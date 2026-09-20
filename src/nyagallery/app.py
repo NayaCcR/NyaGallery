@@ -8,6 +8,7 @@ import io
 import json
 from pathlib import Path
 import os
+import queue
 import secrets
 import threading
 import time
@@ -107,6 +108,7 @@ from nyagallery.db import (
     random_asset,
     rebuild_database,
     rebuild_posts,
+    search_asset_dicts,
     revoke_api_token,
     revoke_misskey_token,
     revoke_x_token,
@@ -254,6 +256,9 @@ class AppState:
     redis_client: Any | None
     pixiv_login_sessions: dict[str, dict[str, object]]
     pixiv_login_lock: threading.Lock
+    access_log_queue: queue.Queue[dict[str, object]] | None = None
+    access_log_stop: threading.Event | None = None
+    access_log_thread: threading.Thread | None = None
 
 
 class TagsUpdate(BaseModel):
@@ -533,6 +538,7 @@ def create_app(
     if config.path and not config.security.secret_key:
         config = save_config_file(config_to_dict(config, redact_secrets=False), config.path)
     apply_config_environment(config)
+    media_limits = media_limits_from_config(config.media)
     storage = GalleryStorage(
         storage_root or config.core.storage,
         default_strategy=config.original_storage.default_strategy,
@@ -558,17 +564,46 @@ def create_app(
     if source_tag_backfill.tags or source_tag_backfill.labels:
         _save_catalog(storage, catalog)
 
+    access_log_queue: queue.Queue[dict[str, object]] = queue.Queue(maxsize=4096)
+    access_log_stop = threading.Event()
+    access_log_thread = threading.Thread(
+        target=_access_log_worker,
+        args=(session_factory, access_log_queue, access_log_stop),
+        name="nyagallery-access-log",
+        daemon=True,
+    )
+    state = AppState(
+        storage,
+        post_store,
+        catalog,
+        engine,
+        session_factory,
+        config,
+        security_limiter,
+        redis_client,
+        {},
+        threading.Lock(),
+        access_log_queue,
+        access_log_stop,
+        access_log_thread,
+    )
+    access_log_thread.start()
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         await ping_redis_client(redis_client)
         try:
             yield
         finally:
+            if state.access_log_stop is not None:
+                state.access_log_stop.set()
+            if state.access_log_thread is not None:
+                state.access_log_thread.join(timeout=5)
             await close_redis_client(redis_client)
             engine.dispose()
 
     app = FastAPI(title="NyaGallery API", version="0.1.0", lifespan=lifespan)
-    app.state.nyagallery = AppState(storage, post_store, catalog, engine, session_factory, config, security_limiter, redis_client, {}, threading.Lock())
+    app.state.nyagallery = state
 
     @app.middleware("http")
     async def security_middleware(request: Request, call_next):
@@ -697,9 +732,9 @@ def create_app(
         sort_key = normalize_asset_sort(sort)
         sort_order = normalize_sort_order(order)
         q = _query_with_guest_safety(q, principal)
-        assets = search_assets(db, catalog, q, limit=limit, offset=offset, sort=sort_key, order=sort_order)
+        asset_items = search_asset_dicts(db, catalog, q, limit=limit, offset=offset, sort=sort_key, order=sort_order)
         return {
-            "items": [asset_to_dict(asset, catalog) for asset in assets],
+            "items": asset_items,
             "limit": limit,
             "offset": offset,
             "sort": sort_key,
@@ -939,7 +974,7 @@ def create_app(
     def api_rebuild(request: RebuildRequest, db: DbSession, _principal: AdminPrincipal) -> dict[str, object]:
         media_items = []
         if request.generate_cache:
-            media_items = [item.__dict__ for item in MediaGenerator(storage).generate_all()]
+            media_items = [item.__dict__ for item in MediaGenerator(storage, limits=media_limits).generate_all()]
         result = rebuild_database(db, storage, catalog)
         _save_catalog(storage, catalog)
         return {
@@ -953,7 +988,7 @@ def create_app(
 
     @app.post("/api/media/generate")
     def api_generate_media(request: MediaRequest, _db: DbSession, _principal: EditTagsPrincipal) -> dict[str, object]:
-        generator = MediaGenerator(storage)
+        generator = MediaGenerator(storage, limits=media_limits)
         if request.asset_key:
             return {"items": [generator.generate_for_asset_key(request.asset_key).__dict__]}
         return {"items": [item.__dict__ for item in generator.generate_all()]}
@@ -4619,7 +4654,10 @@ def _generate_cache_and_refresh_asset(
                 message="starting media cache generation",
             )
             session.commit()
-        generated = MediaGenerator(storage).generate_for_metadata(metadata, progress=report)
+        generated = MediaGenerator(
+            storage,
+            limits=media_limits_from_config(load_config().media),
+        ).generate_for_metadata(metadata, progress=report)
         metadata = storage.read_metadata(asset_key)
         tags = catalog.canonicalize_tags(
             pixiv_tags=metadata.pixiv_tags,
@@ -4908,31 +4946,75 @@ def _record_access_log(
         return
     if not _should_record_access_log(request, status_code=status_code, rejection_reason=rejection_reason, error=error):
         return
+    record = {
+        "client_ip": client_ip_value,
+        "user_id": identity.get("user_id") if isinstance(identity.get("user_id"), int) else None,
+        "username": str(identity.get("username")) if identity.get("username") else None,
+        "role": str(identity.get("role")) if identity.get("role") else None,
+        "method": request.method.upper(),
+        "path": request.url.path,
+        "query_string": request.url.query,
+        "status_code": status_code,
+        "duration_ms": duration_ms,
+        "request_bytes": request_bytes,
+        "response_bytes": response_bytes,
+        "user_agent": request.headers.get("user-agent", ""),
+        "referer": request.headers.get("referer", ""),
+        "origin": request.headers.get("origin", ""),
+        "rejection_reason": rejection_reason,
+        "error": error,
+        "retention": int(settings.get("access_log_retention") or 5000),
+    }
+    if state.access_log_queue is not None:
+        try:
+            state.access_log_queue.put_nowait(record)
+        except queue.Full:
+            # Access logs are best-effort telemetry; never make a request wait
+            # for an audit database writer during a burst.
+            pass
+        return
     try:
         with state.session_factory() as session:
-            create_access_log(
-                session,
-                client_ip=client_ip_value,
-                user_id=identity.get("user_id") if isinstance(identity.get("user_id"), int) else None,
-                username=str(identity.get("username")) if identity.get("username") else None,
-                role=str(identity.get("role")) if identity.get("role") else None,
-                method=request.method.upper(),
-                path=request.url.path,
-                query_string=request.url.query,
-                status_code=status_code,
-                duration_ms=duration_ms,
-                request_bytes=request_bytes,
-                response_bytes=response_bytes,
-                user_agent=request.headers.get("user-agent", ""),
-                referer=request.headers.get("referer", ""),
-                origin=request.headers.get("origin", ""),
-                rejection_reason=rejection_reason,
-                error=error,
-                retention=int(settings.get("access_log_retention") or 5000),
-            )
+            create_access_log(session, **record)
             session.commit()
     except Exception as exc:
         print(f"failed to record access log: {exc}")
+
+
+def _access_log_worker(
+    session_factory: sessionmaker[Session],
+    records: queue.Queue[dict[str, object]],
+    stop: threading.Event,
+) -> None:
+    last_prune = time.monotonic()
+    pending_since_prune = 0
+    while not stop.is_set() or not records.empty():
+        try:
+            first = records.get(timeout=0.5)
+        except queue.Empty:
+            continue
+        batch = [first]
+        while len(batch) < 128:
+            try:
+                batch.append(records.get_nowait())
+            except queue.Empty:
+                break
+        try:
+            with session_factory() as session:
+                retentions = [int(item.get("retention") or 0) for item in batch]
+                for item in batch:
+                    create_access_log(session, **item, prune=False, flush=False)
+                session.flush()
+                pending_since_prune += len(batch)
+                now = time.monotonic()
+                positive_retentions = [value for value in retentions if value > 0]
+                if positive_retentions and (now - last_prune >= 60 or pending_since_prune >= 256):
+                    _prune_access_logs(session, min(positive_retentions))
+                    last_prune = now
+                    pending_since_prune = 0
+                session.commit()
+        except Exception as exc:
+            print(f"failed to flush access logs: {exc}")
 
 
 def _should_record_access_log(

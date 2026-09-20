@@ -231,6 +231,7 @@ max_image_pixels = 100000000
 # If you keep very large APNG files, raise this only together with stricter pixel/timeout/concurrency limits.
 # 如果需要保存很大的 APNG，只建议在同时收紧像素、超时、并发限制时调高此值。
 max_animation_frames = 500
+max_animation_memory_bytes = 536870912
 
 # Maximum total uncompressed ZIP bytes counted from ZipInfo plus actual reads. Default 512 MiB.
 # ZIP 条目声明大小及实际读取累计允许的最大解压后总字节数。默认 512 MiB。
@@ -250,9 +251,9 @@ generation_timeout_seconds = 300
 # 父进程强制执行的硬超时；超时的 worker 会被 terminate/kill。默认 300 秒。
 task_timeout_seconds = 300
 
-# Maximum concurrent media generation jobs per backend process. Default 2.
-# 每个后端进程允许同时运行的媒体生成任务数。默认 2。
-max_concurrency = 2
+# Maximum concurrent media generation jobs per backend process. 0 selects min(4, CPU//2), 1 is serial.
+# 每个后端进程允许同时运行的媒体生成任务数。0 表示 min(4, CPU//2)，1 表示串行。
+max_concurrency = 0
 
 # Upload read chunk size. Uploads are read in chunks and checked against max_upload_bytes from security settings.
 # 上传读取分块大小。上传会分块读取，并按安全设置里的 max_upload_bytes 检查大小。
@@ -263,10 +264,10 @@ upload_read_chunk_bytes = 1048576
 preview_max_edge = 1800
 thumb_max_edge = 420
 
-# Output quality for AVIF previews/thumbs and animated WebP previews. Range 1-100.
-# AVIF 预览/缩略图与动态 WebP 预览的输出质量。范围 1-100。
-avif_quality = 82
-webp_quality = 82
+# Output quality for AVIF previews/thumbs and animated WebP previews. Defaults are 70 and 75. Range 1-100.
+# AVIF 预览/缩略图与动态 WebP 预览的输出质量，默认分别为 70 和 75。范围 1-100。
+avif_quality = 70
+webp_quality = 75
 
 # Module purpose: outbound network routing. Define reusable proxy profiles and choose which source uses which proxy.
 # 模块作用：出站网络路由。定义可复用代理档案，并指定不同来源使用哪个代理。

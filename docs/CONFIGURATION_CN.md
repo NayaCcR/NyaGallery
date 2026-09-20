@@ -90,16 +90,17 @@ download_files = true
 max_frame_pixels = 50000000
 max_image_pixels = 100000000
 max_animation_frames = 500
+max_animation_memory_bytes = 536870912
 max_zip_uncompressed_bytes = 536870912
 max_zip_frame_bytes = 67108864
 max_video_bytes = 134217728
 generation_timeout_seconds = 300
 task_timeout_seconds = 300
-max_concurrency = 2
+max_concurrency = 0
 preview_max_edge = 1800
 thumb_max_edge = 420
-avif_quality = 82
-webp_quality = 82
+avif_quality = 70
+webp_quality = 75
 ```
 
 媒体上限同时是资源消耗和拒绝服务防线。公网部署应先保持默认值，再根据内存和磁盘吞吐逐步调整；`avif_quality`、`webp_quality` 范围为 1–100。
