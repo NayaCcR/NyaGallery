@@ -872,6 +872,7 @@
       "apiExamples": "API 示例",
       "apiExampleFormat": "示例格式",
       "apiExamplesUnavailable": "暂时无法获取 API 示例。",
+      "apiExamplesOffline": "在线示例接口不可用，当前显示本地生成的示例。",
       "apiOriginalHint": "GET · 流式原始字节{filename}",
       "apiPreview": "压缩预览（AVIF/WEBP）",
       "apiPreviewHint": "GET · 自动选择缓存格式",

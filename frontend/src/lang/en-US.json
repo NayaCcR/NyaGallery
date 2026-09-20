@@ -872,6 +872,7 @@
       "apiExamples": "API Examples",
       "apiExampleFormat": "Example format",
       "apiExamplesUnavailable": "API examples are unavailable.",
+      "apiExamplesOffline": "Showing local examples; live server examples were unavailable.",
       "apiOriginalHint": "GET · streamed original bytes{filename}",
       "apiPreview": "Compressed Preview (AVIF/WEBP)",
       "apiPreviewHint": "GET · auto-select cached format",

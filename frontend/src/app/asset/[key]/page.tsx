@@ -561,7 +561,7 @@ function ApiLinksSection({
   const { locale, t } = useI18n();
   const assetKey = asset.asset_key;
   const [exampleFormat, setExampleFormat] = useState<"curl" | "fetch" | "python">("curl");
-  const [examples, setExamples] = useState<Record<string, Record<string, string>> | null>(null);
+  const [examples, setExamples] = useState<Record<string, Record<string, string>>>(() => localApiExamples(assetKey));
   const [examplesError, setExamplesError] = useState(false);
 
   useEffect(() => {
@@ -642,8 +642,7 @@ function ApiLinksSection({
       <p className="text-[11px] text-muted-foreground">
         {t("pages.asset.resourceLinksHint")}
       </p>
-      {examples && (
-        <section className="space-y-2 rounded-lg border border-border bg-muted/30 p-2">
+      <section className="space-y-2 rounded-lg border border-border bg-muted/30 p-2">
           <div className="flex items-center justify-between gap-2">
             <h3 className="flex items-center gap-1.5 text-xs font-medium"><Code2 className="h-3.5 w-3.5" />{t("pages.asset.apiExamples")}</h3>
             <select
@@ -662,11 +661,30 @@ function ApiLinksSection({
               <ExampleCode key={name} label={name} value={value} />
             ))}
           </div>
-        </section>
-      )}
-      {examplesError && <p className="text-[11px] text-muted-foreground">{t("pages.asset.apiExamplesUnavailable")}</p>}
+          {examplesError && <p className="text-[11px] text-muted-foreground">{t("pages.asset.apiExamplesOffline")}</p>}
+      </section>
     </section>
   );
+}
+
+function localApiExamples(assetKey: string): Record<string, Record<string, string>> {
+  const encoded = encodeURIComponent(assetKey);
+  const endpoint = `/api/assets/${encoded}`;
+  return {
+    curl: {
+      metadata: `curl -H "Authorization: Bearer <token>" https://your-host${endpoint}`,
+      original: `curl -H "Authorization: Bearer <token>" -o original.bin https://your-host${endpoint}/original`,
+      upload: 'curl -X POST -H "Authorization: Bearer <token>" -F "file=@image.jpg" -F "visibility=private" https://your-host/api/assets',
+    },
+    fetch: {
+      metadata: `fetch("https://your-host${endpoint}", { headers: { Authorization: "Bearer <token>" } })`,
+      original: `fetch("https://your-host${endpoint}/original", { headers: { Authorization: "Bearer <token>" } })`,
+    },
+    python: {
+      metadata: `requests.get("https://your-host${endpoint}", headers={"Authorization": "Bearer <token>"})`,
+      original: `requests.get("https://your-host${endpoint}/original", headers={"Authorization": "Bearer <token>"})`,
+    },
+  };
 }
 
 function ExampleCode({ label, value }: { label: string; value: string }) {
