@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
+  ArrowRightLeft,
   AtSign,
   BadgeDollarSign,
   ChevronRight,
@@ -17,6 +18,7 @@ import {
   Shield,
   Settings2,
   Tags,
+  UsersRound,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -30,6 +32,8 @@ import { AdminOperationsPanel } from "@/components/admin/admin-operations-panel"
 import { AdminPixivPanel } from "@/components/admin/admin-pixiv-panel";
 import { AdminSecurityPanel } from "@/components/admin/admin-security-panel";
 import { AdminTagsPanel } from "@/components/admin/admin-tags-panel";
+import { AdminAccessPanel } from "@/components/admin/admin-access-panel";
+import { AdminMigrationPanel } from "@/components/admin/admin-migration-panel";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useI18n } from "@/components/providers/locale-provider";
 import { useToast } from "@/components/providers/toast-provider";
@@ -73,6 +77,8 @@ const ADMIN_SECTION_ICONS: Record<AdminSection, LucideIcon> = {
   tags: Tags,
   maintenance: Database,
   accounts: KeyRound,
+  access: UsersRound,
+  migration: ArrowRightLeft,
   developer: Settings2,
 };
 
@@ -889,6 +895,10 @@ export default function AdminPage() {
 
       {isAdmin && (
         <>
+          {activeSection === "access" && <AdminAccessPanel />}
+
+          {activeSection === "migration" && <AdminMigrationPanel />}
+
           {activeSection === "security" && (
           <AdminSecurityPanel
             busy={busy}

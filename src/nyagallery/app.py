@@ -39,7 +39,11 @@ from nyagallery.config import (
 )
 from nyagallery.db import (
     AssetModel,
+    AssetAclModel,
     PostModel,
+    ShareGroupMemberModel,
+    ShareGroupModel,
+    UserModel,
     TranscodeJobModel,
     UploadLogModel,
     access_log_to_dict,
@@ -537,6 +541,15 @@ class VirtualFolderUpdate(BaseModel):
     description: str = Field(default="", max_length=500)
 
 
+class ShareGroupUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    member_usernames: list[str] = Field(default_factory=list)
+
+
+class MigrationModeUpdate(BaseModel):
+    metadata_mode: str = Field(pattern="^(file|database)$")
+
+
 def create_app(
     *,
     storage_root: str | Path | None = None,
@@ -967,6 +980,101 @@ def create_app(
             raise HTTPException(status_code=404, detail="virtual folder not found")
         virtual_folders.save()
         return {"name": folder_name, "deleted": True}
+
+    @app.get("/api/access/permission-groups")
+    def api_permission_groups(_principal: AdminPrincipal) -> dict[str, object]:
+        return {
+            "items": [
+                {"role": role, "permissions": sorted(permissions_for_role(role))}
+                for role in ("viewer", "editor", "admin", "developer")
+            ]
+        }
+
+    @app.get("/api/access/groups")
+    def api_access_groups(db: DbSession, _principal: AdminPrincipal) -> dict[str, object]:
+        groups = list(db.scalars(select(ShareGroupModel).order_by(ShareGroupModel.name.asc(), ShareGroupModel.id.asc())).all())
+        members = list(db.scalars(select(ShareGroupMemberModel).order_by(ShareGroupMemberModel.id.asc())).all())
+        users = {user.id: user for user in db.scalars(select(UserModel)).all()}
+        by_group: dict[int, list[dict[str, object]]] = {group.id: [] for group in groups}
+        for member in members:
+            user = users.get(member.user_id)
+            if user is not None and member.group_id in by_group:
+                by_group[member.group_id].append({"id": user.id, "username": user.username})
+        return {
+            "items": [
+                {
+                    "id": group.id,
+                    "name": group.name,
+                    "owner_user_id": group.owner_user_id,
+                    "members": by_group.get(group.id, []),
+                }
+                for group in groups
+            ]
+        }
+
+    @app.post("/api/access/groups")
+    def api_create_access_group(update: ShareGroupUpdate, db: DbSession, principal: AdminPrincipal) -> dict[str, object]:
+        name = update.name.strip()
+        if db.scalar(select(ShareGroupModel.id).where(ShareGroupModel.owner_user_id == principal.user_id, ShareGroupModel.name == name)) is not None:
+            raise HTTPException(status_code=409, detail="share group already exists")
+        group = ShareGroupModel(owner_user_id=principal.user_id, name=name)
+        db.add(group)
+        db.flush()
+        _replace_share_group_members(db, group.id, update.member_usernames)
+        db.commit()
+        return _access_group_to_dict(db, group)
+
+    @app.put("/api/access/groups/{group_id}")
+    def api_update_access_group(group_id: int, update: ShareGroupUpdate, db: DbSession, principal: AdminPrincipal) -> dict[str, object]:
+        group = db.get(ShareGroupModel, group_id)
+        if group is None or group.owner_user_id != principal.user_id:
+            raise HTTPException(status_code=404, detail="share group not found")
+        group.name = update.name.strip()
+        _replace_share_group_members(db, group.id, update.member_usernames)
+        db.commit()
+        return _access_group_to_dict(db, group)
+
+    @app.delete("/api/access/groups/{group_id}")
+    def api_delete_access_group(group_id: int, db: DbSession, principal: AdminPrincipal) -> dict[str, object]:
+        group = db.get(ShareGroupModel, group_id)
+        if group is None or group.owner_user_id != principal.user_id:
+            raise HTTPException(status_code=404, detail="share group not found")
+        db.delete(group)
+        db.commit()
+        return {"id": group_id, "deleted": True}
+
+    @app.get("/api/migration/config")
+    def api_migration_config(request: Request, _principal: AdminPrincipal) -> dict[str, object]:
+        state: AppState = request.app.state.nyagallery
+        return {
+            "metadata_mode": state.config.core.metadata_mode,
+            "config_path": str(state.config.path or Path(DEFAULT_CONFIG_FILENAME)),
+            "sources": ["Lsky Pro", "Chevereto", "Lychee", "EasyImg / EasyImage", "ImgURL", "NyaGallery v1"],
+            "commands": {
+                "to_file": "nyagallery convert --from database --to file --output <sidecar> --confirm",
+                "to_database": "nyagallery convert --from file --to database --confirm",
+                "lsky": "nyagallery import <lsky.sqlite> --source-type lsky_pro --source-root <uploads> --output <staging> --confirm",
+            },
+        }
+
+    @app.put("/api/migration/config")
+    def api_update_migration_config(update: MigrationModeUpdate, request: Request, _principal: AdminPrincipal) -> dict[str, object]:
+        state: AppState = request.app.state.nyagallery
+        config_path = state.config.path or Path(DEFAULT_CONFIG_FILENAME)
+        backup_path = config_path.with_name(config_path.name + ".bak")
+        try:
+            if config_path.exists():
+                backup_path.write_bytes(config_path.read_bytes())
+            data = read_config_file_data(config_path)
+            core = dict(data.get("core") or {})
+            core["metadata_mode"] = update.metadata_mode
+            data["core"] = core
+            saved = save_config_file(data, config_path)
+            reloaded = load_config(config_path)
+        except (OSError, ValueError, TypeError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        request.app.state.nyagallery = replace(state, config=reloaded)
+        return {"metadata_mode": reloaded.core.metadata_mode, "config_path": str(saved.path or config_path), "backup_path": str(backup_path) if backup_path.exists() else None, "restart_required": True}
 
     @app.post("/api/tags/summary/export")
     def api_export_tag_summary(db: DbSession, _principal: AdminPrincipal) -> dict[str, object]:
@@ -5263,6 +5371,37 @@ def _get_asset(db: Session, asset_key: str) -> AssetModel:
     if asset is None or asset.deletion_status is not None:
         raise HTTPException(status_code=404, detail="asset not found")
     return asset
+
+
+def _replace_share_group_members(db: Session, group_id: int, usernames: list[str]) -> None:
+    existing = list(db.scalars(select(ShareGroupMemberModel).where(ShareGroupMemberModel.group_id == group_id)).all())
+    for member in existing:
+        db.delete(member)
+    normalized = sorted({str(username).strip() for username in usernames if str(username).strip()})
+    if not normalized:
+        return
+    users = list(db.scalars(select(UserModel).where(UserModel.username.in_(normalized), UserModel.is_active.is_(True))).all())
+    found = {user.username for user in users}
+    missing = sorted(set(normalized) - found)
+    if missing:
+        raise HTTPException(status_code=400, detail=f"unknown users: {', '.join(missing)}")
+    for user in users:
+        db.add(ShareGroupMemberModel(group_id=group_id, user_id=user.id))
+
+
+def _access_group_to_dict(db: Session, group: ShareGroupModel) -> dict[str, object]:
+    users = db.scalars(
+        select(UserModel)
+        .join(ShareGroupMemberModel, ShareGroupMemberModel.user_id == UserModel.id)
+        .where(ShareGroupMemberModel.group_id == group.id)
+        .order_by(UserModel.username.asc())
+    ).all()
+    return {
+        "id": group.id,
+        "name": group.name,
+        "owner_user_id": group.owner_user_id,
+        "members": [{"id": user.id, "username": user.username} for user in users],
+    }
 
 
 def _require_asset_access(db: Session, asset: AssetModel, principal: Principal) -> None:

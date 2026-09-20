@@ -4,6 +4,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   Activity,
+  ArrowRightLeft,
   AtSign,
   BadgeDollarSign,
   Database,
@@ -21,6 +22,7 @@ import {
   Tags,
   Upload,
   UserCog,
+  UsersRound,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { SidebarShell } from "@/components/layout/sidebar-shell";
@@ -73,6 +75,8 @@ const ADMIN_SECTION_ICONS: Record<AdminSection, LucideIcon> = {
   tags: Tags,
   maintenance: Database,
   accounts: UserCog,
+  access: UsersRound,
+  migration: ArrowRightLeft,
   developer: Settings2,
 };
 

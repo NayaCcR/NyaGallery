@@ -16,6 +16,7 @@ export interface BackendConfig {
   core: {
     storage: string;
     database_url: string;
+    metadata_mode?: "file" | "database" | string;
     tag_catalog_path: string;
     name_media_by_post_id: boolean;
   };
@@ -847,6 +848,49 @@ export interface UserSummary {
   id: number;
   username: string;
   role: Role;
+}
+
+export interface ShareGroupMember {
+  id: number;
+  username: string;
+}
+
+export interface ShareGroup {
+  id: number;
+  name: string;
+  owner_user_id: number;
+  members: ShareGroupMember[];
+}
+
+export interface AccessGroupsResponse {
+  items: ShareGroup[];
+}
+
+export interface PermissionGroup {
+  role: string;
+  permissions: string[];
+}
+
+export interface PermissionGroupsResponse {
+  items: PermissionGroup[];
+}
+
+export interface VirtualFolderSummary {
+  name: string;
+  query: string;
+  group: string;
+  description: string;
+}
+
+export interface VirtualFoldersResponse {
+  items: VirtualFolderSummary[];
+}
+
+export interface MigrationConfigResponse {
+  metadata_mode: "file" | "database" | string;
+  config_path: string;
+  sources: string[];
+  commands: Record<string, string>;
 }
 
 export interface UserListResponse {

@@ -4,6 +4,11 @@ import type {
   ApiTokenListResponse,
   Asset,
   AssetApiExamplesResponse,
+  AccessGroupsResponse,
+  MigrationConfigResponse,
+  PermissionGroupsResponse,
+  ShareGroup,
+  VirtualFoldersResponse,
   BackendConfig,
   DeveloperConfigResponse,
   DeveloperConsoleResponse,
@@ -204,6 +209,22 @@ export const NyaApi = {
 
   assetApiExamples: (assetKey: string) =>
     api<AssetApiExamplesResponse>(`/api/assets/${encodeURIComponent(assetKey)}/api-examples`),
+
+  accessGroups: () => api<AccessGroupsResponse>("/api/access/groups"),
+  permissionGroups: () => api<PermissionGroupsResponse>("/api/access/permission-groups"),
+  createAccessGroup: (name: string, member_usernames: string[]) =>
+    api<ShareGroup>("/api/access/groups", { method: "POST", body: { name, member_usernames } }),
+  updateAccessGroup: (id: number, name: string, member_usernames: string[]) =>
+    api<ShareGroup>(`/api/access/groups/${id}`, { method: "PUT", body: { name, member_usernames } }),
+  deleteAccessGroup: (id: number) =>
+    api<{ id: number; deleted: boolean }>(`/api/access/groups/${id}`, { method: "DELETE" }),
+  virtualFolders: () => api<VirtualFoldersResponse>("/api/virtual-folders"),
+  putVirtualFolder: (name: string, query: string, group = "custom", description = "") =>
+    api(`/api/virtual-folders/${encodeURIComponent(name)}`, { method: "PUT", body: { name, query, group, description } }),
+  deleteVirtualFolder: (name: string) => api(`/api/virtual-folders/${encodeURIComponent(name)}`, { method: "DELETE" }),
+  migrationConfig: () => api<MigrationConfigResponse>("/api/migration/config"),
+  updateMigrationConfig: (metadata_mode: "file" | "database") =>
+    api<MigrationConfigResponse & { backup_path?: string | null; restart_required?: boolean }>("/api/migration/config", { method: "PUT", body: { metadata_mode } }),
 
   assetSiblings: (assetKey: string) =>
     api<AssetSiblingResponse>(`/api/assets/${encodeURIComponent(assetKey)}/siblings`),

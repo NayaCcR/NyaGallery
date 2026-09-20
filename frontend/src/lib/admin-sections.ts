@@ -11,6 +11,8 @@ export type AdminSection =
   | "tags"
   | "maintenance"
   | "accounts"
+  | "access"
+  | "migration"
   | "developer";
 
 export const ADMIN_SECTION_ORDER: AdminSection[] = [
@@ -24,6 +26,8 @@ export const ADMIN_SECTION_ORDER: AdminSection[] = [
   "tags",
   "maintenance",
   "accounts",
+  "access",
+  "migration",
   "developer",
 ];
 
@@ -38,6 +42,8 @@ const ADMIN_SECTION_ROLES: Record<AdminSection, Role[]> = {
   tags: ["admin", "developer"],
   maintenance: ["admin", "developer"],
   accounts: ["viewer", "editor", "admin", "developer"],
+  access: ["admin", "developer"],
+  migration: ["admin", "developer"],
   developer: ["developer"],
 };
 
