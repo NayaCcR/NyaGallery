@@ -15,6 +15,7 @@ from nyagallery.config import (
     config_to_dict,
     load_config,
     network_proxy_for,
+    read_config_file_data,
     save_config_file,
 )
 from nyagallery.db import (
@@ -37,7 +38,12 @@ from nyagallery.db import (
 from nyagallery.auth import hash_password
 from nyagallery.importers import LskyProImporter, NyaGalleryV1Importer, copy_assets_read_only
 from nyagallery.media import MediaGenerator, media_limits_from_config
-from nyagallery.metadata_backend import convert_file_to_database, convert_metadata_backend, metadata_backend
+from nyagallery.metadata_backend import (
+    convert_file_to_database,
+    convert_metadata_backend,
+    import_assets_to_database,
+    metadata_backend,
+)
 from nyagallery.misskey import (
     MisskeyClient,
     MisskeyDownloader,
@@ -165,11 +171,12 @@ def main(argv: list[str] | None = None) -> int:
     convert_cmd.add_argument("--backup", default=None, help="Backup directory (defaults beside destination).")
     convert_cmd.add_argument("--confirm", action="store_true", help="Perform the write; otherwise print a dry-run plan.")
 
-    import_cmd = subparsers.add_parser("import", help="Import an image-host export into a file-primary staging directory.")
+    import_cmd = subparsers.add_parser("import", help="Import an image-host export into file storage or the database.")
     import_cmd.add_argument("source", help="Source metadata file or database.")
     import_cmd.add_argument("--source-type", choices=("auto", "nyagallery_v1", "lsky_pro"), default="auto")
     import_cmd.add_argument("--source-root", default=None, help="Root containing immutable source originals.")
-    import_cmd.add_argument("--output", required=True, help="Staging directory for imported assets.")
+    import_cmd.add_argument("--target", choices=("file", "database"), default="file", help="Primary target for imported metadata.")
+    import_cmd.add_argument("--output", required=False, help="Staging directory for file target (defaults to the configured storage root).")
     import_cmd.add_argument("--hardlink", action="store_true", help="Hardlink originals when the filesystem supports it.")
     import_cmd.add_argument("--confirm", action="store_true", help="Perform the write; otherwise print a dry-run report.")
 
@@ -406,6 +413,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "convert":
+        if args.from_mode == args.to_mode:
+            raise SystemExit("--from and --to must select different metadata backends")
         output_path = Path(args.output) if args.output else None
         backup = Path(args.backup) if args.backup else (output_path.parent / "backups" if output_path else storage.root / "backups")
         if args.to_mode == "database":
@@ -424,8 +433,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
             engine.dispose()
         elif args.from_mode == "database":
-            if not args.output:
-                raise SystemExit("--output is required when converting to file")
+            output_path = output_path or storage.metadata_dir
             engine = create_engine_for_url(database_url)
             init_database(engine)
             with make_session_factory(engine)() as session:
@@ -438,11 +446,10 @@ def main(argv: list[str] | None = None) -> int:
                 )
             engine.dispose()
         else:
-            if not args.output:
-                raise SystemExit("--output is required when converting to file")
+            output_path = output_path or storage.metadata_dir
             result = convert_metadata_backend(
                 source=metadata_backend("file", storage=storage),
-                destination=Path(args.output),
+                destination=output_path,
                 backup_root=backup,
                 confirm=args.confirm,
             )
@@ -472,24 +479,88 @@ def main(argv: list[str] | None = None) -> int:
             importer = LskyProImporter() if source_path.suffix.casefold() in {".db", ".sqlite", ".sqlite3"} else NyaGalleryV1Importer()
         assets = importer.read_source(source_path, {"upload_root": args.source_root})
         if not args.confirm:
-            print(json.dumps({"status": "dry_run", "source": importer.detect_source(source_path), "assets": len(assets)}, ensure_ascii=False, indent=2))
+            print(json.dumps({"status": "dry_run", "source": importer.detect_source(source_path), "target": args.target, "assets": len(assets)}, ensure_ascii=False, indent=2))
             return 0
-        output = Path(args.output)
-        metadata_dir = output / "metadata"
-        metadata_dir.mkdir(parents=True, exist_ok=True)
         source_root = Path(args.source_root) if args.source_root else source_path.parent
+        output = Path(args.output) if args.output else storage.root
+        if args.target == "file" and args.output is None:
+            output = storage.root
+        if args.target == "file":
+            metadata_dir = output / "metadata"
+            metadata_dir.mkdir(parents=True, exist_ok=True)
+            destination_root = output / "original"
+        else:
+            destination_root = storage.original_dir
         report = copy_assets_read_only(
             assets,
             source_root=source_root,
-            destination_root=output / "original",
+            destination_root=destination_root,
             hardlink=args.hardlink,
+            storage_prefix="original",
         )
-        for asset in assets:
-            (metadata_dir / f"{asset.asset_id.removeprefix('sha256:')}.json").write_text(
-                json.dumps(asset.to_dict(), ensure_ascii=False, indent=2) + "\n",
-                encoding="utf-8",
-            )
-        print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
+        if report.failures:
+            for path in report.created_paths:
+                candidate = Path(path)
+                if candidate.exists():
+                    candidate.unlink()
+            raise SystemExit("import failed: " + "; ".join(report.failures))
+        if args.target == "file":
+            try:
+                for asset in report.assets:
+                    (metadata_dir / f"{asset.asset_id.removeprefix('sha256:')}.json").write_text(
+                        json.dumps(asset.to_dict(), ensure_ascii=False, indent=2) + "\n",
+                        encoding="utf-8",
+                    )
+            except Exception:
+                for path in report.created_paths:
+                    candidate = Path(path)
+                    if candidate.exists():
+                        candidate.unlink()
+                raise
+            result = report.to_dict()
+            result["status"] = "imported"
+            result["target"] = "file"
+        else:
+            engine = create_engine_for_url(database_url)
+            init_database(engine)
+            try:
+                with make_session_factory(engine)() as session:
+                    result = import_assets_to_database(
+                        report.assets,
+                        session=session,
+                        storage=storage,
+                        catalog=_load_catalog(storage),
+                    )
+            except Exception:
+                for path in report.created_paths:
+                    candidate = Path(path)
+                    if candidate.exists():
+                        candidate.unlink()
+                raise
+            finally:
+                engine.dispose()
+            result.update(report.to_dict())
+            result["status"] = "imported"
+            result["target"] = "database"
+            config_path = config.path or Path(args.config or DEFAULT_CONFIG_FILENAME)
+            config_backup = storage.root / "backups" / "import-config.toml"
+            config_backed_up = False
+            if config_path.exists():
+                config_backup.parent.mkdir(parents=True, exist_ok=True)
+                config_backup.write_bytes(config_path.read_bytes())
+                config_backed_up = True
+            config_data = read_config_file_data(config_path)
+            core_data = dict(config_data.get("core") or {})
+            core_data["metadata_mode"] = "database"
+            config_data["core"] = core_data
+            try:
+                save_config_file(config_data, config_path)
+            except Exception:
+                if config_backed_up:
+                    config_path.write_bytes(config_backup.read_bytes())
+                raise
+            result["config_backup"] = config_backup.as_posix() if config_backed_up else None
+        print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
 
     if args.command == "misskey-sync-user":

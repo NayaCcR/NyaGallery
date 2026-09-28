@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import json
 from pathlib import Path
 import shutil
@@ -24,6 +24,7 @@ class ImportReport:
     skipped: int = 0
     failures: list[str] = field(default_factory=list)
     verified: int = 0
+    created_paths: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -33,6 +34,7 @@ class ImportReport:
             "skipped": self.skipped,
             "verified": self.verified,
             "failures": list(self.failures),
+            "created_paths": list(self.created_paths),
         }
 
 
@@ -141,14 +143,41 @@ class LskyProImporter(Importer):
         return assets
 
 
-def copy_assets_read_only(assets: list[Asset], *, source_root: Path, destination_root: Path, hardlink: bool = False) -> ImportReport:
-    report = ImportReport(source="copy", assets=assets)
+def copy_assets_read_only(
+    assets: list[Asset],
+    *,
+    source_root: Path,
+    destination_root: Path,
+    hardlink: bool = False,
+    storage_prefix: str = "",
+) -> ImportReport:
+    """Copy immutable originals into a destination using collision-proof names.
+
+    The returned report carries asset records whose ``storage_key`` points at
+    the destination.  Source records are never mutated, which lets callers
+    safely use the same import result for a dry run or a second target.
+    """
+    report = ImportReport(source="copy")
     destination_root.mkdir(parents=True, exist_ok=True)
     for asset in assets:
         source = Path(asset.blob.storage_key)
         if not source.is_absolute():
             source = source_root / source
-        destination = destination_root / Path(asset.blob.storage_key).name
+        source_name = asset.blob.original_filename or Path(asset.blob.storage_key).name or asset.asset_id
+        suffix = "".join(Path(source_name).suffixes)
+        filename = f"{asset.asset_id.removeprefix('sha256:')}{suffix}"
+        destination = destination_root / filename
+        key_prefix = storage_prefix.strip("/")
+        storage_key = f"{key_prefix}/{filename}" if key_prefix else filename
+        metadata = dict(asset.metadata)
+        metadata["file_sha256"] = asset.blob.sha256
+        metadata["original_filename"] = asset.blob.original_filename or filename
+        metadata["original_path"] = storage_key
+        imported_asset = replace(
+            asset,
+            blob=replace(asset.blob, storage_key=storage_key),
+            metadata=metadata,
+        )
         try:
             if not asset.verify_sha256(source):
                 report.failures.append(f"sha256 mismatch: {source}")
@@ -161,10 +190,13 @@ def copy_assets_read_only(assets: list[Asset], *, source_root: Path, destination
             elif hardlink:
                 destination.hardlink_to(source)
                 report.copied += 1
+                report.created_paths.append(destination.as_posix())
             else:
                 shutil.copy2(source, destination)
                 report.copied += 1
+                report.created_paths.append(destination.as_posix())
             report.verified += 1
+            report.assets.append(imported_asset)
         except OSError as exc:
             report.failures.append(f"copy failed for {source}: {exc}")
     return report

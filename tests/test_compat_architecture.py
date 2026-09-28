@@ -4,9 +4,12 @@ import hashlib
 import json
 from pathlib import Path
 
+from sqlalchemy import select
+
 from nyagallery.asset import Asset, AssetBlob
 from nyagallery.compat import LegacyReader
-from nyagallery.db import create_engine_for_url, init_database, make_session_factory
+from nyagallery.cli import main
+from nyagallery.db import AssetModel, create_engine_for_url, init_database, make_session_factory
 from nyagallery.metadata_backend import FileMetadataBackend, convert_file_to_database, convert_metadata_backend
 from nyagallery.storage import GalleryStorage
 from nyagallery.tags import TagCatalog
@@ -98,3 +101,59 @@ def test_file_to_database_conversion_verifies_and_imports(tmp_path: Path):
         )
         assert result["verified"] == 1
     engine.dispose()
+
+
+def test_import_cli_writes_storage_relative_asset_records(tmp_path: Path):
+    source_root = tmp_path / "source"
+    (source_root / "original").mkdir(parents=True)
+    original = source_root / "original" / "fixture.jpg"
+    original.write_bytes(b"fixture")
+    digest = hashlib.sha256(original.read_bytes()).hexdigest()
+    metadata = source_root / "export.json"
+    metadata.write_text(json.dumps(_legacy_payload("fixture.jpg", digest)), encoding="utf-8")
+    output = tmp_path / "imported"
+
+    assert main([
+        "--storage", str(tmp_path / "unused-storage"),
+        "import", str(metadata),
+        "--source-type", "nyagallery_v1",
+        "--source-root", str(source_root),
+        "--output", str(output),
+        "--confirm",
+    ]) == 0
+
+    imported_storage = GalleryStorage(output)
+    imported = imported_storage.iter_metadata()
+    assert len(imported) == 1
+    assert imported[0].original_path.startswith("original/")
+    assert imported_storage.resolve_relative_path(imported[0].original_path).read_bytes() == b"fixture"
+
+
+def test_import_cli_database_target_switches_primary_mode(tmp_path: Path):
+    source_root = tmp_path / "source"
+    (source_root / "original").mkdir(parents=True)
+    original = source_root / "original" / "fixture.jpg"
+    original.write_bytes(b"fixture")
+    digest = hashlib.sha256(original.read_bytes()).hexdigest()
+    metadata = source_root / "export.json"
+    metadata.write_text(json.dumps(_legacy_payload("fixture.jpg", digest)), encoding="utf-8")
+    storage_root = tmp_path / "storage"
+    config_path = tmp_path / "nyagallery.toml"
+    config_path.write_text("[core]\n", encoding="utf-8")
+
+    assert main([
+        "--config", str(config_path),
+        "--storage", str(storage_root),
+        "--database-url", f"sqlite:///{storage_root / 'nyagallery.db'}",
+        "import", str(metadata),
+        "--source-type", "nyagallery_v1",
+        "--source-root", str(source_root),
+        "--target", "database",
+        "--confirm",
+    ]) == 0
+
+    engine = create_engine_for_url(f"sqlite:///{storage_root / 'nyagallery.db'}")
+    with make_session_factory(engine)() as session:
+        assert session.scalar(select(AssetModel.asset_key)) == "fixture_1"
+    engine.dispose()
+    assert "metadata_mode = \"database\"" in config_path.read_text(encoding="utf-8")

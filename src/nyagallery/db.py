@@ -962,6 +962,9 @@ def upsert_asset(
     return asset
 
 
+_UNSET_VIEWER = object()
+
+
 def search_assets(
     session: Session,
     catalog: TagCatalog,
@@ -972,7 +975,7 @@ def search_assets(
     sort: str = "asset_key",
     order: str = "asc",
     include_deleted: bool = False,
-    user_id: int | None = None,
+    user_id: int | None | object = _UNSET_VIEWER,
     is_admin: bool = False,
 ) -> list[AssetModel]:
     parsed = catalog.parse_query(query) if isinstance(query, str) else query
@@ -981,6 +984,12 @@ def search_assets(
     statement = select(AssetModel)
     if not include_deleted:
         statement = statement.where(AssetModel.deletion_status.is_(None))
+    if is_admin:
+        pass
+    elif user_id is not _UNSET_VIEWER:
+        statement = statement.where(
+            asset_visibility_clause(user_id=user_id if isinstance(user_id, int) else None)
+        )
     statement = _apply_tag_filters(statement, parsed)
     statement = _apply_sort(statement, sort, order)
     return list(session.scalars(statement.limit(limit).offset(offset)).all())
@@ -996,7 +1005,7 @@ def search_asset_dicts(
     sort: str = "asset_key",
     order: str = "asc",
     include_deleted: bool = False,
-    user_id: int | None = None,
+    user_id: int | None | object = _UNSET_VIEWER,
     is_admin: bool = False,
 ) -> list[dict[str, object]]:
     """Return search results through SQLAlchemy Core and the normal API mapper."""
@@ -1008,9 +1017,11 @@ def search_asset_dicts(
     statement = select(*assets.c)
     if not include_deleted:
         statement = statement.where(assets.c.deletion_status.is_(None))
-        if is_admin:
-            pass
-        elif user_id is None:
+    if is_admin:
+        pass
+    elif user_id is not _UNSET_VIEWER:
+        viewer_id = user_id if isinstance(user_id, int) else None
+        if viewer_id is None:
             statement = statement.where(or_(assets.c.uploader_user_id.is_(None), exists(select(1).where(
                 UserAssetModel.asset_key == assets.c.asset_key,
                 UserAssetModel.visibility == "public",
@@ -1018,10 +1029,10 @@ def search_asset_dicts(
         else:
             statement = statement.where(or_(
                 assets.c.uploader_user_id.is_(None),
-                assets.c.uploader_user_id == user_id,
+                assets.c.uploader_user_id == viewer_id,
                 exists(select(1).where(UserAssetModel.asset_key == assets.c.asset_key, UserAssetModel.visibility == "public")),
-                exists(select(1).where(AssetAclModel.asset_key == assets.c.asset_key, AssetAclModel.subject_type == "user", AssetAclModel.subject_id == str(user_id), AssetAclModel.permission == "view")),
-                exists(select(1).select_from(AssetAclModel).join(ShareGroupMemberModel, and_(ShareGroupMemberModel.group_id == AssetAclModel.subject_id.cast(Integer), ShareGroupMemberModel.user_id == user_id)).where(AssetAclModel.asset_key == assets.c.asset_key, AssetAclModel.subject_type == "group", AssetAclModel.permission == "view")),
+                exists(select(1).where(AssetAclModel.asset_key == assets.c.asset_key, AssetAclModel.subject_type == "user", AssetAclModel.subject_id == str(viewer_id), AssetAclModel.permission == "view")),
+                exists(select(1).select_from(AssetAclModel).join(ShareGroupMemberModel, and_(ShareGroupMemberModel.group_id == AssetAclModel.subject_id.cast(Integer), ShareGroupMemberModel.user_id == viewer_id)).where(AssetAclModel.asset_key == assets.c.asset_key, AssetAclModel.subject_type == "group", AssetAclModel.permission == "view")),
             ))
     for tag in parsed.required:
         statement = statement.where(exists(select(asset_tags.c.asset_key).where(

@@ -896,11 +896,20 @@ def create_app(
                 AssetModel.asset_key.asc(),
             )
         )
-        siblings = [
-            item
-            for item in db.scalars(statement).all()
-            if item.asset_key == asset.asset_key or can_view_asset(db, item, user_id=principal.user_id, is_admin=_is_admin_principal(principal))
-        ]
+        siblings = []
+        for item in db.scalars(statement).all():
+            if item.asset_key != asset.asset_key and not can_view_asset(
+                db,
+                item,
+                user_id=principal.user_id,
+                is_admin=_is_admin_principal(principal),
+            ):
+                continue
+            try:
+                _require_sensitive_view(item, principal)
+            except HTTPException:
+                continue
+            siblings.append(item)
         return {
             "items": [_asset_response(storage, item, catalog) for item in siblings],
             "current_asset_key": asset.asset_key,

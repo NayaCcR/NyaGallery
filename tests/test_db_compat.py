@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import hashlib
+from pathlib import Path
 
 import pytest
 from sqlalchemy import Column, Integer, MetaData, String, Table
@@ -15,7 +17,8 @@ from nyagallery.db import (
     search_asset_dicts,
     search_assets,
 )
-from nyagallery.importers import LskyProImporter
+from nyagallery.asset import Asset, AssetBlob
+from nyagallery.importers import LskyProImporter, copy_assets_read_only
 from nyagallery.tags import TagCatalog
 
 
@@ -66,8 +69,50 @@ def test_acl_filter_keeps_legacy_assets_and_hides_private_assets(tmp_path):
     assert [row["asset_key"] for row in search_asset_dicts(session, catalog, "", user_id=None)] == ["legacy"]
     assert [row["asset_key"] for row in search_asset_dicts(session, catalog, "", user_id=7)] == ["legacy"]
     assert [row["asset_key"] for row in search_asset_dicts(session, catalog, "", user_id=42)] == ["legacy", "private"]
+    assert [row.asset_key for row in search_assets(session, catalog, "", user_id=7)] == ["legacy"]
+    assert [row.asset_key for row in search_assets(session, catalog, "", user_id=42)] == ["legacy", "private"]
     session.close()
     engine.dispose()
+
+
+def test_import_copy_uses_content_addressed_destination_keys(tmp_path):
+    source_root = tmp_path / "source"
+    first = source_root / "first"
+    second = source_root / "second"
+    first.mkdir(parents=True)
+    second.mkdir(parents=True)
+    first_file = first / "same.jpg"
+    second_file = second / "same.jpg"
+    first_file.write_bytes(b"first")
+    second_file.write_bytes(b"second")
+
+    def asset(path):
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        return Asset(
+            asset_id=digest,
+            blob=AssetBlob(
+                sha256=digest,
+                size=path.stat().st_size,
+                mime="image/jpeg",
+                width=None,
+                height=None,
+                storage_key=path.relative_to(source_root).as_posix(),
+                original_filename=path.name,
+            ),
+            metadata={"source": "fixture", "source_id": digest, "original_filename": path.name, "original_path": ""},
+        )
+
+    destination = tmp_path / "destination"
+    report = copy_assets_read_only(
+        [asset(first_file), asset(second_file)],
+        source_root=source_root,
+        destination_root=destination,
+        storage_prefix="original",
+    )
+    assert report.failures == []
+    assert report.copied == 2
+    assert len({item.blob.storage_key for item in report.assets}) == 2
+    assert all((destination / Path(item.blob.storage_key).name).exists() for item in report.assets)
 
 
 def test_lsky_importer_reads_through_sqlalchemy_core(tmp_path):
