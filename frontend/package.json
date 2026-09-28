@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "run": "next start -H 0.0.0.0 -p 3031",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit"
