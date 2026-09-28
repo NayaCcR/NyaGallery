@@ -6,10 +6,17 @@ FastAPI 同时提供交互式 OpenAPI 页面：`/docs`（Swagger UI）、`/redoc
 
 ## 1. 鉴权
 
-- 游客：可浏览公开资源，自动隐藏敏感分级和 AI 内容（取决于偏好/策略）。
-- `viewer`：浏览、搜索、下载和查看自己的历史。
-- `editor`：增加上传、编辑资源标签、发起删除和生成缓存。
-- `admin`：增加清理资源、重建、用户、安全、凭据和配置管理。
+正式角色值为 `guest`、`viewer`、`editor`、`admin` 和 `developer`；`dev` 不是角色名，只能作为普通用户名使用。角色权限如下：
+
+| 角色 | 权限标识 | 能力概览 |
+| --- | --- | --- |
+| `guest` | `view` | 浏览公开资源；敏感分级和 AI 内容按偏好/策略隐藏 |
+| `viewer` | `view`, `download`, `api` | 浏览、搜索、下载和查看自己的历史 |
+| `editor` | `view`, `download`, `api`, `upload`, `edit_tags`, `delete_request` | 增加上传、编辑资源标签、发起删除和生成缓存 |
+| `admin` | `view`, `download`, `api`, `upload`, `edit_tags`, `delete_request`, `delete`, `admin` | 增加清理资源、重建、用户、安全、凭据和配置管理 |
+| `developer` | `view`, `download`, `api`, `upload`, `edit_tags`, `delete_request`, `delete`, `admin`, `developer`, `config`, `console` | 继承 admin 能力，并增加配置编辑器和受控维护台 |
+
+`developer` 是最高信任级别。admin 不能创建 developer 用户；只能通过本机 CLI 或已有 developer 用户创建。`GET /api/access/permission-groups` 可由 admin 及以上角色读取上述权限组。这里的角色权限组与 `/api/access/groups` 管理的资源共享访问组不是同一概念。
 
 网页登录使用 Cookie：
 
@@ -118,10 +125,16 @@ X：`GET /api/sync/x/config`、`GET /api/sync/x/logs`、`POST /api/sync/x/posts`
 | POST | `/api/users/{username}/password` | admin 重设密码 |
 | POST/GET | `/api/users/{username}/token(s)` | 签发/列出 Bearer Token |
 | DELETE | `/api/tokens/{token_id}` | 撤销 Token |
+| GET | `/api/access/permission-groups` | admin；列出 `viewer`、`editor`、`admin`、`developer` 及其权限标识 |
+| GET/POST | `/api/access/groups` | admin；列出或创建资源共享访问组，创建请求为 `{"name":"组名","member_usernames":["alice"]}` |
+| PUT/DELETE | `/api/access/groups/{group_id}` | admin；更新自己创建的共享访问组或将其删除 |
 | GET/PUT | `/api/security/settings` | admin 安全策略和限流 |
 | GET | `/api/security/access-logs` | admin 访问日志 |
 | GET/PUT | `/api/developer/config` | developer 配置编辑器 |
 | GET | `/api/developer/console` | developer 受控维护台 |
+| POST | `/api/developer/console/reset-password` | developer；维护台启用时重设用户密码，请求为 `{"username":"alice","new_password":"..."}` |
+
+创建用户时提交 `{"username":"...","password":"...","role":"viewer"}`。admin 可以创建 `guest`、`viewer`、`editor` 和 `admin`，但只有 developer 或本机 CLI 可以创建 `developer`。
 
 Pixiv、X、Misskey、Fanbox 凭据接口均挂在 `/api/users/{username}/...` 下，列表只返回脱敏摘要；不要把响应中的 token 写入日志。
 

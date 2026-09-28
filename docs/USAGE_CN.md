@@ -1102,7 +1102,7 @@ storage/thumbs/
 - 单 IP、默认用户每分钟请求数
 - 单 IP、默认用户每分钟请求体积
 - 上传请求体积上限
-- 按角色组（viewer/editor/admin）覆盖默认用户限额
+- 按角色组（viewer/editor/admin/developer）覆盖默认用户限额
 - 按具体用户覆盖角色组或默认用户限额
 
 viewer API 白名单、可信 Origin、代理 IP 头这类底层安全项不在前端展示，改用 CLI 调整：

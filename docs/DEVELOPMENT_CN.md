@@ -23,7 +23,7 @@ corepack enable
 corepack prepare pnpm@11.13.1 --activate
 pnpm install --frozen-lockfile
 cd ..
-nyagallery --storage storage setup --username admin --role admin
+nyagallery --storage storage setup --username developer --role developer
 ```
 
 启动后端：
@@ -67,7 +67,7 @@ pnpm run lint
 pnpm run build
 ```
 
-后端 API 测试应覆盖匿名、viewer/editor/admin、Cookie+CSRF 和 Bearer Token；涉及文件的测试使用临时目录，不要写入仓库 `storage/`。同步器测试应使用 fixture 或 mock，避免在 CI 访问 Pixiv、X、Misskey 或 Fanbox。
+后端 API 测试应覆盖匿名、viewer/editor/admin/developer、Cookie+CSRF 和 Bearer Token；涉及文件的测试使用临时目录，不要写入仓库 `storage/`。同步器测试应使用 fixture 或 mock，避免在 CI 访问 Pixiv、X、Misskey 或 Fanbox。
 
 常见诊断：
 
