@@ -7,8 +7,8 @@
 ## 1. 环境要求
 
 - Python 3.11 或更新版本
-- Node.js 18 或更新版本
-- npm
+- Node.js 22.13 或更新版本
+- pnpm 11.13.1（通过 Corepack）
 - 可选：PostgreSQL
 - 可选：Redis
 - 可选：Pixiv refresh token
@@ -265,15 +265,17 @@ Invoke-RestMethod http://127.0.0.1:8001/health
 
 ```powershell
 cd frontend
-npm install
+corepack enable
+corepack prepare pnpm@11.13.1 --activate
+pnpm install --frozen-lockfile
 ```
 
 启动开发服务器：
 
 ```powershell
 $env:NYA_API_BACKEND = "http://127.0.0.1:8001"
-npm run dev
-#npm run dev -- -H 0.0.0.0 -p 3000
+pnpm run dev
+#pnpm run dev -- -H 0.0.0.0 -p 3000
 ```
 
 打开：
@@ -381,8 +383,8 @@ nyagallery --storage storage serve --host 0.0.0.0 --port 8001
 
 ```bash
 cd frontend
-npm install
-NYA_API_BACKEND=http://127.0.0.1:8001 npm run dev -- -H 0.0.0.0 -p 3000
+pnpm install --frozen-lockfile
+NYA_API_BACKEND=http://127.0.0.1:8001 pnpm run dev -- -H 0.0.0.0 -p 3000
 ```
 
 无桌面服务器有三种推荐路线：
@@ -979,8 +981,8 @@ python -m pytest
 
 ```powershell
 cd frontend
-npm run typecheck
-npm run build
+pnpm run typecheck
+pnpm run build
 ```
 
 ## 17. 常见问题
@@ -1229,7 +1231,7 @@ nyagallery --storage storage serve --host 127.0.0.1 --port 8001
 # 2. 如果前端 dev server 已经启动很久，也重启一次
 cd frontend
 $env:NYA_API_BACKEND = "http://127.0.0.1:8001"
-npm run dev
+pnpm run dev
 ```
 
 可以直接检查登录 API 是否存在：

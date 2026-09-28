@@ -48,15 +48,19 @@ frontend/
 
 ## 开发
 
+前端要求 Node.js 22.13+ 和 pnpm 11.13.1。仓库以 `pnpm-lock.yaml` 为唯一前端依赖锁文件。
+
 ```powershell
 cd frontend
-npm install
+corepack enable
+corepack prepare pnpm@11.13.1 --activate
+pnpm install --frozen-lockfile
 
 # 默认反代到 http://127.0.0.1:8001
-npm run dev
+pnpm run dev
 
 # 自定义后端地址
-$env:NYA_API_BACKEND = "http://127.0.0.1:8001"; npm run dev
+$env:NYA_API_BACKEND = "http://127.0.0.1:8001"; pnpm run dev
 ```
 
 另开一个终端启动后端：
@@ -201,10 +205,10 @@ nyagallery --storage storage serve --host 127.0.0.1 --port 8001
 ## 构建
 
 ```powershell
-npm run typecheck
-npm run lint
-npm run build
-npm run start
+pnpm run typecheck
+pnpm run lint
+pnpm run build
+pnpm run start
 ```
 
 生产环境同样需要让 `NYA_API_BACKEND` 指向真实后端，或在外层反向代理中把 `/api/*` 和 `/health` 转发到 FastAPI。

@@ -48,8 +48,8 @@ NyaGallery sits between a downloader script, a file browser, and a full booru-st
 ## Requirements
 
 - Python 3.11+
-- Node.js 18+
-- npm
+- Node.js 22.13+
+- pnpm 11.13.1 (via Corepack)
 - Optional: PostgreSQL, Redis, Pixiv refresh token, media/Pixiv extras
 
 ## Quick Start
@@ -64,7 +64,9 @@ Install the frontend:
 
 ```powershell
 cd frontend
-npm install
+corepack enable
+corepack prepare pnpm@11.13.1 --activate
+pnpm install --frozen-lockfile
 cd ..
 ```
 
@@ -87,7 +89,7 @@ Run the frontend in another terminal:
 ```powershell
 cd frontend
 $env:NYA_API_BACKEND = "http://127.0.0.1:8001"
-npm run dev
+pnpm run dev
 ```
 
 Open:
@@ -195,9 +197,9 @@ Frontend checks:
 
 ```powershell
 cd frontend
-npm run typecheck
-npm run lint
-npm run build
+pnpm run typecheck
+pnpm run lint
+pnpm run build
 ```
 
 Recommended full development install:

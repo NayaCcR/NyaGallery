@@ -48,8 +48,8 @@ NyaGallery 的位置介于下载脚本、普通文件浏览器和完整 booru �
 ## 环境要求
 
 - Python 3.11+
-- Node.js 18+
-- npm
+- Node.js 22.13+
+- pnpm 11.13.1（通过 Corepack）
 - 可选：PostgreSQL、Redis、Pixiv refresh token、媒体/Pixiv 可选依赖
 
 ## 快速启动
@@ -64,7 +64,9 @@ python -m pip install -e ".[media,pixiv,pixiv-login,postgres,redis]"
 
 ```powershell
 cd frontend
-npm install
+corepack enable
+corepack prepare pnpm@11.13.1 --activate
+pnpm install --frozen-lockfile
 cd ..
 ```
 
@@ -87,7 +89,7 @@ nyagallery --storage storage serve --host 127.0.0.1 --port 8001
 ```powershell
 cd frontend
 $env:NYA_API_BACKEND = "http://127.0.0.1:8001"
-npm run dev
+pnpm run dev
 ```
 
 访问：
@@ -195,9 +197,9 @@ python -m unittest tests.test_config tests.test_tags tests.test_db
 
 ```powershell
 cd frontend
-npm run typecheck
-npm run lint
-npm run build
+pnpm run typecheck
+pnpm run lint
+pnpm run build
 ```
 
 推荐开发安装：

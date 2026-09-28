@@ -7,7 +7,8 @@
 ## 1. 准备环境
 
 - Python 3.11+，建议使用 conda/venv。
-- Node.js 18+。
+- Node.js 22.13+。
+- pnpm 11.13.1（通过 Corepack）。
 - 可选：需要 Pixiv 可见浏览器登录时，安装浏览器环境。
 
 ```powershell
@@ -39,7 +40,9 @@ nyagallery --help
 
 ```powershell
 cd frontend
-npm install
+corepack enable
+corepack prepare pnpm@11.13.1 --activate
+pnpm install --frozen-lockfile
 cd ..
 ```
 
@@ -66,7 +69,7 @@ nyagallery --storage storage serve --host 127.0.0.1 --port 8001
 ```powershell
 cd frontend
 $env:NYA_API_BACKEND = "http://127.0.0.1:8001"
-npm run dev
+pnpm run dev
 ```
 
 访问：
@@ -84,7 +87,7 @@ nyagallery --storage storage serve --host 0.0.0.0 --port 8001
 ```powershell
 cd frontend
 $env:NYA_API_BACKEND = "http://127.0.0.1:8001"
-npm run dev -- -H 0.0.0.0 -p 3000
+pnpm run dev -- -H 0.0.0.0 -p 3000
 ```
 
 ## 6. 生产启动
@@ -100,8 +103,8 @@ nyagallery --storage storage serve --host 0.0.0.0 --port 8001
 ```powershell
 cd frontend
 $env:NYA_API_BACKEND = "http://127.0.0.1:8001"
-npm run build
-npm run start -- -H 0.0.0.0 -p 3000
+pnpm run build
+pnpm run start -- -H 0.0.0.0 -p 3000
 ```
 
 ## 7. 常用命令

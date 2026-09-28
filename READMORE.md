@@ -267,5 +267,5 @@ Delete flow:
 python -m pip install -e ".[dev,media]"
 python -m pytest
 cd frontend
-npm run typecheck
+pnpm run typecheck
 ```

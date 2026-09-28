@@ -19,7 +19,9 @@ python3.11 -m venv .venv
 . .venv/bin/activate
 python -m pip install -e ".[dev,media,pixiv,pixiv-login,postgres,redis]"
 cd frontend
-npm ci
+corepack enable
+corepack prepare pnpm@11.13.1 --activate
+pnpm install --frozen-lockfile
 cd ..
 nyagallery --storage storage setup --username admin --role admin
 ```
@@ -34,7 +36,7 @@ nyagallery --storage storage serve --host 127.0.0.1 --port 8001
 
 ```bash
 cd frontend
-NYA_API_BACKEND=http://127.0.0.1:8001 npm run dev
+NYA_API_BACKEND=http://127.0.0.1:8001 pnpm run dev
 ```
 
 Windows PowerShell 使用 `$env:NYA_API_BACKEND = "http://127.0.0.1:8001"`。Next.js 通过 rewrite 将 `/api/*` 和 `/health` 转发到后端；浏览器不应直接依赖后端端口。
@@ -60,9 +62,9 @@ API 请求优先复用 `frontend/src/lib/api.ts`，让 cookie、CSRF 和错误�
 python -m py_compile src/nyagallery/*.py
 python -m pytest
 cd frontend
-npm run typecheck
-npm run lint
-npm run build
+pnpm run typecheck
+pnpm run lint
+pnpm run build
 ```
 
 后端 API 测试应覆盖匿名、viewer/editor/admin、Cookie+CSRF 和 Bearer Token；涉及文件的测试使用临时目录，不要写入仓库 `storage/`。同步器测试应使用 fixture 或 mock，避免在 CI 访问 Pixiv、X、Misskey 或 Fanbox。

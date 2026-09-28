@@ -268,5 +268,5 @@ nyagallery --storage storage serve --host 127.0.0.1 --port 8001
 python -m pip install -e ".[dev,media]"
 python -m pytest
 cd frontend
-npm run typecheck
+pnpm run typecheck
 ```

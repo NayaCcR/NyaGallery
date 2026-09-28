@@ -31,8 +31,15 @@ cd /opt/nyagallery/app
 python3.11 -m venv .venv
 . .venv/bin/activate
 python -m pip install -e ".[media,pixiv,pixiv-login,postgres,redis]"
-cd frontend && npm ci && npm run build
+cd frontend
+corepack enable
+corepack prepare pnpm@11.13.1 --activate
+pnpm install --frozen-lockfile
+pnpm run build
+command -v pnpm
 ```
+
+记录 `command -v pnpm` 输出的绝对路径。下面的 systemd 示例假设它是 `/usr/bin/pnpm`；如果实际路径不同，必须同步替换 `ExecStart`，并确保服务用户可以执行该文件。
 
 初始化时使用绝对存储目录：
 
@@ -86,7 +93,7 @@ Group=nyagallery
 WorkingDirectory=/opt/nyagallery/app/frontend
 Environment=NODE_ENV=production
 Environment=NYA_API_BACKEND=http://127.0.0.1:8001
-ExecStart=/usr/bin/npm run start -- -H 127.0.0.1 -p 3000
+ExecStart=/usr/bin/pnpm run start -- -H 127.0.0.1 -p 3000
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
@@ -139,7 +146,7 @@ nyagallery --storage /srv/nyagallery/storage security-config \
 
 ## 3. Windows 生产部署
 
-使用独立 Python 虚拟环境和 Node.js LTS。前端执行 `npm ci`、`npm run build`，后端执行 `nyagallery serve --host 127.0.0.1 --port 8001`，前端执行 `npm run start -- -H 127.0.0.1 -p 3000`。可使用 NSSM、WinSW 或任务计划程序分别托管两个进程；服务账户需要对 storage 目录拥有读写权限。
+使用独立 Python 虚拟环境和 Node.js 22.13+。前端使用 `pnpm@11.13.1`，执行 `pnpm install --frozen-lockfile`、`pnpm run build` 和 `pnpm run start -- -H 127.0.0.1 -p 3000`；后端执行 `nyagallery serve --host 127.0.0.1 --port 8001`。可使用 NSSM、WinSW 或任务计划程序分别托管两个进程；服务账户需要对 storage 目录拥有读写权限。
 
 Windows 路径建议写成 `D:/NyaGallery/storage` 或 `D:/NyaGallery/original`。如果后端运行在 Docker/WSL，填写的是容器或 Linux 环境内路径，不是 Windows 浏览器所在机器的路径。
 
@@ -173,7 +180,7 @@ nyagallery --config /etc/nyagallery/nyagallery.toml rebuild-db --generate-cache
 
 1. 先备份原图、metadata、tags、配置和数据库。
 2. 停止 web/API 服务，保留 storage 不动。
-3. 更新代码和依赖，执行前端 `npm ci && npm run build`。
+3. 更新代码和依赖，执行前端 `pnpm install --frozen-lockfile && pnpm run build`。
 4. 启动 API，检查 `/health`、登录、搜索和一张原图，再启动 web。
 5. 如升级失败，恢复代码和依赖版本；不要用空目录覆盖 storage。
 
