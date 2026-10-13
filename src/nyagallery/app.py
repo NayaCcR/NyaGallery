@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
+from datetime import timedelta
 import importlib.util
 import io
 import json
@@ -26,7 +27,16 @@ from sqlalchemy import func, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from nyagallery.auth import Principal, permissions_for_role, validate_role
+from nyagallery.auth import (
+    MAX_USERNAME_LENGTH,
+    MIN_PASSWORD_LENGTH,
+    MIN_USERNAME_LENGTH,
+    Principal,
+    permissions_for_role,
+    validate_password_strength,
+    validate_role,
+    validate_username,
+)
 from nyagallery.config import (
     DEFAULT_CONFIG_FILENAME,
     NyaGalleryConfig,
@@ -56,15 +66,18 @@ from nyagallery.db import (
     authenticate_user,
     backfill_source_tag_index,
     change_user_password,
+    claim_registration_invite,
     count_posts,
     create_access_log,
     create_engine_for_url,
     create_login_session,
+    create_registration_invite,
     create_transcode_job,
     create_upload_log,
     create_user,
     default_database_url,
     encrypt_stored_pixiv_credentials,
+    get_user_by_username,
     init_database,
     issue_api_token,
     get_misskey_token,
@@ -91,6 +104,7 @@ from nyagallery.db import (
     list_x_tokens,
     list_pixiv_logs,
     list_posts,
+    list_registration_invites,
     list_users,
     list_transcode_jobs,
     list_upload_history,
@@ -112,9 +126,12 @@ from nyagallery.db import (
     random_asset,
     rebuild_database,
     rebuild_posts,
+    registration_invite_to_dict,
+    release_registration_invite,
     search_asset_dicts,
     revoke_api_token,
     revoke_misskey_token,
+    revoke_registration_invite,
     revoke_x_token,
     revoke_pixiv_cookie,
     revoke_pixiv_token,
@@ -206,6 +223,7 @@ from nyagallery.pixiv import (
 from nyagallery.posts import PostStore, ensure_sample_posts, link_sample_post_media
 from nyagallery.redis_support import close_redis_client, create_redis_client, ping_redis_client
 from nyagallery.security import (
+    DEFAULT_REGISTRATION_MODE,
     UNSAFE_METHODS,
     RedisSecurityLimiter,
     SecurityLimiter,
@@ -226,11 +244,16 @@ SENSITIVE_RATINGS = frozenset({"r18", "r18g"})
 SESSION_COOKIE = "nya_session"
 CSRF_COOKIE = "nya_csrf"
 CSRF_HEADER = "x-csrf-token"
-OPERATION_LOG_PATHS_SKIP_MIDDLEWARE = frozenset({"/api/auth/login", "/api/login"})
+OPERATION_LOG_PATHS_SKIP_MIDDLEWARE = frozenset({"/api/auth/login", "/api/login", "/api/auth/register"})
+# Unauthenticated entry points: they cannot carry a session CSRF token, so they are exempt
+# from the CSRF token and origin checks and rely on their own validation instead.
+UNAUTHENTICATED_CSRF_EXEMPT_PATHS = frozenset({"/api/auth/login", "/api/login", "/api/auth/register"})
+REGISTRATION_DEFAULT_ROLE = "viewer"
 ACCESS_LOG_QUIET_GET_PATHS = frozenset(
     {
         "/api/me",
         "/api/site/config",
+        "/api/auth/registration",
         "/api/search",
         "/api/posts",
         "/api/uploads/history",
@@ -289,6 +312,20 @@ class LoginRequest(BaseModel):
     username: str
     password: str
     remember: bool = True
+
+
+class RegistrationRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=80)
+    password: str = Field(min_length=1, max_length=512)
+    remember: bool = True
+    invite_code: str | None = Field(default=None, max_length=200)
+
+
+class RegistrationInviteCreate(BaseModel):
+    label: str = Field(default="", max_length=160)
+    code: str | None = Field(default=None, max_length=200)
+    max_uses: int = Field(default=1, ge=1, le=1000)
+    expires_in_days: int | None = Field(default=None, ge=1, le=3650)
 
 
 class PasswordChangeRequest(BaseModel):
@@ -507,6 +544,7 @@ class SecuritySettingsUpdate(BaseModel):
     enabled: bool | None = None
     access_log_enabled: bool | None = None
     access_log_retention: int | None = Field(default=None, ge=0, le=200_000)
+    registration_mode: str | None = Field(default=None, pattern="^(closed|open|invite)$")
     max_global_concurrency: int | None = Field(default=None, ge=0, le=10_000)
     max_ip_concurrency: int | None = Field(default=None, ge=0, le=10_000)
     max_user_concurrency: int | None = Field(default=None, ge=0, le=10_000)
@@ -729,6 +767,97 @@ def create_app(
             revoke_login_session(db, session_token)
         _clear_session_cookies(response)
         return {"ok": True}
+
+    @app.get("/api/auth/registration")
+    def api_registration_status(db: DbSession) -> dict[str, object]:
+        settings = get_security_settings(db)
+        mode = str(settings.get("registration_mode") or DEFAULT_REGISTRATION_MODE)
+        return {
+            "mode": mode,
+            "enabled": mode != "closed",
+            "invite_required": mode == "invite",
+            "default_role": REGISTRATION_DEFAULT_ROLE,
+            "username_min_length": MIN_USERNAME_LENGTH,
+            "username_max_length": MAX_USERNAME_LENGTH,
+            "password_min_length": MIN_PASSWORD_LENGTH,
+        }
+
+    @app.post("/api/auth/register")
+    def api_register(
+        payload: RegistrationRequest,
+        request: Request,
+        response: Response,
+        db: DbSession,
+    ) -> dict[str, object]:
+        settings = get_security_settings(db)
+        mode = str(settings.get("registration_mode") or DEFAULT_REGISTRATION_MODE)
+        request_ip = client_ip(request, trust_proxy_headers=bool(settings.get("trust_proxy_headers", False)))
+        if mode == "closed":
+            _write_operation_log(
+                storage,
+                request=request,
+                identity={
+                    "user_id": None,
+                    "username": payload.username.strip() or None,
+                    "role": None,
+                    "auth_method": "guest",
+                },
+                client_ip_value=request_ip,
+                status_code=403,
+                action="register",
+                detail="registration is closed",
+            )
+            raise HTTPException(status_code=403, detail="registration is closed")
+        try:
+            username = validate_username(payload.username)
+            validate_password_strength(payload.password)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        invite_code = (payload.invite_code or "").strip()
+        if mode == "invite" and not invite_code:
+            raise HTTPException(status_code=400, detail="invite code is required")
+        claimed_invite = None
+        if mode == "invite":
+            try:
+                claimed_invite = claim_registration_invite(db, invite_code)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            user = create_user(db, username, payload.password, REGISTRATION_DEFAULT_ROLE)
+        except ValueError as exc:
+            if claimed_invite is not None:
+                release_registration_invite(db, claimed_invite.id)
+            raise HTTPException(status_code=409, detail="username is already taken") from exc
+        session_token, login_session = create_login_session(
+            db,
+            user,
+            user_agent=request.headers.get("user-agent", ""),
+            client_ip=request_ip,
+            ttl_days=30 if payload.remember else 1,
+        )
+        _set_session_cookies(response, session_token, login_session.csrf_token, remember=payload.remember)
+        _write_operation_log(
+            storage,
+            request=request,
+            identity={
+                "user_id": user.id,
+                "username": user.username,
+                "role": user.role,
+                "auth_method": "password",
+            },
+            client_ip_value=request_ip,
+            status_code=201,
+            action="register",
+            detail=f"registration mode: {mode}",
+        )
+        return {
+            "username": user.username,
+            "role": user.role,
+            "user_id": user.id,
+            "permissions": sorted(permissions_for_role(user.role)),
+            "auth_method": "session",
+            "csrf_token": login_session.csrf_token,
+        }
 
     @app.post("/api/password")
     @app.post("/api/auth/password")
@@ -1341,6 +1470,76 @@ def create_app(
         principal: AdminPrincipal,
     ) -> dict[str, object]:
         return update_security_settings(db, _model_dump(update), updated_by_username=principal.username)
+
+    @app.get("/api/registration/invites")
+    def api_registration_invites(db: DbSession, _principal: AdminPrincipal) -> dict[str, object]:
+        return {"items": [registration_invite_to_dict(invite) for invite in list_registration_invites(db)]}
+
+    @app.post("/api/registration/invites")
+    def api_create_registration_invite(
+        payload: RegistrationInviteCreate,
+        request: Request,
+        db: DbSession,
+        principal: AdminPrincipal,
+    ) -> dict[str, object]:
+        custom_code = (payload.code or "").strip() or None
+        expires_at = now_utc() + timedelta(days=payload.expires_in_days) if payload.expires_in_days else None
+        try:
+            invite, code = create_registration_invite(
+                db,
+                code=custom_code,
+                label=payload.label,
+                max_uses=payload.max_uses,
+                expires_at=expires_at,
+                created_by_user_id=principal.user_id,
+                created_by_username=principal.username,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        _write_operation_log(
+            storage,
+            request=request,
+            identity={
+                "user_id": principal.user_id,
+                "username": principal.username,
+                "role": principal.role,
+                "auth_method": getattr(request.state, "nyagallery_auth_method", None),
+            },
+            client_ip_value=client_ip(request, trust_proxy_headers=False),
+            status_code=201,
+            action="registration_invite_create",
+            detail=f"invite_id={invite.id} max_uses={invite.max_uses}",
+        )
+        created = registration_invite_to_dict(invite)
+        created["code"] = code
+        return created
+
+    @app.delete("/api/registration/invites/{invite_id}")
+    def api_revoke_registration_invite(
+        invite_id: int,
+        request: Request,
+        db: DbSession,
+        principal: AdminPrincipal,
+    ) -> dict[str, object]:
+        try:
+            invite = revoke_registration_invite(db, invite_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        _write_operation_log(
+            storage,
+            request=request,
+            identity={
+                "user_id": principal.user_id,
+                "username": principal.username,
+                "role": principal.role,
+                "auth_method": getattr(request.state, "nyagallery_auth_method", None),
+            },
+            client_ip_value=client_ip(request, trust_proxy_headers=False),
+            status_code=200,
+            action="registration_invite_revoke",
+            detail=f"invite_id={invite.id}",
+        )
+        return registration_invite_to_dict(invite)
 
     @app.get("/api/security/access-logs")
     def api_access_logs(
@@ -2606,7 +2805,10 @@ def create_app(
         role = validate_role(user.role)
         if role == "developer" and not _is_developer_principal(principal):
             raise HTTPException(status_code=403, detail="developer users can only be created by developer role or CLI")
-        created = create_user(db, user.username, user.password, role)
+        try:
+            created = create_user(db, user.username, user.password, role)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"id": created.id, "username": created.username, "role": created.role}
 
     @app.get("/api/users")
@@ -5044,7 +5246,7 @@ def _security_rejection_reason(
         max_upload_bytes = int(settings.get("max_upload_bytes") or 0)
         if max_upload_bytes > 0 and request_bytes > max_upload_bytes:
             return "request body too large"
-        if identity.get("auth_method") == "session" and request.url.path not in {"/api/auth/login", "/api/login"}:
+        if identity.get("auth_method") == "session" and request.url.path not in UNAUTHENTICATED_CSRF_EXEMPT_PATHS:
             expected = str(identity.get("csrf_token") or "")
             actual = request.headers.get(CSRF_HEADER, "")
             if not expected or not secrets.compare_digest(actual, expected):
@@ -5052,7 +5254,7 @@ def _security_rejection_reason(
         if (
             settings.get("csrf_origin_check_enabled", True)
             and identity.get("auth_method") != "session"
-            and request.url.path not in {"/api/auth/login", "/api/login"}
+            and request.url.path not in UNAUTHENTICATED_CSRF_EXEMPT_PATHS
         ):
             trusted = [str(item) for item in settings.get("trusted_origins", []) if str(item).strip()]
             if not same_or_trusted_origin(request, trusted):

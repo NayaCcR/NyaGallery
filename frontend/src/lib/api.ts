@@ -48,6 +48,10 @@ import type {
   RebuildResult,
   SearchResponse,
   SearchSort,
+  RegistrationInvite,
+  RegistrationInviteCreate,
+  RegistrationInviteListResponse,
+  RegistrationStatusResponse,
   SecuritySettings,
   SiteConfigResponse,
   StorageStrategiesResponse,
@@ -164,6 +168,15 @@ export const NyaApi = {
     api<LoginResponse>("/api/auth/login", {
       method: "POST",
       body: { username, password, remember },
+      token: null,
+    }),
+
+  registrationStatus: () => api<RegistrationStatusResponse>("/api/auth/registration", { token: null }),
+
+  register: (username: string, password: string, inviteCode?: string, remember = true) =>
+    api<LoginResponse>("/api/auth/register", {
+      method: "POST",
+      body: { username, password, invite_code: inviteCode?.trim() ? inviteCode.trim() : null, remember },
       token: null,
     }),
 
@@ -316,6 +329,14 @@ export const NyaApi = {
     if (q.trim()) search.set("q", q.trim());
     return api<AccessLogResponse>(`/api/security/access-logs?${search.toString()}`);
   },
+
+  registrationInvites: () => api<RegistrationInviteListResponse>("/api/registration/invites"),
+
+  createRegistrationInvite: (payload: RegistrationInviteCreate) =>
+    api<RegistrationInvite & { code: string }>("/api/registration/invites", { method: "POST", body: payload }),
+
+  revokeRegistrationInvite: (inviteId: number) =>
+    api<RegistrationInvite>(`/api/registration/invites/${inviteId}`, { method: "DELETE" }),
 
   developerConfig: () => api<DeveloperConfigResponse>("/api/developer/config"),
 

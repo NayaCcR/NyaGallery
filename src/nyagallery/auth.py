@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import base64
 import hashlib
 import hmac
+import re
 import secrets
 
 
@@ -33,6 +34,14 @@ PASSWORD_ITERATIONS = 260_000
 TOKEN_PREFIX = "nya_"
 SESSION_PREFIX = "nys_"
 CSRF_PREFIX = "nyc_"
+INVITE_PREFIX = "nyi_"
+
+MIN_PASSWORD_LENGTH = 8
+MAX_PASSWORD_LENGTH = 512
+MIN_USERNAME_LENGTH = 3
+MAX_USERNAME_LENGTH = 64
+USERNAME_PATTERN = re.compile(r"[A-Za-z0-9._-]+\Z")
+RESERVED_USERNAMES = frozenset({"guest"})
 
 
 @dataclass(frozen=True)
@@ -55,6 +64,29 @@ def validate_role(role: str) -> str:
         valid = ", ".join(sorted(ROLE_PERMISSIONS))
         raise ValueError(f"invalid role {role!r}; expected one of: {valid}")
     return normalized
+
+
+def validate_username(username: str) -> str:
+    """Normalize a self-service username; raises ValueError when it is not acceptable."""
+    normalized = (username or "").strip()
+    if len(normalized) < MIN_USERNAME_LENGTH:
+        raise ValueError(f"username must be at least {MIN_USERNAME_LENGTH} characters")
+    if len(normalized) > MAX_USERNAME_LENGTH:
+        raise ValueError(f"username must be at most {MAX_USERNAME_LENGTH} characters")
+    if not USERNAME_PATTERN.fullmatch(normalized):
+        raise ValueError("username may only contain letters, digits, dot, underscore or hyphen")
+    if normalized.casefold() in RESERVED_USERNAMES:
+        raise ValueError(f"username {normalized!r} is reserved")
+    return normalized
+
+
+def validate_password_strength(password: str) -> str:
+    """Validate a self-service password length; raises ValueError when it is not acceptable."""
+    if len(password or "") < MIN_PASSWORD_LENGTH:
+        raise ValueError(f"password must be at least {MIN_PASSWORD_LENGTH} characters")
+    if len(password) > MAX_PASSWORD_LENGTH:
+        raise ValueError(f"password must be at most {MAX_PASSWORD_LENGTH} characters")
+    return password
 
 
 def hash_secret(secret: str, *, salt: bytes | None = None, iterations: int = PASSWORD_ITERATIONS) -> str:
@@ -116,6 +148,32 @@ def generate_session_token() -> str:
 
 def generate_csrf_token() -> str:
     return CSRF_PREFIX + secrets.token_urlsafe(32)
+
+
+def generate_invite_code() -> str:
+    return INVITE_PREFIX + secrets.token_urlsafe(24)
+
+
+def normalize_invite_code(code: str) -> str:
+    """Normalize an invite code for hashing: invite codes are opaque and case-sensitive."""
+    normalized = (code or "").strip()
+    if not normalized:
+        raise ValueError("invite code cannot be empty")
+    if len(normalized) > 200:
+        raise ValueError("invite code is too long")
+    return normalized
+
+
+def hash_invite_code(code: str) -> str:
+    return hash_opaque_token(normalize_invite_code(code))
+
+
+def verify_invite_code(code: str, code_hash: str) -> bool:
+    try:
+        normalized = normalize_invite_code(code)
+    except ValueError:
+        return False
+    return verify_opaque_token(normalized, code_hash)
 
 
 def token_prefix(token: str) -> str:

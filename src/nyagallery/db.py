@@ -14,7 +14,9 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, rela
 from nyagallery.auth import (
     generate_api_token,
     generate_csrf_token,
+    generate_invite_code,
     generate_session_token,
+    hash_invite_code,
     hash_opaque_token,
     hash_password,
     hash_secret,
@@ -493,6 +495,23 @@ class SecuritySettingsModel(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     settings: Mapped[dict] = mapped_column(JSON, default=dict)
     updated_by_username: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class RegistrationInviteModel(Base):
+    __tablename__ = "registration_invites"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    code_prefix: Mapped[str] = mapped_column(String(32), index=True)
+    label: Mapped[str] = mapped_column(String(160), default="")
+    max_uses: Mapped[int] = mapped_column(Integer, default=1)
+    used_count: Mapped[int] = mapped_column(Integer, default=0)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_by_username: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
 
@@ -1122,10 +1141,25 @@ def random_asset(
 
 def create_user(session: Session, username: str, password: str, role: str) -> UserModel:
     normalized_role = validate_role(role)
-    user = UserModel(username=username.strip(), password_hash=hash_password(password), role=normalized_role)
+    normalized_username = username.strip()
+    if get_user_by_username(session, normalized_username) is not None:
+        raise ValueError(f"username already exists: {normalized_username}")
+    user = UserModel(username=normalized_username, password_hash=hash_password(password), role=normalized_role)
     session.add(user)
     session.commit()
     return user
+
+
+def get_user_by_username(session: Session, username: str) -> UserModel | None:
+    """Look up an active or inactive user by name, ignoring surrounding whitespace and case."""
+    normalized = (username or "").strip()
+    if not normalized:
+        return None
+    return session.scalar(
+        select(UserModel)
+        .where(func.lower(UserModel.username) == normalized.casefold())
+        .order_by(UserModel.id.asc())
+    )
 
 
 def authenticate_user(session: Session, username: str, password: str) -> UserModel | None:
@@ -1153,6 +1187,117 @@ def list_users(session: Session) -> list[UserModel]:
             .order_by(UserModel.username.asc(), UserModel.id.asc())
         ).all()
     )
+
+
+def create_registration_invite(
+    session: Session,
+    *,
+    code: str | None = None,
+    label: str = "",
+    max_uses: int = 1,
+    expires_at: datetime | None = None,
+    created_by_username: str | None = None,
+    created_by_user_id: int | None = None,
+) -> tuple[RegistrationInviteModel, str]:
+    """Create a registration invite. Returns the stored row and the plaintext code (shown once)."""
+    plaintext = (code or "").strip() or generate_invite_code()
+    code_hash = hash_invite_code(plaintext)
+    if session.scalar(select(RegistrationInviteModel.id).where(RegistrationInviteModel.code_hash == code_hash)) is not None:
+        raise ValueError("invite code already exists")
+    invite = RegistrationInviteModel(
+        code_hash=code_hash,
+        code_prefix=token_prefix(plaintext),
+        label=(label or "").strip()[:160],
+        max_uses=max(1, int(max_uses)),
+        used_count=0,
+        expires_at=expires_at,
+        created_by_username=created_by_username,
+        created_by_user_id=created_by_user_id,
+    )
+    session.add(invite)
+    session.commit()
+    return invite, plaintext
+
+
+def list_registration_invites(session: Session) -> list[RegistrationInviteModel]:
+    return list(
+        session.scalars(
+            select(RegistrationInviteModel)
+            .order_by(RegistrationInviteModel.created_at.desc(), RegistrationInviteModel.id.desc())
+        ).all()
+    )
+
+
+def revoke_registration_invite(session: Session, invite_id: int) -> RegistrationInviteModel:
+    invite = session.get(RegistrationInviteModel, invite_id)
+    if invite is None:
+        raise ValueError(f"invite not found: {invite_id}")
+    if invite.revoked_at is None:
+        invite.revoked_at = now_utc()
+        invite.updated_at = invite.revoked_at
+        session.commit()
+    return invite
+
+
+def claim_registration_invite(session: Session, code: str) -> RegistrationInviteModel:
+    """Atomically consume one use of an invite code; raises ValueError when it cannot be used."""
+    try:
+        code_hash = hash_invite_code(code)
+    except ValueError as exc:
+        raise ValueError("invite code is invalid") from exc
+    invite = session.scalar(select(RegistrationInviteModel).where(RegistrationInviteModel.code_hash == code_hash))
+    if invite is None:
+        raise ValueError("invite code is invalid")
+    if invite.revoked_at is not None:
+        raise ValueError("invite code has been revoked")
+    now = now_utc()
+    if invite.expires_at is not None and aware_utc(invite.expires_at) <= now:
+        raise ValueError("invite code has expired")
+    result = session.execute(
+        update(RegistrationInviteModel)
+        .where(
+            RegistrationInviteModel.id == invite.id,
+            RegistrationInviteModel.revoked_at.is_(None),
+            RegistrationInviteModel.used_count < RegistrationInviteModel.max_uses,
+        )
+        .values(used_count=RegistrationInviteModel.used_count + 1, updated_at=now)
+    )
+    if result.rowcount != 1:
+        session.rollback()
+        raise ValueError("invite code has no remaining uses")
+    session.commit()
+    session.refresh(invite)
+    return invite
+
+
+def release_registration_invite(session: Session, invite_id: int) -> None:
+    """Return a claimed invite use, e.g. when account creation failed afterwards."""
+    session.execute(
+        update(RegistrationInviteModel)
+        .where(RegistrationInviteModel.id == invite_id, RegistrationInviteModel.used_count > 0)
+        .values(used_count=RegistrationInviteModel.used_count - 1, updated_at=now_utc())
+    )
+    session.commit()
+
+
+def registration_invite_to_dict(invite: RegistrationInviteModel) -> dict[str, object]:
+    remaining = max(0, int(invite.max_uses or 0) - int(invite.used_count or 0))
+    expires_at = _datetime_to_iso(invite.expires_at)
+    expired = invite.expires_at is not None and aware_utc(invite.expires_at) <= now_utc()
+    return {
+        "id": invite.id,
+        "label": invite.label,
+        "code_prefix": invite.code_prefix,
+        "invited_by": invite.created_by_username,
+        "max_uses": invite.max_uses,
+        "used_count": invite.used_count,
+        "remaining_uses": remaining,
+        "expires_at": expires_at,
+        "created_at": _datetime_to_iso(invite.created_at),
+        "revoked_at": _datetime_to_iso(invite.revoked_at),
+        "expired": expired,
+        "active": invite.revoked_at is None and not expired and remaining > 0,
+    }
 
 
 def change_user_password(session: Session, user_id: int, old_password: str, new_password: str) -> UserModel:

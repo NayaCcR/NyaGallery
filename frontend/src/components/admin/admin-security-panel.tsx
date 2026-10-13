@@ -3,7 +3,7 @@
 import { Network, RefreshCw, Save, Search, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { LimitGrid, NumberField, ToggleField } from "@/components/admin/admin-fields";
+import { LimitGrid, NumberField, SelectField, ToggleField } from "@/components/admin/admin-fields";
 import { AccessLogRow } from "@/components/admin/admin-operation-rows";
 import { bytesToMiB, formatDate, limitValue } from "@/components/admin/admin-format";
 import { useI18n } from "@/components/providers/locale-provider";
@@ -88,6 +88,20 @@ export function AdminSecurityPanel({
             <NumberField label={t("admin.security.ipConcurrency")} value={securityDraft.max_ip_concurrency} onChange={(value) => onPatchSecurity({ max_ip_concurrency: value })} />
             <NumberField label={t("admin.security.ipRequests")} value={securityDraft.ip_requests_per_minute} onChange={(value) => onPatchSecurity({ ip_requests_per_minute: value })} />
             <NumberField label={t("admin.security.ipTraffic")} value={bytesToMiB(securityDraft.ip_bytes_per_minute)} suffix="MiB" onChange={(value) => onPatchSecurity({ ip_bytes_per_minute: value * MIB })} />
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <SelectField
+              label={t("admin.security.registrationMode")}
+              value={securityDraft.registration_mode}
+              options={[
+                { value: "closed", label: t("admin.security.registrationClosed") },
+                { value: "open", label: t("admin.security.registrationOpen") },
+                { value: "invite", label: t("admin.security.registrationInvite") },
+              ]}
+              onChange={(value) => onPatchSecurity({ registration_mode: value })}
+            />
+            <p className="self-end pb-1 text-xs text-muted-foreground">{t("admin.security.registrationHint")}</p>
           </div>
 
           <LimitGrid

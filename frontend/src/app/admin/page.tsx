@@ -31,6 +31,7 @@ import { AdminFanboxPanel } from "@/components/admin/admin-fanbox-panel";
 import { AdminOperationsPanel } from "@/components/admin/admin-operations-panel";
 import { AdminPixivPanel } from "@/components/admin/admin-pixiv-panel";
 import { AdminSecurityPanel } from "@/components/admin/admin-security-panel";
+import { AdminRegistrationPanel } from "@/components/admin/admin-registration-panel";
 import { AdminTagsPanel } from "@/components/admin/admin-tags-panel";
 import { AdminAccessPanel } from "@/components/admin/admin-access-panel";
 import { AdminMigrationPanel } from "@/components/admin/admin-migration-panel";
@@ -900,6 +901,7 @@ export default function AdminPage() {
           {activeSection === "migration" && <AdminMigrationPanel />}
 
           {activeSection === "security" && (
+          <>
           <AdminSecurityPanel
             busy={busy}
             securityDraft={securityDraft}
@@ -918,6 +920,8 @@ export default function AdminPage() {
             onPatchRoleLimit={patchRoleLimit}
             onPatchUserLimit={patchUserLimit}
           />
+          <AdminRegistrationPanel />
+          </>
           )}
 
           {activeSection === "maintenance" && (

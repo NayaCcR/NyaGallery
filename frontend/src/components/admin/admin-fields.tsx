@@ -51,6 +51,35 @@ export function ToggleField({
   );
 }
 
+export function SelectField<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: Array<{ value: T; label: string }>;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <label className="space-y-1.5">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <select
+        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm focus-ring"
+        value={value}
+        onChange={(e) => onChange(e.target.value as T)}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 export function NumberField({
   label,
   value,

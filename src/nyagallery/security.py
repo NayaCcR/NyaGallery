@@ -33,10 +33,14 @@ DEFAULT_VIEWER_API_WHITELIST = [
     "POST /api/logout",
 ]
 
+REGISTRATION_MODES = ("closed", "open", "invite")
+DEFAULT_REGISTRATION_MODE = "closed"
+
 DEFAULT_SECURITY_SETTINGS: dict[str, object] = {
     "enabled": True,
     "access_log_enabled": True,
     "access_log_retention": 5000,
+    "registration_mode": DEFAULT_REGISTRATION_MODE,
     "max_global_concurrency": 128,
     "max_ip_concurrency": 32,
     "max_user_concurrency": 24,
@@ -113,6 +117,8 @@ def normalize_security_settings(raw: Mapping[str, object] | None) -> dict[str, o
             normalized[key] = max(0, _coerce_int(value, int(DEFAULT_SECURITY_SETTINGS[key])))
         elif key in LIST_FIELDS:
             normalized[key] = _coerce_string_list(value)
+        elif key == "registration_mode":
+            normalized[key] = _coerce_registration_mode(value)
         elif key == "role_limits":
             normalized[key] = _normalize_limit_overrides(value, role_names_only=True)
         elif key == "user_limits":
@@ -510,6 +516,11 @@ def _coerce_bool(value: object) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on", "enabled"}
     return bool(value)
+
+
+def _coerce_registration_mode(value: object) -> str:
+    mode = str(value).strip().lower() if value is not None else ""
+    return mode if mode in REGISTRATION_MODES else DEFAULT_REGISTRATION_MODE
 
 
 def _coerce_int(value: object, default: int) -> int:

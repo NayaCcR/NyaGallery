@@ -12,6 +12,7 @@ type AuthContextValue = {
   token: string | null;
   setToken: (token: string | null) => void;
   login: (username: string, password: string, remember?: boolean) => Promise<MeResponse>;
+  register: (username: string, password: string, inviteCode?: string, remember?: boolean) => Promise<MeResponse>;
   logout: () => Promise<void>;
   ready: boolean;
   me: MeResponse | null;
@@ -45,6 +46,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return me;
   }, []);
 
+  const register = useCallback(
+    async (username: string, password: string, inviteCode?: string, remember = true) => {
+      const me = await NyaApi.register(username, password, inviteCode, remember);
+      setSessionVersion((value) => value + 1);
+      return me;
+    },
+    []
+  );
+
   const logout = useCallback(async () => {
     await NyaApi.logout();
     setSessionVersion((value) => value + 1);
@@ -60,12 +70,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       token,
       setToken,
       login,
+      register,
       logout,
       ready: authReady,
       me,
       meLoading: meQuery.isFetching,
     }),
-    [token, setToken, login, logout, authReady, me, meQuery.isFetching]
+    [token, setToken, login, register, logout, authReady, me, meQuery.isFetching]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

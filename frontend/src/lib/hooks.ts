@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { ApiError, NyaApi } from "./api";
-import type { Asset, MeResponse, PostListResponse, PostSort, SearchOrder, SearchResponse, SearchSort, SiteConfigResponse, TagSuggestResponse, TagSummaryResponse } from "./types";
+import type { Asset, MeResponse, PostListResponse, PostSort, RegistrationStatusResponse, SearchOrder, SearchResponse, SearchSort, SiteConfigResponse, TagSuggestResponse, TagSummaryResponse } from "./types";
 
 const PAGE_SIZE = 40;
 const POSTS_PAGE_SIZE = 20;
@@ -155,6 +155,14 @@ export function useSiteConfig() {
     queryKey: ["site-config"],
     queryFn: () => NyaApi.siteConfig(),
     staleTime: 300_000,
+  });
+}
+
+export function useRegistrationStatus() {
+  return useQuery<RegistrationStatusResponse, Error>({
+    queryKey: ["registration-status"],
+    queryFn: () => NyaApi.registrationStatus(),
+    staleTime: 60_000,
   });
 }
 

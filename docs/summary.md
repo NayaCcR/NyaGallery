@@ -79,7 +79,8 @@ Metadata 已支持：
 - `transcode_jobs`：转码任务、阶段、进度、帧数、fps、耗时字段。
 - `upload_logs`：上传/转码请求/转码结果日志。
 - `access_logs`：安全访问日志。
-- `security_settings`：安全配置。
+- `security_settings`：安全配置，含注册入口 `registration_mode`。
+- `registration_invites`：注册邀请码，仅保存哈希与使用计数。
 
 数据库可从 metadata JSON 重建。
 

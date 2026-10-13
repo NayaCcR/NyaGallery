@@ -790,6 +790,7 @@ export interface SecuritySettings {
   enabled: boolean;
   access_log_enabled: boolean;
   access_log_retention: number;
+  registration_mode: RegistrationMode;
   max_global_concurrency: number;
   max_ip_concurrency: number;
   max_user_concurrency: number;
@@ -842,6 +843,44 @@ export interface AccessLogResponse {
   limit: number;
   offset: number;
   q: string;
+}
+
+export type RegistrationMode = "closed" | "open" | "invite";
+
+export interface RegistrationStatusResponse {
+  mode: RegistrationMode;
+  enabled: boolean;
+  invite_required: boolean;
+  default_role: Role;
+  username_min_length: number;
+  username_max_length: number;
+  password_min_length: number;
+}
+
+export interface RegistrationInvite {
+  id: number;
+  label: string;
+  code_prefix: string;
+  invited_by: string | null;
+  max_uses: number;
+  used_count: number;
+  remaining_uses: number;
+  expires_at: string | null;
+  created_at: string | null;
+  revoked_at: string | null;
+  expired: boolean;
+  active: boolean;
+}
+
+export interface RegistrationInviteListResponse {
+  items: RegistrationInvite[];
+}
+
+export interface RegistrationInviteCreate {
+  label?: string;
+  code?: string | null;
+  max_uses?: number;
+  expires_in_days?: number | null;
 }
 
 export interface UserSummary {
