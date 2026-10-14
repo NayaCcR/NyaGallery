@@ -287,6 +287,9 @@ export const NyaApi = {
   uploadAsset: (form: FormData) =>
     api<Asset>("/api/upload", { method: "POST", body: form, json: false }),
 
+  uploadRemote: (payload: { url: string; title?: string; artist_name?: string; canonical_tags?: string[]; generate_cache?: boolean; storage_strategy?: string }) =>
+    api<Asset>("/api/upload/url", { method: "POST", body: payload }),
+
   rebuild: (generate_cache = false) =>
     api<{ assets: number; tags: number; duplicates: number; posts?: number; post_attachments?: number; media: unknown[] }>(
       "/api/rebuild",

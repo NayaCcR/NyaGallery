@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TagChipInput } from "@/components/ui/tag-chip-input";
 import { formatUploadBytes, useUploadQueue } from "@/hooks/upload/use-upload-queue";
+import { ApiError, NyaApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const ACCEPT = "image/*,.zip";
@@ -29,7 +30,11 @@ export default function UploadPage() {
   const { t } = useI18n();
   const toast = useToast();
   const inputRef = useRef<HTMLInputElement>(null);
+  const [remoteUrls, setRemoteUrls] = useState("");
+  const [remoteBusy, setRemoteBusy] = useState(false);
+  const [remoteFailures, setRemoteFailures] = useState<string[]>([]);
   const {
+
     items,
     generateCache,
     setGenerateCache,
@@ -63,13 +68,45 @@ export default function UploadPage() {
     if (!ready || !token) return;
     const handlePaste = (event: ClipboardEvent) => {
       const imageFiles = Array.from(event.clipboardData?.files ?? []).filter((file) => file.type.startsWith("image/"));
-      if (imageFiles.length === 0) return;
-      event.preventDefault();
-      addFiles(imageFiles);
+      if (imageFiles.length > 0) {
+        event.preventDefault();
+        addFiles(imageFiles);
+        return;
+      }
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest("input, textarea, [contenteditable='true']")) return;
+      const text = event.clipboardData?.getData("text/plain") ?? "";
+      const urls = text.split(/[\s,]+/).filter((value) => /^https?:\/\//i.test(value));
+      if (urls.length > 0) {
+        event.preventDefault();
+        setRemoteUrls((current) => [current.trim(), ...urls].filter(Boolean).join("\n"));
+      }
     };
     window.addEventListener("paste", handlePaste);
     return () => window.removeEventListener("paste", handlePaste);
   }, [addFiles, ready, token]);
+
+  async function uploadRemoteUrls() {
+    const urls = remoteUrls.split(/[\s,]+/).map((value) => value.trim()).filter(Boolean);
+    if (urls.length === 0) {
+      toast.error(t("pages.upload.remoteUrlRequired"));
+      return;
+    }
+    setRemoteBusy(true);
+    const failures: string[] = [];
+    for (const url of urls) {
+      try {
+        await NyaApi.uploadRemote({ url, generate_cache: generateCache, storage_strategy: storageStrategy });
+      } catch (error) {
+        failures.push(`${url}: ${error instanceof ApiError ? error.message : String(error)}`);
+      }
+    }
+    setRemoteFailures(failures);
+    setRemoteUrls(failures.map((failure) => failure.split(": ", 1)[0]).join("\n"));
+    setRemoteBusy(false);
+    if (failures.length === 0) toast.success(t("pages.upload.remoteSuccess", { count: urls.length }));
+    else toast.error(t("pages.upload.remotePartial", { count: failures.length }));
+  }
 
   if (ready && !token) {
     return (
@@ -139,6 +176,29 @@ export default function UploadPage() {
             e.target.value = "";
           }}
         />
+      </div>
+
+      <div className="mt-4 space-y-3 rounded-2xl border border-border bg-card p-4">
+        <div>
+          <Label htmlFor="remote_urls">{t("pages.upload.remoteUrls")}</Label>
+          <p className="mt-1 text-xs text-muted-foreground">{t("pages.upload.remoteUrlsHint")}</p>
+        </div>
+        <textarea
+          id="remote_urls"
+          value={remoteUrls}
+          onChange={(event) => setRemoteUrls(event.target.value)}
+          rows={3}
+          placeholder="https://example.com/image.jpg"
+          className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm outline-none focus-ring"
+          disabled={remoteBusy}
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" onClick={uploadRemoteUrls} disabled={remoteBusy}>
+            {remoteBusy && <Loader2 className="h-4 w-4 animate-spin" />}
+            {t("pages.upload.remoteUpload")}
+          </Button>
+          {remoteFailures.length > 0 && <span className="text-xs text-destructive">{t("pages.upload.remoteFailures", { count: remoteFailures.length })}</span>}
+        </div>
       </div>
 
       <div className="mt-5 grid gap-4 rounded-2xl border border-border bg-card p-4 sm:grid-cols-3">

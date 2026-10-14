@@ -6,15 +6,18 @@ from dataclasses import dataclass, replace
 from datetime import timedelta
 import importlib.util
 import io
+import ipaddress
 import json
 from pathlib import Path
 import os
 import queue
 import secrets
+import socket
 import threading
 import time
 from typing import Annotated, Any
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlparse
+from urllib.request import HTTPRedirectHandler, Request as UrlRequest, build_opener
 import zipfile
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
@@ -241,6 +244,22 @@ from nyagallery.tags import TagAlreadyExistsError, TagCatalog, TagNotFoundError,
 bearer = HTTPBearer(auto_error=False)
 SENSITIVE_RATING_TAGS = frozenset({"rating:r18", "rating:r18g"})
 SENSITIVE_RATINGS = frozenset({"r18", "r18g"})
+
+
+class _NoRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, request: Any, file: Any, code: int, msg: str, headers: Any, newurl: str) -> None:
+        return None
+
+
+def _assert_public_remote_host(hostname: str) -> None:
+    try:
+        addresses = {info[4][0] for info in socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)}
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail="remote host could not be resolved") from exc
+    for address in addresses:
+        ip = ipaddress.ip_address(address)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
+            raise HTTPException(status_code=400, detail="remote host is not publicly reachable")
 SESSION_COOKIE = "nya_session"
 CSRF_COOKIE = "nya_csrf"
 CSRF_HEADER = "x-csrf-token"
@@ -504,6 +523,15 @@ class MisskeySyncRequest(BaseModel):
     rebuild_db: bool = True
     generate_cache: bool = True
     dry_run: bool = False
+
+
+class RemoteUploadRequest(BaseModel):
+    url: str = Field(min_length=1, max_length=4096)
+    title: str = Field(default="", max_length=500)
+    artist_name: str = Field(default="", max_length=200)
+    canonical_tags: list[str] = Field(default_factory=list, max_length=200)
+    generate_cache: bool = False
+    storage_strategy: str | None = Field(default=None, max_length=100)
 
 
 class PixivOAuthStartRequest(BaseModel):
@@ -1688,6 +1716,7 @@ def create_app(
         tag_aliases: str = Form(""),
         generate_cache: bool = Form(False),
         storage_strategy: str | None = Form(None),
+        original_url: str = Form(""),
     ) -> dict[str, object]:
         content = await file.read()
         security_settings = get_security_settings(db)
@@ -1737,7 +1766,7 @@ def create_app(
             title=title or (parsed_filename.title if parsed_filename else upload_name_stem),
             artist_id="",
             artist_name=artist_name,
-            original_url="",
+            original_url=original_url,
             crawl_time=utc_now_iso(),
             file_sha256=stored.sha256,
             original_filename=upload_name_stem,
@@ -1814,6 +1843,59 @@ def create_app(
             response["cache_status"] = "queued"
             response["transcode_job_id"] = job_id
         return response
+
+    @app.post("/api/upload/url")
+    async def api_upload_url(
+        payload: RemoteUploadRequest,
+        background_tasks: BackgroundTasks,
+        db: DbSession,
+        principal: UploadPrincipal,
+    ) -> dict[str, object]:
+        parsed = urlparse(payload.url.strip())
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+            raise HTTPException(status_code=400, detail="URL must be an absolute http or https URL")
+        _assert_public_remote_host(parsed.hostname)
+        security_settings = get_security_settings(db)
+        max_upload_bytes = int(security_settings.get("max_upload_bytes") or 0)
+        max_download_bytes = min(max_upload_bytes, 100 * 1024 * 1024) if max_upload_bytes > 0 else 100 * 1024 * 1024
+        request = UrlRequest(payload.url.strip(), headers={"User-Agent": "NyaGallery/1.0"})
+        try:
+            with build_opener(_NoRedirectHandler()).open(request, timeout=20) as remote:
+                final_url = remote.geturl()
+                final_parsed = urlparse(final_url)
+                if final_parsed.scheme not in {"http", "https"} or not final_parsed.hostname:
+                    raise HTTPException(status_code=400, detail="Remote URL redirected to an unsupported address")
+                content_type = (remote.headers.get_content_type() or "").lower()
+                if not content_type.startswith("image/"):
+                    raise HTTPException(status_code=415, detail="Remote resource is not an image")
+                declared_size = int(remote.headers.get("Content-Length") or 0)
+                if declared_size > max_download_bytes:
+                    raise HTTPException(status_code=413, detail="remote image is too large")
+                content = remote.read(max_download_bytes + 1)
+                if len(content) > max_download_bytes:
+                    raise HTTPException(status_code=413, detail="remote image is too large")
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"failed to fetch remote image: {exc}") from exc
+        filename = Path(unquote(final_parsed.path)).name or "remote-image"
+        if not Path(filename).suffix:
+            filename = f"{filename}.{content_type.split('/', 1)[1].split('+', 1)[0]}"
+        remote_file = UploadFile(filename=filename, file=io.BytesIO(content), size=len(content), headers={"content-type": content_type})
+        return await api_upload(
+            background_tasks,
+            db,
+            principal,
+            remote_file,
+            payload.title,
+            None,
+            payload.artist_name,
+            " ".join(payload.canonical_tags),
+            "",
+            payload.generate_cache,
+            payload.storage_strategy,
+            payload.url.strip(),
+        )
 
     @app.get("/api/sync/pixiv/config")
     def api_pixiv_config(request: Request, _principal: UploadPrincipal) -> dict[str, object]:

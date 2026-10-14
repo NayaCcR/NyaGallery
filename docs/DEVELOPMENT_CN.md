@@ -56,6 +56,8 @@ Windows PowerShell 使用 `$env:NYA_API_BACKEND = "http://127.0.0.1:8001"`。Nex
 
 API 请求优先复用 `frontend/src/lib/api.ts`，让 cookie、CSRF 和错误格式保持一致。文件 URL 使用后端返回的资源链接，不能把服务器本地路径渲染到浏览器。
 
+服务端远程 URL 拉取必须限制为 HTTP(S) 公网主机，拒绝私有、回环、链路本地和保留 IP；禁用未验证的重定向，并限制超时、响应体大小和允许的 MIME 类型，防止 SSRF 与资源耗尽。
+
 ## 5. 测试、检查和调试
 
 ```bash

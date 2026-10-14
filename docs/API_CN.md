@@ -109,11 +109,20 @@ curl -X POST http://127.0.0.1:8001/api/upload \
 
 `canonical_tags` 是空格分隔的 canonical tag 字符串；`tag_aliases` 如需同时维护别名则传 JSON 对象，例如 `{"general:sample":["sample"]}`。上传响应返回资源详情，若 `generate_cache=true` 还会返回排队中的 `transcode_job_id`。
 
+远程图片可通过 `POST /api/upload/url` 提交 JSON：
+
+```json
+{"url":"https://example.org/image.jpg","title":"Example","generate_cache":true}
+```
+
+端点要求 upload 权限，只接受公网 HTTP(S) 图片；禁止 URL 用户信息和重定向，默认最大响应 100 MiB，并受站点上传大小限制约束。批量 URL 由客户端逐条调用，失败项可单独重试；写入后沿用 SHA-256 重复检测。
+
 主要接口：
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | POST | `/api/upload` | 上传原图，可选作者、标题、标签、存储策略和缓存 |
+| POST | `/api/upload/url` | 拉取单个远程 http/https 图片并按上传流程入库；需 upload 权限，仅允许公网图片目标 |
 | POST | `/api/media/generate` | editor 生成全部或指定 `asset_key` 缓存 |
 | POST | `/api/rebuild` | admin 从 metadata 重建数据库；`{"generate_cache":true}` 可连带缓存 |
 | GET | `/api/uploads/history` | 当前用户上传历史，admin 可看全部 |
