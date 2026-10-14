@@ -1062,7 +1062,11 @@
         "pixiv_upload_date": "Pixiv modified",
         "source_id": "Source ID",
         "title": "Title",
-        "uploaded_at": "Added"
+        "uploaded_at": "Added",
+        "published_at": "Published",
+        "captured_at": "Captured",
+        "scraped_at": "Scraped",
+        "upload_timestamp": "Uploaded"
       },
       "title": "Files"
     },

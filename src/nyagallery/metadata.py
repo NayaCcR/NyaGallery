@@ -112,6 +112,34 @@ def normalize_date_value(value: Any) -> str | None:
     return text
 
 
+def normalize_timestamp(value: Any) -> str | None:
+    """Normalize historical ISO dates/times to UTC; naive values mean UTC."""
+    try:
+        parsed = datetime.fromisoformat(str(value or "").strip().replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    except (ValueError, TypeError, OverflowError):
+        return None
+
+
+def asset_timestamps(data: dict[str, Any]) -> dict[str, str | None]:
+    """Resolve explicit times and known legacy fields without inventing events."""
+    extra = data.get("extra") if isinstance(data.get("extra"), dict) else {}
+    source = data.get("source")
+    def first(*values: Any) -> str | None:
+        return next((stamp for value in values if (stamp := normalize_timestamp(value))), None)
+    return {
+        "published_at": first(data.get("published_at"), extra.get("published_at"),
+                              extra.get("pixiv_create_date") if source == "pixiv" else None),
+        "captured_at": first(data.get("captured_at"), extra.get("captured_at")),
+        "uploaded_at": first(data.get("uploaded_at"), extra.get("uploaded_at"),
+                             data.get("crawl_time") if source == "upload" else None),
+        "scraped_at": first(data.get("scraped_at"), extra.get("scraped_at"),
+                            data.get("crawl_time") if source in {"pixiv", "misskey", "x", "fanbox"} else None),
+    }
+
+
 def normalize_source_type(value: Any) -> str | None:
     text = str(value or "").strip().casefold()
     if not text:
@@ -212,6 +240,15 @@ class GalleryMetadata:
     deleted_by_username: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
+    published_at: str | None = None
+    captured_at: str | None = None
+    uploaded_at: str | None = None
+    scraped_at: str | None = None
+
+    def __post_init__(self) -> None:
+        for key, value in asset_timestamps(vars(self)).items():
+            object.__setattr__(self, key, value)
+
     @property
     def asset_key(self) -> str:
         return make_asset_key(self.source, self.source_id, self.page_index)
@@ -242,6 +279,7 @@ class GalleryMetadata:
             "canonical_tags": list(self.canonical_tags),
         }
         optional: dict[str, Any] = {
+            **asset_timestamps(vars(self)),
             "page_index": self.page_index,
             "width": self.width,
             "height": self.height,
@@ -302,6 +340,7 @@ class GalleryMetadata:
             original_filename=original_filename,
         )
         return cls(
+            **asset_timestamps(data),
             source=source,
             source_id=str(data["source_id"]),
             title=str(data.get("title") or ""),

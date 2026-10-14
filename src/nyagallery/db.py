@@ -26,7 +26,7 @@ from nyagallery.auth import (
     verify_password,
     verify_secret,
 )
-from nyagallery.metadata import GalleryMetadata
+from nyagallery.metadata import GalleryMetadata, asset_timestamps
 from nyagallery.metadata import utc_now_iso
 from nyagallery.posts import GalleryPost, PostStore
 from nyagallery.security import normalize_security_settings
@@ -53,6 +53,10 @@ ASSET_SORT_KEYS = {
     "artwork_date",
     "pixiv_upload_date",
     "uploaded_at",
+    "published_at",
+    "captured_at",
+    "scraped_at",
+    "upload_timestamp",
     "original_filename",
     "title",
     "artist",
@@ -96,6 +100,10 @@ class AssetModel(Base):
     artist_name: Mapped[str] = mapped_column(String(240), default="")
     original_url: Mapped[str] = mapped_column(String(1000), default="")
     crawl_time: Mapped[str] = mapped_column(String(80), default="")
+    published_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    captured_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    uploaded_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    scraped_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
     file_sha256: Mapped[str] = mapped_column(String(64), index=True)
     original_filename: Mapped[str] = mapped_column(String(300))
     original_path: Mapped[str] = mapped_column(String(1000))
@@ -567,6 +575,8 @@ def init_database(engine: Engine) -> None:
     _ensure_column(engine, "assets", "deleted_at", "VARCHAR(80)")
     _ensure_column(engine, "assets", "deleted_by_user_id", "INTEGER")
     _ensure_column(engine, "assets", "deleted_by_username", "VARCHAR(80)")
+    for time_field in ("published_at", "captured_at", "uploaded_at", "scraped_at"):
+        _ensure_column(engine, "assets", time_field, "VARCHAR(40)")
     _ensure_column(engine, "assets", "artwork_date", "VARCHAR(40)")
     _ensure_column(engine, "assets", "pixiv_upload_date", "VARCHAR(40)")
     _ensure_column(engine, "assets", "source_type", "VARCHAR(40)")
@@ -574,6 +584,14 @@ def init_database(engine: Engine) -> None:
     _ensure_column(engine, "assets", "is_ai_generated", "BOOLEAN")
     _ensure_column(engine, "assets", "is_animated", "BOOLEAN")
     _ensure_column(engine, "assets", "extra", "JSON")
+    # Backfill known legacy events without guessing capture/publication times.
+    with Session(engine) as session:
+        for asset in session.scalars(select(AssetModel)):
+            values = asset_timestamps({"source": asset.source, "crawl_time": asset.crawl_time, "extra": asset.extra,
+                                       **{key: getattr(asset, key) for key in ("published_at", "captured_at", "uploaded_at", "scraped_at")}})
+            for key, value in values.items():
+                setattr(asset, key, value)
+        session.commit()
     _ensure_column(engine, "user_tokens", "last_used_at", "DATETIME")
     _ensure_column(engine, "user_tokens", "last_used_ip", "VARCHAR(120)")
     _ensure_column(engine, "upload_logs", "asset_key", "VARCHAR(160)")
@@ -961,6 +979,8 @@ def upsert_asset(
     asset.width = metadata.width
     asset.height = metadata.height
     asset.mime_type = metadata.mime_type
+    for time_field, timestamp in asset_timestamps(vars(metadata)).items():
+        setattr(asset, time_field, timestamp)
     asset.artwork_date = metadata.artwork_date
     asset.pixiv_upload_date = metadata.pixiv_upload_date
     asset.source_type = metadata.source_type
@@ -1088,7 +1108,10 @@ def search_asset_dicts(
         "source_id": func.lower(assets.c.source_id),
         "asset_key": assets.c.asset_key,
     }
-    expression = sort_columns.get(normalize_asset_sort(sort), assets.c.asset_key)
+    time_key = normalize_asset_sort(sort)
+    expression = (_time_sort_expression(assets.c, time_key)
+                  if time_key in {"published_at", "captured_at", "scraped_at", "upload_timestamp"}
+                  else sort_columns.get(time_key, assets.c.asset_key))
     sorted_expression = expression.desc() if normalize_sort_order(order) == "desc" else expression.asc()
     group = assets.c.source_id.desc() if normalize_sort_order(order) == "desc" else assets.c.source_id.asc()
     statement = statement.order_by(
@@ -2408,6 +2431,8 @@ def asset_to_dict(asset: AssetModel, catalog: TagCatalog | None = None) -> dict[
         "height": asset.height,
         "mime_type": asset.mime_type,
         "crawl_time": asset.crawl_time,
+        **asset_timestamps({"source": asset.source, "crawl_time": asset.crawl_time, "extra": asset.extra,
+                            **{key: getattr(asset, key, None) for key in ("published_at", "captured_at", "uploaded_at", "scraped_at")}}),
         "artwork_date": asset.artwork_date,
         "pixiv_upload_date": asset.pixiv_upload_date,
         "source_type": asset.source_type,
@@ -3134,7 +3159,15 @@ def _apply_sort(statement, sort: str | None, order: str | None):
     )
 
 
+def _time_sort_expression(columns, sort_key: str):
+    primary = "uploaded_at" if sort_key == "upload_timestamp" else sort_key
+    keys = list(dict.fromkeys([primary, "uploaded_at", "scraped_at", "published_at", "captured_at"]))
+    return func.coalesce(*(getattr(columns, key) for key in keys))
+
+
 def _sort_expression(sort_key: str):
+    if sort_key in {"published_at", "captured_at", "scraped_at", "upload_timestamp"}:
+        return _time_sort_expression(AssetModel, sort_key)
     if sort_key == "artwork_date":
         return AssetModel.artwork_date
     if sort_key == "pixiv_upload_date":

@@ -1062,7 +1062,11 @@
         "pixiv_upload_date": "Pixiv 修改",
         "source_id": "来源 ID",
         "title": "标题",
-        "uploaded_at": "入库时间"
+        "uploaded_at": "入库时间",
+        "published_at": "发布时间",
+        "captured_at": "拍摄时间",
+        "scraped_at": "抓取时间",
+        "upload_timestamp": "上传时间"
       },
       "title": "所有文件"
     },

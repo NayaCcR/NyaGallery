@@ -568,7 +568,7 @@ GET /api/search?sort=uploaded_at&order=desc
 GET /api/search?sort=original_filename&order=asc
 ```
 
-可用排序字段：`artwork_date`、`uploaded_at`、`pixiv_upload_date`、`original_filename`、`title`、`artist`、`source_id`、`asset_key`。
+可用排序字段：`artwork_date`、`uploaded_at`、`published_at`、`captured_at`、`scraped_at`、`upload_timestamp`、`pixiv_upload_date`、`original_filename`、`title`、`artist`、`source_id`、`asset_key`。多时间排序会按所选时间优先，缺失时回退到入库/抓取时间；API 返回字段仍保留为空，不会伪造来源事件。
 
 API 示例：
 

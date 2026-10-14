@@ -29,6 +29,10 @@ const SORT_OPTIONS: Array<{
 }> = [
   { value: "artwork_date", labelKey: "pages.files.sort.artwork_date", icon: CalendarDays },
   { value: "uploaded_at", labelKey: "pages.files.sort.uploaded_at", icon: Clock },
+  { value: "published_at", labelKey: "pages.files.sort.published_at", icon: CalendarDays },
+  { value: "captured_at", labelKey: "pages.files.sort.captured_at", icon: CalendarDays },
+  { value: "scraped_at", labelKey: "pages.files.sort.scraped_at", icon: Clock },
+  { value: "upload_timestamp", labelKey: "pages.files.sort.upload_timestamp", icon: Clock },
   { value: "pixiv_upload_date", labelKey: "pages.files.sort.pixiv_upload_date", icon: Images },
   { value: "original_filename", labelKey: "pages.files.sort.original_filename", icon: FileText },
   { value: "title", labelKey: "pages.files.sort.title", icon: Type },

@@ -177,6 +177,10 @@ export interface Asset {
   height: number | null;
   mime_type: string | null;
   crawl_time: string;
+  published_at: string | null;
+  captured_at: string | null;
+  uploaded_at: string | null;
+  scraped_at: string | null;
   artwork_date: string | null;
   pixiv_upload_date: string | null;
   source_type: string | null;
@@ -290,6 +294,10 @@ export type SearchSort =
   | "artwork_date"
   | "pixiv_upload_date"
   | "uploaded_at"
+  | "published_at"
+  | "captured_at"
+  | "scraped_at"
+  | "upload_timestamp"
   | "original_filename"
   | "title"
   | "artist"
