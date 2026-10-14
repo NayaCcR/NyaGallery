@@ -419,6 +419,8 @@ class AccessLogModel(Base):
     role: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     method: Mapped[str] = mapped_column(String(16), default="", index=True)
     path: Mapped[str] = mapped_column(String(1000), default="", index=True)
+    asset_key: Mapped[str | None] = mapped_column(String(160), nullable=True, index=True)
+    access_type: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
     query_string: Mapped[str] = mapped_column(String(1000), default="")
     status_code: Mapped[int] = mapped_column(Integer, default=0, index=True)
     duration_ms: Mapped[float] = mapped_column(Float, default=0.0)
@@ -635,6 +637,8 @@ def init_database(engine: Engine) -> None:
             for key, value in values.items():
                 setattr(asset, key, value)
         session.commit()
+    _ensure_column(engine, "access_logs", "asset_key", "VARCHAR(160)")
+    _ensure_column(engine, "access_logs", "access_type", "VARCHAR(40)")
     _ensure_column(engine, "user_tokens", "last_used_at", "DATETIME")
     _ensure_column(engine, "user_tokens", "last_used_ip", "VARCHAR(120)")
     _ensure_column(engine, "user_tokens", "scopes", "JSON")
@@ -3014,6 +3018,8 @@ def create_access_log(
     origin: str,
     rejection_reason: str | None = None,
     error: str | None = None,
+    asset_key: str | None = None,
+    access_type: str | None = None,
     retention: int = 5000,
     prune: bool = True,
     flush: bool = True,
@@ -3025,6 +3031,8 @@ def create_access_log(
         role=role,
         method=method,
         path=path,
+        asset_key=asset_key,
+        access_type=access_type,
         query_string=query_string,
         status_code=status_code,
         duration_ms=duration_ms,
@@ -3052,8 +3060,23 @@ def list_access_logs(
     limit: int = 100,
     offset: int = 0,
     q: str = "",
+    asset_key: str | None = None,
+    user_id: int | None = None,
+    access_type: str | None = None,
+    created_after: datetime | None = None,
+    created_before: datetime | None = None,
 ) -> list[AccessLogModel]:
     statement = select(AccessLogModel).order_by(AccessLogModel.created_at.desc(), AccessLogModel.id.desc())
+    if asset_key:
+        statement = statement.where(AccessLogModel.asset_key == asset_key.strip())
+    if user_id is not None:
+        statement = statement.where(AccessLogModel.user_id == user_id)
+    if access_type:
+        statement = statement.where(AccessLogModel.access_type == access_type.strip())
+    if created_after is not None:
+        statement = statement.where(AccessLogModel.created_at >= created_after)
+    if created_before is not None:
+        statement = statement.where(AccessLogModel.created_at <= created_before)
     needle = q.strip().lower()
     if needle:
         pattern = _contains_pattern(needle)
@@ -3082,6 +3105,8 @@ def access_log_to_dict(log: AccessLogModel) -> dict[str, object]:
         "role": log.role,
         "method": log.method,
         "path": log.path,
+        "asset_key": log.asset_key,
+        "access_type": log.access_type,
         "query_string": log.query_string,
         "status_code": log.status_code,
         "duration_ms": round(float(log.duration_ms or 0.0), 2),

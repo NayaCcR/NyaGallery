@@ -14,7 +14,7 @@ import secrets
 import threading
 import time
 from typing import Annotated, Any
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 import zipfile
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
@@ -1834,13 +1834,31 @@ def create_app(
         limit: Annotated[int, Query(ge=1, le=500)] = 100,
         offset: Annotated[int, Query(ge=0)] = 0,
         q: str = "",
+        asset_key: str | None = None,
+        user_id: Annotated[int | None, Query(ge=1)] = None,
+        access_type: str | None = None,
+        created_after: str | None = None,
+        created_before: str | None = None,
     ) -> dict[str, object]:
-        logs = list_access_logs(db, limit=limit, offset=offset, q=q)
+        after = normalize_timestamp(created_after) if created_after else None
+        before = normalize_timestamp(created_before) if created_before else None
+        if (created_after and after is None) or (created_before and before is None):
+            raise HTTPException(status_code=422, detail="invalid access-log time filter")
+        logs = list_access_logs(
+            db, limit=limit, offset=offset, q=q, asset_key=asset_key, user_id=user_id,
+            access_type=access_type, created_after=datetime.fromisoformat(after.replace("Z", "+00:00")) if after else None,
+            created_before=datetime.fromisoformat(before.replace("Z", "+00:00")) if before else None,
+        )
         return {
             "items": [access_log_to_dict(log) for log in logs],
             "limit": limit,
             "offset": offset,
             "q": q,
+            "asset_key": asset_key,
+            "user_id": user_id,
+            "access_type": access_type,
+            "created_after": after,
+            "created_before": before,
         }
 
     @app.get("/api/developer/config")
@@ -5676,6 +5694,22 @@ def _response_size(response) -> int | None:
     return len(body) if isinstance(body, (bytes, bytearray)) else None
 
 
+def _access_log_asset_context(path: str) -> tuple[str | None, str | None]:
+    parts = [unquote(part) for part in path.strip("/").split("/")]
+    if len(parts) >= 3 and parts[0] == "api" and parts[1] == "assets":
+        kind = parts[3] if len(parts) >= 4 else "metadata"
+        if kind in {"original", "preview", "thumb"}:
+            return parts[2], kind
+        if kind == "api-examples":
+            return parts[2], "api_examples"
+        return parts[2], "metadata"
+    if len(parts) >= 2 and parts[0] == "s":
+        return None, "short_link"
+    if len(parts) >= 2 and parts[0] == "api" and parts[1] == "share":
+        return None, "share_link"
+    return None, None
+
+
 def _record_access_log(
     state: AppState,
     *,
@@ -5694,11 +5728,14 @@ def _record_access_log(
         return
     if not _should_record_access_log(request, status_code=status_code, rejection_reason=rejection_reason, error=error):
         return
+    asset_key, access_type = _access_log_asset_context(request.url.path)
     record = {
         "client_ip": client_ip_value,
         "user_id": identity.get("user_id") if isinstance(identity.get("user_id"), int) else None,
         "username": str(identity.get("username")) if identity.get("username") else None,
         "role": str(identity.get("role")) if identity.get("role") else None,
+        "asset_key": asset_key,
+        "access_type": access_type,
         "method": request.method.upper(),
         "path": request.url.path,
         "query_string": request.url.query,
