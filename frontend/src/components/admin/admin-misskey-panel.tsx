@@ -62,6 +62,7 @@ type AdminMisskeyPanelProps = {
   pollingMode: AdminPollingMode;
   lastUpdatedAt: string | null;
   onRefreshLogs: () => unknown;
+  onRetryMisskey: (target: string) => unknown;
 };
 
 export function AdminMisskeyPanel(props: AdminMisskeyPanelProps) {
@@ -78,6 +79,7 @@ export function AdminMisskeyPanel(props: AdminMisskeyPanelProps) {
     pollingMode,
     lastUpdatedAt,
     onRefreshLogs,
+    onRetryMisskey,
     onSync,
     dryRun,
   } = props;
@@ -323,7 +325,7 @@ export function AdminMisskeyPanel(props: AdminMisskeyPanelProps) {
             </Button>
           </div>
           <div className="max-h-[520px] space-y-2 overflow-auto">
-            {logs.map((log) => <MisskeyLogRow key={log.id} log={log} />)}
+            {logs.map((log) => <MisskeyLogRow key={log.id} log={log} onRetry={onRetryMisskey} />)}
             {logs.length === 0 && <EmptyLine text={t("admin.misskey.emptyLogs")} />}
           </div>
         </section>

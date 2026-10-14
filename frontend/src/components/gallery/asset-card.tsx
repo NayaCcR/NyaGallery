@@ -7,6 +7,7 @@ import type { Asset } from "@/lib/types";
 import { fileUrl } from "@/lib/api";
 import { cn, isAnimatedGifMedia, isHiddenTag, isTechnicalTag, isVideoMedia, tagCategory, tagLabel, truncate } from "@/lib/utils";
 import { useI18n } from "@/components/providers/locale-provider";
+import { useContentPreferences } from "@/components/providers/content-preferences-provider";
 
 const PLACEHOLDER_RATIO = 1.4;
 
@@ -28,6 +29,7 @@ export function AssetCard({
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(false);
   const { locale, t } = useI18n();
+  const { fitMode } = useContentPreferences();
 
   const ratio =
     asset.width && asset.height ? asset.height / asset.width : PLACEHOLDER_RATIO;
@@ -62,7 +64,7 @@ export function AssetCard({
               onLoadedData={() => setLoaded(true)}
               onError={() => setError(true)}
               className={cn(
-                "absolute inset-0 h-full w-full object-cover transition-all duration-500 group-hover:scale-[1.03]",
+                cn("absolute inset-0 h-full w-full transition-all duration-500 group-hover:scale-[1.03]", fitMode === "fit" ? "object-contain" : "object-cover"),
                 loaded ? "opacity-100" : "opacity-0"
               )}
             />
@@ -75,7 +77,7 @@ export function AssetCard({
               onLoad={() => setLoaded(true)}
               onError={() => setError(true)}
               className={cn(
-                "absolute inset-0 h-full w-full object-cover transition-all duration-500 group-hover:scale-[1.03]",
+                cn("absolute inset-0 h-full w-full transition-all duration-500 group-hover:scale-[1.03]", fitMode === "fit" ? "object-contain" : "object-cover"),
                 loaded ? "opacity-100" : "opacity-0"
               )}
             />

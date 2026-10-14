@@ -115,6 +115,7 @@ type AdminPixivPanelProps = {
   pixivPollingMode: AdminPollingMode;
   pixivLastUpdatedAt: string | null;
   onRefreshPixivLogs: () => unknown;
+  onRetryPixiv: (target: string, kind: string) => unknown;
 };
 
 export function AdminPixivPanel({
@@ -203,6 +204,7 @@ export function AdminPixivPanel({
   pixivPollingMode,
   pixivLastUpdatedAt,
   onRefreshPixivLogs,
+  onRetryPixiv,
 }: AdminPixivPanelProps) {
   const { t } = useI18n();
   const canSaveToken = Boolean(pixivRefreshToken.trim() && username);
@@ -637,7 +639,7 @@ export function AdminPixivPanel({
           </Button>
         </div>
         <div className="max-h-[520px] space-y-2 overflow-auto">
-          {pixivLogs.map((log) => <PixivLogRow key={log.id} log={log} />)}
+          {pixivLogs.map((log) => <PixivLogRow key={log.id} log={log} onRetry={onRetryPixiv} />)}
           {pixivLogs.length === 0 && <EmptyLine text={t("admin.pixiv.emptyLogs")} />}
         </div>
       </section>

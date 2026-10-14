@@ -182,9 +182,10 @@ export function UploadLogRow({ log }: { log: UploadLogItem }) {
   );
 }
 
-export function PixivLogRow({ log }: { log: UploadLogItem }) {
+export function PixivLogRow({ log, onRetry }: { log: UploadLogItem; onRetry?: (target: string, kind: string) => void }) {
   const { t } = useI18n();
   const target = extraString(log.extra, "target") ?? log.original_filename.replace(/^pixiv:/, "");
+  const kind = extraString(log.extra, "kind") ?? "pid";
   const mode = extraString(log.extra, "auth_mode") ?? "-";
   const stage = extraString(log.extra, "stage");
   const title = extraString(log.extra, "title");
@@ -218,9 +219,14 @@ export function PixivLogRow({ log }: { log: UploadLogItem }) {
             {formatDate(lastUpdateAt || log.created_at)} · {mode}{jobId ? ` · ${jobId}` : ""}
           </div>
         </div>
-        <span className={cn("shrink-0 rounded-full px-2 py-0.5 font-medium", statusPillClass(log.status))}>
-          {statusLabel(log.status, t)}
-        </span>
+        <div className="flex shrink-0 items-center gap-2">
+          {log.status === "error" && (
+            <RetryFailedButton targets={target ? [target] : []} onRetry={(targets) => onRetry?.(targets[0], kind)} />
+          )}
+          <span className={cn("rounded-full px-2 py-0.5 font-medium", statusPillClass(log.status))}>
+            {statusLabel(log.status, t)}
+          </span>
+        </div>
       </div>
       {progressValue !== null && (
         <div className="mt-2 space-y-1">
@@ -249,7 +255,7 @@ export function PixivLogRow({ log }: { log: UploadLogItem }) {
   );
 }
 
-export function MisskeyLogRow({ log }: { log: UploadLogItem }) {
+export function MisskeyLogRow({ log, onRetry }: { log: UploadLogItem; onRetry?: (target: string) => void }) {
   const { t } = useI18n();
   const target = extraString(log.extra, "target") ?? log.original_filename.replace(/^misskey:/, "");
   const host = extraString(log.extra, "host");
@@ -286,9 +292,12 @@ export function MisskeyLogRow({ log }: { log: UploadLogItem }) {
             {jobId ? ` · ${jobId}` : ""}
           </div>
         </div>
-        <span className={cn("shrink-0 rounded-full px-2 py-0.5 font-medium", statusPillClass(log.status))}>
-          {statusLabel(log.status, t)}
-        </span>
+        <div className="flex shrink-0 items-center gap-2">
+          {log.status === "error" && <RetryFailedButton targets={target ? [target] : []} onRetry={(targets) => onRetry?.(targets[0])} />}
+          <span className={cn("rounded-full px-2 py-0.5 font-medium", statusPillClass(log.status))}>
+            {statusLabel(log.status, t)}
+          </span>
+        </div>
       </div>
       {progressValue !== null && (
         <div className="mt-2 space-y-1">

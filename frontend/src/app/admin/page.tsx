@@ -441,7 +441,7 @@ export default function AdminPage() {
     await refreshOperations(false);
   }
 
-  async function syncPixiv() {
+  async function syncPixiv(retryTarget?: string, retryKind?: string) {
     const auth_mode = pixivAuthMode;
     if (auth_mode === "local_import") {
       toast.error(t("admin.page.localImportSoon"));
@@ -482,9 +482,9 @@ export default function AdminPage() {
     const result = await run(
       "pixiv",
       () => {
-        if (pixivMode === "pid") return NyaApi.syncPixivPid(pid.trim(), options);
-        if (pixivSourceMode === "bookmarks") return NyaApi.syncPixivBookmarks(pixivUid.trim(), options);
-        return NyaApi.syncPixivUser(pixivUid.trim(), options);
+        if (retryKind === "pid" || pixivMode === "pid") return NyaApi.syncPixivPid(retryTarget || pid.trim(), options);
+        if (retryKind === "bookmarks" || pixivSourceMode === "bookmarks") return NyaApi.syncPixivBookmarks(retryTarget || pixivUid.trim(), options);
+        return NyaApi.syncPixivUser(retryTarget || pixivUid.trim(), options);
       },
       (response) => pixivDryRun
         ? t("admin.page.dryRunDone", { count: response.preview?.length ?? 0 })
@@ -500,10 +500,10 @@ export default function AdminPage() {
     }
   }
 
-  async function syncMisskey() {
+  async function syncMisskey(retryTarget?: string) {
     const result = await run(
       "misskey",
-      () => NyaApi.syncMisskeyUser(misskey.target.trim(), misskey.buildOptions()),
+      () => NyaApi.syncMisskeyUser((retryTarget || misskey.target).trim(), misskey.buildOptions()),
       (response) => misskey.dryRun
         ? t("admin.page.dryRunDone", { count: response.preview?.length ?? 0 })
         : response.status === "queued"
@@ -699,6 +699,7 @@ export default function AdminPage() {
             pixivPollingMode={pixivPollingMode}
             pixivLastUpdatedAt={pixivLastUpdatedAt}
             onRefreshPixivLogs={() => run("pixiv-log-refresh", () => refreshPixivLogs(), () => t("admin.page.pixivLogsRefreshed"))}
+            onRetryPixiv={(target, kind) => syncPixiv(target, kind)}
           />
         )}
 
@@ -751,6 +752,7 @@ export default function AdminPage() {
             pollingMode={misskeyPollingMode}
             lastUpdatedAt={misskeyLastUpdatedAt}
             onRefreshLogs={() => run("misskey-log-refresh", () => refreshMisskeyLogs(), () => t("admin.misskey.logsRefreshed"))}
+            onRetryMisskey={(target) => syncMisskey(target)}
           />
         )}
 

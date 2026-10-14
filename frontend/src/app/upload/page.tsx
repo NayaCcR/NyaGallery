@@ -59,6 +59,18 @@ export default function UploadPage() {
     void loadStorageStrategies();
   }, [loadStorageStrategies, ready, token]);
 
+  useEffect(() => {
+    if (!ready || !token) return;
+    const handlePaste = (event: ClipboardEvent) => {
+      const imageFiles = Array.from(event.clipboardData?.files ?? []).filter((file) => file.type.startsWith("image/"));
+      if (imageFiles.length === 0) return;
+      event.preventDefault();
+      addFiles(imageFiles);
+    };
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [addFiles, ready, token]);
+
   if (ready && !token) {
     return (
       <div className="container max-w-md py-16 text-center">
@@ -115,6 +127,7 @@ export default function UploadPage() {
           </button>
         </p>
         <p className="text-xs text-muted-foreground">{t("pages.upload.dragHint")}</p>
+        <p className="text-xs text-muted-foreground">{t("pages.upload.pasteHint")}</p>
         <input
           ref={inputRef}
           type="file"

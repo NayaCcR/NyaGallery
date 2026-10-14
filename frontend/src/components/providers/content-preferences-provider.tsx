@@ -10,6 +10,7 @@ const AI_TAG = "meta:ai_generated";
 type ContentPreferences = {
   showSensitive: boolean;
   showAi: boolean;
+  fitMode: "fit" | "fill";
 };
 
 type ContentPreferencesContextValue = ContentPreferences & {
@@ -17,12 +18,15 @@ type ContentPreferencesContextValue = ContentPreferences & {
   canViewSensitiveContent: boolean;
   setShowSensitive: (enabled: boolean) => void;
   setShowAi: (enabled: boolean) => void;
+  fitMode: "fit" | "fill";
+  setFitMode: (mode: "fit" | "fill") => void;
   applyContentFilters: (query: string | string[]) => string;
 };
 
 const DEFAULT_PREFERENCES: ContentPreferences = {
   showSensitive: false,
   showAi: false,
+  fitMode: "fill",
 };
 
 const REQUIRED_ALIASES: Record<string, string[]> = {
@@ -53,6 +57,7 @@ export function ContentPreferencesProvider({ children }: { children: React.React
     setPreferences({
       ...saved,
       showSensitive: identityChanged ? false : saved.showSensitive,
+      fitMode: saved.fitMode,
     });
     setReady(true);
   }, [authReady, identityKey, storageKey]);
@@ -72,6 +77,10 @@ export function ContentPreferencesProvider({ children }: { children: React.React
 
   const setShowAi = useCallback((enabled: boolean) => {
     setPreferences((current) => ({ ...current, showAi: enabled }));
+  }, []);
+
+  const setFitMode = useCallback((mode: "fit" | "fill") => {
+    setPreferences((current) => ({ ...current, fitMode: mode }));
   }, []);
 
   const applyContentFilters = useCallback(
@@ -104,9 +113,11 @@ export function ContentPreferencesProvider({ children }: { children: React.React
       canViewSensitiveContent,
       setShowSensitive,
       setShowAi,
+      fitMode: preferences.fitMode,
+      setFitMode,
       applyContentFilters,
     }),
-    [applyContentFilters, canViewSensitiveContent, preferences, ready, setShowAi, setShowSensitive]
+    [applyContentFilters, canViewSensitiveContent, preferences, ready, setFitMode, setShowAi, setShowSensitive]
   );
 
   return (
@@ -130,6 +141,7 @@ function readPreferences(storageKey: string): ContentPreferences {
     return {
       showSensitive: Boolean(parsed.showSensitive),
       showAi: Boolean(parsed.showAi),
+      fitMode: parsed.fitMode === "fit" ? "fit" : "fill",
     };
   } catch {
     return DEFAULT_PREFERENCES;

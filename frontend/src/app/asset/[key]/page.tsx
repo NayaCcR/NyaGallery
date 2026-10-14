@@ -16,6 +16,7 @@ import { cn, formatDateTime, isAnimatedGifMedia, isHiddenTag, isVideoMedia, sour
 import { useQueryClient } from "@tanstack/react-query";
 import type { Asset } from "@/lib/types";
 import { useI18n } from "@/components/providers/locale-provider";
+import { useContentPreferences } from "@/components/providers/content-preferences-provider";
 
 export default function AssetDetailPage() {
   const params = useParams<{ key: string }>();
@@ -26,16 +27,19 @@ export default function AssetDetailPage() {
   const { token, me } = useAuth();
   const toast = useToast();
   const { locale, t } = useI18n();
+  const { fitMode, setFitMode } = useContentPreferences();
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [draftTags, setDraftTags] = useState("");
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [transcoding, setTranscoding] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [activeAssetKey, setActiveAssetKey] = useState(assetKey);
 
   const canDeleteRequest = me?.permissions.includes("delete_request") ?? false;
   const canDelete = me?.permissions.includes("delete") ?? false;
+  const canTranscode = Boolean(me?.permissions.includes("admin") || (me?.user_id && asset?.uploader_user_id === me.user_id));
   const pages = useMemo(
     () => siblingsData?.items?.length ? siblingsData.items : asset ? [asset] : [],
     [asset, siblingsData?.items]
@@ -165,6 +169,21 @@ export default function AssetDetailPage() {
     }
   }
 
+  async function startTranscode() {
+    if (!asset || !canTranscode) return;
+    setTranscoding(true);
+    try {
+      const result = await NyaApi.startTranscode(asset.asset_key);
+      toast.success(result.status === "already_running" ? t("pages.asset.transcodeAlreadyRunning") : t("pages.asset.transcodeQueued"));
+      await refetch();
+      qc.invalidateQueries({ queryKey: ["asset", asset.asset_key] });
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : t("pages.asset.transcodeFailed"));
+    } finally {
+      setTranscoding(false);
+    }
+  }
+
   async function requestDelete() {
     if (!asset) return;
     if (!confirm(t("pages.asset.deleteConfirm"))) return;
@@ -203,14 +222,15 @@ export default function AssetDetailPage() {
   return (
     <div className="container grid gap-6 py-6 lg:grid-cols-[minmax(0,1fr)_360px]">
       <div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => router.back()}
-          className="mb-3"
-        >
-          <ArrowLeft className="h-4 w-4" /> {t("common.back")}
-        </Button>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <Button variant="ghost" size="sm" onClick={() => router.back()}>
+            <ArrowLeft className="h-4 w-4" /> {t("common.back")}
+          </Button>
+          <div className="flex items-center gap-1 rounded-md border border-border p-1">
+            <Button variant={fitMode === "fill" ? "secondary" : "ghost"} size="sm" onClick={() => setFitMode("fill")}>{t("common.fill")}</Button>
+            <Button variant={fitMode === "fit" ? "secondary" : "ghost"} size="sm" onClick={() => setFitMode("fit")}>{t("common.fit")}</Button>
+          </div>
+        </div>
         <div className="space-y-4">
           {hasMultiplePages && (
             <div className="rounded-lg border border-border bg-muted/25 px-3 py-2 text-xs text-muted-foreground">
@@ -308,6 +328,12 @@ export default function AssetDetailPage() {
             {downloading ? <Spinner className="h-4 w-4" /> : <Download className="h-4 w-4" />}
             {t("pages.asset.original")}
           </Button>
+          {canTranscode && (
+            <Button variant="outline" size="sm" onClick={startTranscode} disabled={transcoding}>
+              {transcoding ? <Spinner className="h-4 w-4" /> : <Code2 className="h-4 w-4" />}
+              {t("pages.asset.retranscode")}
+            </Button>
+          )}
           {asset.original_url && (
             <Button asChild variant="outline" size="sm">
               <a href={asset.original_url} target="_blank" rel="noreferrer">
@@ -484,6 +510,7 @@ function AssetPageImage({
   current: boolean;
 }) {
   const { t } = useI18n();
+  const { fitMode } = useContentPreferences();
   const [loaded, setLoaded] = useState(false);
   const isGif = isAnimatedGifMedia(asset.source_type);
   return (
@@ -541,7 +568,7 @@ function AssetPageImage({
             alt={asset.title || asset.asset_key}
             onLoad={() => setLoaded(true)}
             className={cn(
-              "h-auto w-full bg-muted",
+              cn("h-auto w-full bg-muted", fitMode === "fit" ? "object-contain" : "object-cover"),
               loaded ? "block" : "absolute inset-0 opacity-0"
             )}
           />
