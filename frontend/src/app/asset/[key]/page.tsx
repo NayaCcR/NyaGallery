@@ -35,6 +35,8 @@ export default function AssetDetailPage() {
   const [downloading, setDownloading] = useState(false);
   const [transcoding, setTranscoding] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [shareLink, setShareLink] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
   const [activeAssetKey, setActiveAssetKey] = useState(assetKey);
 
   const canDeleteRequest = me?.permissions.includes("delete_request") ?? false;
@@ -167,6 +169,19 @@ export default function AssetDetailPage() {
     } finally {
       setDownloading(false);
     }
+  }
+
+  async function createPublicShareLink() {
+    if (!asset || !me?.user_id) return;
+    setSharing(true);
+    try {
+      const result = await NyaApi.createShareLink(asset.asset_key, { is_public: true });
+      const url = `${window.location.origin}/share/${result.token}`;
+      setShareLink(url);
+      await navigator.clipboard?.writeText(url);
+      toast.success(t("pages.asset.shareCreated"));
+    } catch (e: unknown) { toast.error(e instanceof Error ? e.message : String(e)); }
+    finally { setSharing(false); }
   }
 
   async function startTranscode() {
@@ -329,6 +344,11 @@ export default function AssetDetailPage() {
             {t("pages.asset.original")}
           </Button>
           {canTranscode && (
+            <Button variant="outline" size="sm" onClick={createPublicShareLink} disabled={sharing}>
+              {sharing ? <Spinner className="h-4 w-4" /> : <ExternalLink className="h-4 w-4" />} {t("pages.asset.share")}
+            </Button>
+          )}
+          {canTranscode && (
             <Button variant="outline" size="sm" onClick={startTranscode} disabled={transcoding}>
               {transcoding ? <Spinner className="h-4 w-4" /> : <Code2 className="h-4 w-4" />}
               {t("pages.asset.retranscode")}
@@ -371,6 +391,7 @@ export default function AssetDetailPage() {
             </Button>
           )}
         </div>
+        {shareLink && <div className="rounded-md border border-border bg-muted p-3 text-xs"><span className="mr-2 text-muted-foreground">{t("pages.asset.shareCreated")}</span><code className="break-all">{shareLink}</code></div>}
 
         {asset.description && (
           <section className="space-y-2 rounded-lg border border-border bg-muted/25 p-3">

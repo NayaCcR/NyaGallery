@@ -1023,6 +1023,8 @@
       "resourceLinksHint": "原图需要带 Authorization: Bearer <token> 才能访问。预览缓存如果还没生成会自动回退到原图。",
       "saveFailed": "保存失败",
       "retranscode": "重新转码",
+      "share": "创建公开分享链接",
+      "shareCreated": "分享链接已创建并复制",
       "transcodeQueued": "已加入转码队列",
       "transcodeAlreadyRunning": "已有转码任务在运行",
       "transcodeFailed": "重新转码失败",

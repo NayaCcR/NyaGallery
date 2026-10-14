@@ -1023,6 +1023,8 @@
       "resourceLinksHint": "Original files require Authorization: Bearer <token>. Preview cache falls back to the original if it has not been generated yet.",
       "saveFailed": "Save failed",
       "retranscode": "Re-transcode",
+      "share": "Create public share link",
+      "shareCreated": "Share link created and copied",
       "transcodeQueued": "Added to the transcode queue",
       "transcodeAlreadyRunning": "A transcode job is already running",
       "transcodeFailed": "Re-transcode failed",
