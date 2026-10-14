@@ -58,6 +58,8 @@ API 请求优先复用 `frontend/src/lib/api.ts`，让 cookie、CSRF 和错误�
 
 Pixiv PID 管理输入支持纯 ID、Pixiv artworks URL、`member_illust.php?illust_id=...` 和多项分隔输入；解析在前端完成，每个作品独立调用单 PID API，避免改变后端单任务语义。
 
+上传页目录拖放通过 `webkitGetAsEntry` 递归展开目录，读取失败时对该条目跳过；普通文件继续使用 `DataTransfer.files` 回退，所有文件汇入同一去重和进度队列。
+
 服务端远程 URL 拉取必须限制为 HTTP(S) 公网主机，拒绝私有、回环、链路本地和保留 IP；禁用未验证的重定向，并限制超时、响应体大小和允许的 MIME 类型，防止 SSRF 与资源耗尽。
 
 ## 5. 测试、检查和调试

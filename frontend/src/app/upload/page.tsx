@@ -23,6 +23,8 @@ import { ApiError, NyaApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const ACCEPT = "image/*,.zip";
+type DirectoryEntry = FileSystemEntry & { createReader: () => FileSystemDirectoryReader };
+type FileEntry = FileSystemFileEntry;
 
 export default function UploadPage() {
   const router = useRouter();
@@ -86,6 +88,19 @@ export default function UploadPage() {
     return () => window.removeEventListener("paste", handlePaste);
   }, [addFiles, ready, token]);
 
+  async function addDroppedFiles(dataTransfer: DataTransfer) {
+    const entries = Array.from(dataTransfer.items ?? [])
+      .map((item) => (item as DataTransferItem & { webkitGetAsEntry?: () => FileSystemEntry | null }).webkitGetAsEntry?.())
+      .filter((entry): entry is FileSystemEntry => Boolean(entry));
+    if (entries.length === 0) {
+      if (dataTransfer.files.length > 0) addFiles(dataTransfer.files);
+      return;
+    }
+    const files: File[] = [];
+    for (const entry of entries) await collectDroppedEntry(entry, files);
+    addFiles(files);
+  }
+
   async function uploadRemoteUrls() {
     const urls = remoteUrls.split(/[\s,]+/).map((value) => value.trim()).filter(Boolean);
     if (urls.length === 0) {
@@ -141,7 +156,7 @@ export default function UploadPage() {
         onDrop={(e) => {
           e.preventDefault();
           setDragActive(false);
-          if (e.dataTransfer?.files) addFiles(e.dataTransfer.files);
+          void addDroppedFiles(e.dataTransfer);
         }}
         className={cn(
           "relative flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed p-8 text-center transition-colors",
@@ -458,4 +473,17 @@ export default function UploadPage() {
       </div>
     </div>
   );
+}
+
+async function collectDroppedEntry(entry: FileSystemEntry, files: File[]): Promise<void> {
+  if (entry.isFile) {
+    await new Promise<void>((resolve) => (entry as FileEntry).file((file) => { files.push(file); resolve(); }, () => resolve()));
+    return;
+  }
+  const reader = (entry as DirectoryEntry).createReader();
+  while (true) {
+    const batch = await new Promise<FileSystemEntry[]>((resolve) => reader.readEntries(resolve, () => resolve([])));
+    if (batch.length === 0) break;
+    for (const child of batch) await collectDroppedEntry(child, files);
+  }
 }
