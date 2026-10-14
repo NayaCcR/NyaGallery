@@ -67,6 +67,27 @@ import type { PixivAuthMode, Role } from "@/lib/types";
 type PixivMode = "pid" | "user";
 type PixivSourceMode = "artist_works" | "bookmarks" | "following" | "search_tag" | "ranking";
 
+function parsePixivTargets(value: string): string[] {
+  const targets = new Set<string>();
+  for (const entry of value.split(/[\s,]+/).map((item) => item.trim()).filter(Boolean)) {
+    if (/^\d+$/.test(entry)) {
+      targets.add(entry);
+      continue;
+    }
+    try {
+      const parsed = new URL(entry);
+      if (!/(^|\.)pixiv\.net$/i.test(parsed.hostname)) continue;
+      const artworkId = parsed.pathname.match(/\/artworks\/(\d+)/i)?.[1]
+        ?? parsed.searchParams.get("illust_id")
+        ?? "";
+      if (/^\d+$/.test(artworkId)) targets.add(artworkId);
+    } catch {
+      continue;
+    }
+  }
+  return [...targets];
+}
+
 const ADMIN_SECTION_ICONS: Record<AdminSection, LucideIcon> = {
   dashboard: LayoutDashboard,
   pixiv: Globe2,
@@ -481,8 +502,14 @@ export default function AdminPage() {
     };
     const result = await run(
       "pixiv",
-      () => {
-        if (retryKind === "pid" || pixivMode === "pid") return NyaApi.syncPixivPid(retryTarget || pid.trim(), options);
+      async () => {
+        if (retryKind === "pid" || pixivMode === "pid") {
+          const targets = parsePixivTargets(retryTarget || pid);
+          if (targets.length === 0) throw new Error(t("admin.pixiv.pidRequired"));
+          let response;
+          for (const target of targets) response = await NyaApi.syncPixivPid(target, options);
+          return response!;
+        }
         if (retryKind === "bookmarks" || pixivSourceMode === "bookmarks") return NyaApi.syncPixivBookmarks(retryTarget || pixivUid.trim(), options);
         return NyaApi.syncPixivUser(retryTarget || pixivUid.trim(), options);
       },

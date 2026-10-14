@@ -133,7 +133,7 @@ curl -X POST http://127.0.0.1:8001/api/upload \
 
 ## 5. 同步接口
 
-Pixiv：`GET /api/sync/pixiv/config`、`POST /api/sync/pixiv/{pid}`、`POST /api/sync/pixiv/user/{uid}`、`POST /api/sync/pixiv/bookmarks/{uid}`。OAuth 使用 `/api/sync/pixiv/oauth/start`、`/exchange`、`/browser-login` 和 visible session 接口；浏览器扩展可调用 `/api/sync/pixiv/session/exchange`。
+Pixiv：`GET /api/sync/pixiv/config`、`POST /api/sync/pixiv/{pid}`、`POST /api/sync/pixiv/user/{uid}`、`POST /api/sync/pixiv/bookmarks/{uid}`。管理页 PID 输入支持纯 ID、Pixiv artworks URL、`member_illust.php?illust_id=...` 和以空格/逗号/换行分隔的批量输入，每个 ID 独立调用单作品同步接口。OAuth 使用 `/api/sync/pixiv/oauth/start`、`/exchange`、`/browser-login` 和 visible session 接口；浏览器扩展可调用 `/api/sync/pixiv/session/exchange`。
 
 Misskey：`GET /api/sync/misskey/config`、`GET /api/sync/misskey/logs`、`POST /api/sync/misskey/user/{username}`。
 

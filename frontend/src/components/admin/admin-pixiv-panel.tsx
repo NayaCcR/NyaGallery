@@ -542,7 +542,7 @@ export function AdminPixivPanel({
         {pixivMode === "pid" ? (
           <div className="space-y-1.5">
             <Label htmlFor="pid">{t("admin.pixiv.pidMode")}</Label>
-            <Input id="pid" value={pid} onChange={(e) => onPidChange(e.target.value)} placeholder={t("admin.pixiv.pidPlaceholder")} />
+            <textarea id="pid" value={pid} onChange={(e) => onPidChange(e.target.value)} placeholder={`${t("admin.pixiv.pidPlaceholder")} / Pixiv URL / 多个 ID`} rows={3} className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-ring" />
           </div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-[1fr_110px] xl:grid-cols-1">
