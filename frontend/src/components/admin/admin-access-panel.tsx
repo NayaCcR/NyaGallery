@@ -18,6 +18,9 @@ export function AdminAccessPanel() {
   const [folders, setFolders] = useState<VirtualFolderSummary[]>([]);
   const [name, setName] = useState("");
   const [members, setMembers] = useState("");
+  const [assetKeys, setAssetKeys] = useState("");
+  const [selectedGroup, setSelectedGroup] = useState("");
+  const [aclPermission, setAclPermission] = useState<"view" | "edit" | "upload">("view");
   const [folderName, setFolderName] = useState("");
   const [folderQuery, setFolderQuery] = useState("");
   const [busy, setBusy] = useState(false);
@@ -56,6 +59,19 @@ export function AdminAccessPanel() {
     finally { setBusy(false); }
   }
 
+  async function bindAssetsToGroup() {
+    const keys = [...new Set(assetKeys.split(/[\s,]+/).map((item) => item.trim()).filter(Boolean))];
+    const groupId = Number(selectedGroup);
+    if (!keys.length || !Number.isInteger(groupId)) return;
+    setBusy(true);
+    try {
+      const result = await NyaApi.bulkBindAssetGroup(keys, groupId, aclPermission);
+      setAssetKeys("");
+      toast.success(t("admin.access.assetsBound", { count: result.bound }));
+    } catch (error) { toast.error(error instanceof Error ? error.message : t("admin.access.saveFailed")); }
+    finally { setBusy(false); }
+  }
+
   async function createFolder() {
     if (!folderName.trim() || !folderQuery.trim()) return;
     setBusy(true);
@@ -74,6 +90,15 @@ export function AdminAccessPanel() {
       </div>
       <div className="divide-y divide-border rounded-md border border-border">
         {groups.length === 0 ? <p className="p-3 text-xs text-muted-foreground">{t("admin.access.emptyGroups")}</p> : groups.map((group) => <div key={group.id} className="flex items-center justify-between gap-3 p-3 text-xs"><div><div className="font-medium">{group.name}</div><div className="text-muted-foreground">{group.members.map((member) => member.username).join(", ") || t("admin.access.noMembers")}</div></div><Button variant="ghost" size="icon" title={t("admin.access.deleteGroup")} disabled={busy} onClick={() => deleteGroup(group.id)}><Trash2 className="h-4 w-4" /></Button></div>)}
+      </div>
+      <div className="space-y-3 border-t border-border pt-4">
+        <h3 className="text-sm font-medium">{t("admin.access.bulkShare")}</h3>
+        <textarea aria-label={t("admin.access.assetKeys")} value={assetKeys} onChange={(event) => setAssetKeys(event.target.value)} placeholder={t("admin.access.assetKeysHint")} className="min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+        <div className="grid gap-2 sm:grid-cols-[1fr_180px_auto]">
+          <select aria-label={t("admin.access.selectGroup")} value={selectedGroup} onChange={(event) => setSelectedGroup(event.target.value)} className="h-9 rounded-md border border-input bg-background px-2 text-sm"><option value="">{t("admin.access.selectGroup")}</option>{groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select>
+          <select aria-label={t("admin.access.permission")} value={aclPermission} onChange={(event) => setAclPermission(event.target.value as "view" | "edit" | "upload")} className="h-9 rounded-md border border-input bg-background px-2 text-sm"><option value="view">{t("admin.access.viewOnly")}</option><option value="edit">{t("admin.access.edit")}</option><option value="upload">{t("admin.access.upload")}</option></select>
+          <Button disabled={busy || !selectedGroup || !assetKeys.trim()} onClick={bindAssetsToGroup}>{t("admin.access.bindAssets")}</Button>
+        </div>
       </div>
     </section>
 

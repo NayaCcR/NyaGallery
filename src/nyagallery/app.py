@@ -621,6 +621,10 @@ class AssetGroupAclUpdate(BaseModel):
     permission: str = Field(pattern="^(view|edit|upload)$")
 
 
+class AssetGroupAclBulkUpdate(AssetGroupAclUpdate):
+    asset_keys: list[str] = Field(min_length=1, max_length=500)
+
+
 class ShareLinkCreate(BaseModel):
     is_public: bool = True
     password: str | None = Field(default=None, min_length=8, max_length=512)
@@ -1417,6 +1421,30 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         _save_catalog(storage, catalog)
         return tag.to_dict()
+
+    @app.post("/api/assets/acl/groups/bulk")
+    def api_bind_asset_group_bulk(update: AssetGroupAclBulkUpdate, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        group = db.get(ShareGroupModel, update.group_id)
+        if group is None or (group.owner_user_id != principal.user_id and not principal.has_permission("admin")):
+            raise HTTPException(status_code=404, detail="share group not found")
+        asset_keys = list(dict.fromkeys(key.strip() for key in update.asset_keys if key.strip()))
+        if not asset_keys:
+            raise HTTPException(status_code=422, detail="asset_keys must not be empty")
+        assets = list(db.scalars(select(AssetModel).where(AssetModel.asset_key.in_(asset_keys))).all())
+        by_key = {asset.asset_key: asset for asset in assets}
+        if len(by_key) != len(asset_keys):
+            raise HTTPException(status_code=404, detail="one or more assets not found")
+        if any(asset.uploader_user_id != principal.user_id and not principal.has_permission("admin") for asset in assets):
+            raise HTTPException(status_code=403, detail="cannot share assets owned by another user")
+        existing_keys = set(db.scalars(select(AssetAclModel.asset_key).where(
+            AssetAclModel.asset_key.in_(asset_keys), AssetAclModel.subject_type == "group",
+            AssetAclModel.subject_id == str(group.id), AssetAclModel.permission == update.permission,
+        )).all())
+        for key in asset_keys:
+            if key not in existing_keys:
+                db.add(AssetAclModel(asset_key=key, subject_type="group", subject_id=str(group.id), permission=update.permission))
+        db.commit()
+        return {"group_id": group.id, "permission": update.permission, "asset_keys": asset_keys, "bound": len(asset_keys)}
 
     @app.post("/api/assets/{asset_key}/acl/groups")
     def api_bind_asset_group(asset_key: str, update: AssetGroupAclUpdate, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:

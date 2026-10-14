@@ -243,6 +243,8 @@ export const NyaApi = {
     api<ShareGroup>(`/api/access/groups/${id}`, { method: "PUT", body: { name, member_usernames } }),
   deleteAccessGroup: (id: number) =>
     api<{ id: number; deleted: boolean }>(`/api/access/groups/${id}`, { method: "DELETE" }),
+  bulkBindAssetGroup: (asset_keys: string[], group_id: number, permission: "view" | "edit" | "upload") =>
+    api<{ group_id: number; permission: string; asset_keys: string[]; bound: number }>("/api/assets/acl/groups/bulk", { method: "POST", body: { asset_keys, group_id, permission } }),
   virtualFolders: () => api<VirtualFoldersResponse>("/api/virtual-folders"),
   putVirtualFolder: (name: string, query: string, group = "custom", description = "") =>
     api(`/api/virtual-folders/${encodeURIComponent(name)}`, { method: "PUT", body: { name, query, group, description } }),

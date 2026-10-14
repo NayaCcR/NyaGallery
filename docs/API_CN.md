@@ -171,6 +171,8 @@ X：`GET /api/sync/x/config`、`GET /api/sync/x/logs`、`POST /api/sync/x/posts`
 | GET | `/api/access/permission-groups` | admin；列出 `viewer`、`editor`、`admin`、`developer` 及其权限标识 |
 | GET/POST | `/api/access/groups` | admin；列出或创建资源共享访问组，创建请求为 `{"name":"组名","member_usernames":["alice"]}` |
 | PUT/DELETE | `/api/access/groups/{group_id}` | admin；更新自己创建的共享访问组或将其删除 |
+| POST | `/api/assets/acl/groups/bulk` | editor；将最多 500 个 `asset_keys` 批量绑定到自己拥有的分享组，权限为 `view`、`edit` 或 `upload`；资源和群组全部通过校验后整体提交 |
+| POST/DELETE | `/api/assets/{asset_key}/acl/groups[/{group_id}]` | editor；为单个自有资源绑定分享组权限或解除该组的所有授权 |
 | GET/PUT | `/api/security/settings` | admin 安全策略和限流，含注册入口 `registration_mode` |
 | GET | `/api/security/access-logs` | admin 访问日志 |
 | GET/POST | `/api/registration/invites` | admin；列出或生成注册邀请码，创建请求为 `{"label":"...","code":null,"max_uses":1,"expires_in_days":null}`，响应中的 `code` 仅在创建时返回一次 |
