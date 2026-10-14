@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { CalendarDays, ImageOff } from "lucide-react";
 import { MasonryGrid } from "@/components/gallery/masonry-grid";
 import { AssetCardSkeleton } from "@/components/gallery/asset-card";
@@ -16,18 +17,48 @@ const FIELDS = ["uploaded_at", "published_at", "captured_at", "scraped_at", "upl
 
 function TimelineContent() {
   const { t } = useI18n();
+  const searchParams = useSearchParams();
   const { ready: authReady } = useAuth();
   const { ready: contentReady, applyContentFilters } = useContentPreferences();
   const [field, setField] = useState<string>("uploaded_at");
   const [granularity, setGranularity] = useState<TimelineGranularity>("day");
   const [selectedDate, setSelectedDate] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("");
+  const [artistFilter, setArtistFilter] = useState("");
+  const [ratingFilter, setRatingFilter] = useState("");
+  const [savedViews, setSavedViews] = useState<Record<string, string>>({});
+  const [viewName, setViewName] = useState("");
   const [dateError, setDateError] = useState(false);
   const sentinel = useRef<HTMLDivElement>(null);
   const visible = useIntersection(sentinel, { rootMargin: "1200px 0px" });
   const validDate = !selectedDate || isValidTimelineDate(selectedDate);
   const before = selectedDate ? exclusiveUtcNextDay(selectedDate) : null;
-  const contentQuery = useMemo(() => applyContentFilters(""), [applyContentFilters]);
+  useEffect(() => {
+    const saved = window.localStorage.getItem("nyagallery.timeline.views");
+    if (saved) {
+      try { setSavedViews(JSON.parse(saved) as Record<string, string>); } catch { setSavedViews({}); }
+    }
+    setTagFilter(searchParams.get("tag") ?? "");
+    setSourceFilter(searchParams.get("source") ?? "");
+    setArtistFilter(searchParams.get("artist") ?? "");
+    setRatingFilter(searchParams.get("rating") ?? "");
+  }, [searchParams]);
+  const contentQuery = useMemo(() => applyContentFilters([tagFilter && `tag:${tagFilter}`, sourceFilter && `source:${sourceFilter}`, artistFilter && `artist:${artistFilter}`, ratingFilter && `rating:${ratingFilter}`].filter(Boolean).join(" ")), [applyContentFilters, artistFilter, ratingFilter, sourceFilter, tagFilter]);
   const query = useTimeline(field, before, { enabled: authReady && contentReady && validDate && !dateError, q: contentQuery });
+  const saveView = () => {
+    const name = viewName.trim();
+    if (!name) return;
+    const next = { ...savedViews, [name]: JSON.stringify({ tagFilter, sourceFilter, artistFilter, ratingFilter, field, granularity, selectedDate }) };
+    setSavedViews(next); window.localStorage.setItem("nyagallery.timeline.views", JSON.stringify(next)); setViewName("");
+  };
+  const loadView = (name: string) => {
+    try {
+      const view = JSON.parse(savedViews[name]) as Record<string, string>;
+      setTagFilter(view.tagFilter ?? ""); setSourceFilter(view.sourceFilter ?? ""); setArtistFilter(view.artistFilter ?? ""); setRatingFilter(view.ratingFilter ?? "");
+      setField(view.field ?? "uploaded_at"); setGranularity((view.granularity as TimelineGranularity) ?? "day"); setSelectedDate(view.selectedDate ?? "");
+    } catch { /* ignore corrupt local view */ }
+  };
   const items = useMemo(() => query.data?.pages.flatMap((page) => page.items) ?? [], [query.data]);
   const groups = useMemo(() => groupTimelineAssets(items, granularity), [items, granularity]);
 
@@ -47,6 +78,13 @@ function TimelineContent() {
             <option value="day">{t("pages.timeline.day")}</option><option value="month">{t("pages.timeline.month")}</option><option value="year">{t("pages.timeline.year")}</option>
           </select>
           <label className="flex items-center gap-2 text-sm"><span>{t("pages.timeline.beforeDate")}</span><input type="date" value={selectedDate} onChange={(event) => { const value = event.target.value; setSelectedDate(value); setDateError(Boolean(value) && !isValidTimelineDate(value)); }} className="h-9 rounded-md border border-border bg-background px-2" /></label>
+          <input aria-label={t("pages.timeline.tagFilter")} value={tagFilter} onChange={(event) => setTagFilter(event.target.value)} placeholder={t("pages.timeline.tagFilter")} className="h-9 w-32 rounded-md border border-border bg-background px-2 text-sm" />
+          <input aria-label={t("pages.timeline.sourceFilter")} value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)} placeholder={t("pages.timeline.sourceFilter")} className="h-9 w-32 rounded-md border border-border bg-background px-2 text-sm" />
+          <input aria-label={t("pages.timeline.artistFilter")} value={artistFilter} onChange={(event) => setArtistFilter(event.target.value)} placeholder={t("pages.timeline.artistFilter")} className="h-9 w-32 rounded-md border border-border bg-background px-2 text-sm" />
+          <select aria-label={t("pages.timeline.ratingFilter")} value={ratingFilter} onChange={(event) => setRatingFilter(event.target.value)} className="h-9 rounded-md border border-border bg-background px-2 text-sm"><option value="">{t("pages.timeline.ratingAll")}</option><option value="safe">safe</option><option value="r18">R18</option><option value="r18g">R18G</option></select>
+          <input aria-label={t("pages.timeline.saveView")} value={viewName} onChange={(event) => setViewName(event.target.value)} placeholder={t("pages.timeline.viewName")} className="h-9 w-32 rounded-md border border-border bg-background px-2 text-sm" />
+          <Button size="sm" variant="outline" onClick={saveView} disabled={!viewName.trim()}>{t("pages.timeline.saveView")}</Button>
+          {Object.keys(savedViews).length > 0 && <select aria-label={t("pages.timeline.loadView")} defaultValue="" onChange={(event) => event.target.value && loadView(event.target.value)} className="h-9 rounded-md border border-border bg-background px-2 text-sm"><option value="">{t("pages.timeline.loadView")}</option>{Object.keys(savedViews).map((name) => <option key={name} value={name}>{name}</option>)}</select>}
         </div>
       </header>
       {dateError && <p className="text-sm text-destructive">{t("pages.timeline.invalidDate")}</p>}

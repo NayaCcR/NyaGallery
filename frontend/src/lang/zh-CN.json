@@ -1070,7 +1070,15 @@
       "month": "月",
       "year": "年",
       "empty": "没有可显示的资产时间",
-      "unknown": "未知时间"
+      "unknown": "未知时间",
+      "tagFilter": "标签",
+      "sourceFilter": "来源",
+      "artistFilter": "作者",
+      "ratingFilter": "评分",
+      "ratingAll": "全部评分",
+      "viewName": "视图名称",
+      "saveView": "保存视图",
+      "loadView": "加载视图"
     },
     "files": {
       "collapseWorks": "折叠多页",

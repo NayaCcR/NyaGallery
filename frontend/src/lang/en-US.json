@@ -1070,7 +1070,15 @@
       "month": "Month",
       "year": "Year",
       "empty": "No assets with a timeline time",
-      "unknown": "Unknown time"
+      "unknown": "Unknown time",
+      "tagFilter": "Tag",
+      "sourceFilter": "Source",
+      "artistFilter": "Artist",
+      "ratingFilter": "Rating",
+      "ratingAll": "All ratings",
+      "viewName": "View name",
+      "saveView": "Save view",
+      "loadView": "Load view"
     },
     "files": {
       "collapseWorks": "Collapse pages",
