@@ -45,6 +45,8 @@
 
 Importer 先读取源、转换 Asset、只读校验 SHA256，再复制或硬链接原图，保留 `external_refs`。目标写入失败时不修改源；目标目录可使用转换命令生成的备份恢复。Lsky importer 重新计算 SHA256，不把源数据库表直接复制到目标库。
 
-## API Token
+## Share Link
+
+分享链接保存 `token_hash`、可选 `password_hash`、`expires_at`、`revoked_at`、访问计数和访问时间；secret 只在创建响应返回。访问日志保存 link、asset、状态、时间、截断 User-Agent 和受控客户端地址，不保存 token 或密码。公开分享仍执行 guest 敏感内容策略。
 
 API Token 响应只包含 `token_prefix`、`label`、`scopes`、使用时间和撤销状态等元数据，不包含 secret、hash 或完整 Token。`scopes: null` 表示兼容旧行为，按用户当前 role 权限计算；非 null 时为规范化权限名数组，且不能超过调用者和目标角色权限。旧数据库初始化时自动增加 scopes 字段。

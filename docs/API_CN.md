@@ -88,7 +88,12 @@ GET /api/assets/{asset_key}/thumb      # 公开可见资源
 | POST | `/api/tags/summary/export` | admin；写出 `tags/summary.json` |
 | PUT | `/api/tags/{tag_name}/aliases` | admin；`{"aliases":["旧名"]}` |
 | PUT | `/api/tags/{tag_name}/relations` | admin；`{"implications":["上位标签"],"suggestions":["相关标签"]}`；循环关系返回 400 并保留原状态 |
-| PUT | `/api/tags/{tag_name}/labels` | admin；`{"labels":{"zh-CN":"…","en-US":"…"}}` |
+| POST | `/api/assets/{asset_key}/share-links` | owner/admin 创建资源分享链接，可选公开、密码、过期时间；secret 只在创建响应返回 |
+| GET | `/api/assets/{asset_key}/share-links` | owner/admin 列出分享链接元数据，不返回 secret/hash |
+| DELETE | `/api/share-links/{link_id}` | owner/admin 撤销分享链接 |
+| GET | `/api/share/{token}` | 按分享 token 访问资源 metadata；密码通过 HTTPS query/body 传入，公开链接仍受敏感内容策略 |
+| GET | `/api/share/{token}/preview` | 按分享 token 访问 preview |
+| GET | `/api/share/{token}/original` | 按分享 token 访问原图 |
 | POST | `/api/assets/{asset_key}/tags` | editor；`{"canonical_tags":["character:…"]}` |
 | DELETE | `/api/assets/{asset_key}` | editor；标记 `pending_cleanup` |
 | DELETE | `/api/assets/{asset_key}/cleanup` | admin；永久删除文件和 metadata |

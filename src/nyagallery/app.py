@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import importlib.util
 import io
 import json
@@ -37,6 +37,8 @@ from nyagallery.auth import (
     Principal,
     permissions_for_role,
     validate_password_strength,
+    hash_secret,
+    verify_secret,
     validate_role,
     validate_username,
 )
@@ -53,9 +55,12 @@ from nyagallery.config import (
 from nyagallery.db import (
     AssetModel,
     AssetAclModel,
+    aware_utc,
     PostModel,
     ShareGroupMemberModel,
     ShareGroupModel,
+    ShareLinkModel,
+    ShareAccessLogModel,
     UserModel,
     TranscodeJobModel,
     UploadLogModel,
@@ -611,6 +616,16 @@ class ShareGroupUpdate(BaseModel):
     member_usernames: list[str] = Field(default_factory=list)
 
 
+class ShareLinkCreate(BaseModel):
+    is_public: bool = True
+    password: str | None = Field(default=None, min_length=8, max_length=512)
+    expires_at: str | None = None
+
+
+class ShareLinkAccess(BaseModel):
+    password: str | None = None
+
+
 class MigrationModeUpdate(BaseModel):
     metadata_mode: str = Field(pattern="^(file|database)$")
 
@@ -1029,6 +1044,58 @@ def create_app(
             raise HTTPException(status_code=404, detail="no matching asset")
         _require_asset_access(db, asset, principal)
         return _file_response(storage, asset, "original" if original else "preview")
+
+    @app.post("/api/assets/{asset_key}/share-links")
+    def api_create_share_link(asset_key: str, payload: ShareLinkCreate, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        asset = _get_asset(db, asset_key)
+        _require_asset_owner_or_admin(asset, principal)
+        expires_at = normalize_timestamp(payload.expires_at) if payload.expires_at else None
+        if payload.expires_at and expires_at is None:
+            raise HTTPException(status_code=422, detail="invalid expires_at")
+        token = secrets.token_urlsafe(32)
+        row = ShareLinkModel(
+            asset_key=asset.asset_key,
+            owner_user_id=principal.user_id,
+            token_prefix=token[:10],
+            token_hash=hash_secret(token),
+            is_public=payload.is_public,
+            password_hash=hash_secret(payload.password) if payload.password else None,
+            expires_at=expires_at,
+        )
+        db.add(row); db.commit(); db.refresh(row)
+        return {"id": row.id, "token": token, "asset_key": row.asset_key, "is_public": row.is_public, "expires_at": row.expires_at, "revoked_at": None}
+
+    @app.get("/api/assets/{asset_key}/share-links")
+    def api_list_share_links(asset_key: str, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        asset = _get_asset(db, asset_key); _require_asset_owner_or_admin(asset, principal)
+        rows = db.scalars(select(ShareLinkModel).where(ShareLinkModel.asset_key == asset.asset_key).order_by(ShareLinkModel.id.desc())).all()
+        return {"items": [{"id": row.id, "asset_key": row.asset_key, "token_prefix": row.token_prefix, "is_public": row.is_public, "expires_at": row.expires_at, "revoked_at": row.revoked_at, "access_count": row.access_count} for row in rows]}
+
+    @app.delete("/api/share-links/{link_id}")
+    def api_revoke_share_link(link_id: int, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        row = db.get(ShareLinkModel, link_id)
+        if row is None or (row.owner_user_id != principal.user_id and not principal.has_permission("admin")):
+            raise HTTPException(status_code=404, detail="share link not found")
+        row.revoked_at = datetime.now(timezone.utc); db.commit()
+        return {"id": row.id, "revoked": True}
+
+    @app.get("/api/share/{token}")
+    def api_share_metadata(token: str, request: Request, db: DbSession, password: str | None = None) -> dict[str, object]:
+        row = _share_link_by_token(db, token)
+        asset = _get_asset(db, row.asset_key)
+        _validate_share_access(row, asset, password)
+        _record_share_access(db, row, request, "metadata")
+        return {"asset": _asset_response(storage, asset, catalog), "preview_url": f"/api/share/{token}/preview", "original_url": f"/api/share/{token}/original"}
+
+    @app.get("/api/share/{token}/preview")
+    def api_share_preview(token: str, request: Request, db: DbSession, password: str | None = None) -> FileResponse:
+        row = _share_link_by_token(db, token); asset = _get_asset(db, row.asset_key); _validate_share_access(row, asset, password)
+        _record_share_access(db, row, request, "preview"); return _file_response(storage, asset, "preview")
+
+    @app.get("/api/share/{token}/original")
+    def api_share_original(token: str, request: Request, db: DbSession, password: str | None = None) -> FileResponse:
+        row = _share_link_by_token(db, token); asset = _get_asset(db, row.asset_key); _validate_share_access(row, asset, password)
+        _record_share_access(db, row, request, "original"); return _file_response(storage, asset, "original")
 
     @app.get("/api/assets/{asset_key}")
     def api_asset(asset_key: str, db: DbSession, principal: ViewPrincipal) -> dict[str, object]:
@@ -5740,6 +5807,33 @@ UploadPrincipal = Annotated[Principal, Depends(require_permission("upload"))]
 DeleteRequestPrincipal = Annotated[Principal, Depends(require_permission("delete_request"))]
 AdminPrincipal = Annotated[Principal, Depends(require_permission("admin"))]
 DeveloperPrincipal = Annotated[Principal, Depends(require_permission("developer"))]
+
+
+def _share_link_by_token(db: Session, token: str) -> ShareLinkModel:
+    digest = hash_secret(token)
+    row = db.scalar(select(ShareLinkModel).where(ShareLinkModel.token_hash == digest))
+    if row is None:
+        raise HTTPException(status_code=404, detail="share link not found")
+    return row
+
+
+def _validate_share_access(row: ShareLinkModel, asset: AssetModel, password: str | None) -> None:
+    if row.revoked_at is not None:
+        raise HTTPException(status_code=410, detail="share link revoked")
+    if row.expires_at is not None and aware_utc(row.expires_at) <= datetime.now(timezone.utc):
+        raise HTTPException(status_code=410, detail="share link expired")
+    if row.password_hash and not password:
+        raise HTTPException(status_code=401, detail="share link password required")
+    if row.password_hash and not verify_secret(password or "", row.password_hash):
+        raise HTTPException(status_code=403, detail="share link password invalid")
+    guest = Principal("guest", "guest")
+    _require_sensitive_view(asset, guest)
+
+
+def _record_share_access(db: Session, row: ShareLinkModel, request: Request, status: str) -> None:
+    ip = request.client.host if request.client else ""
+    db.add(ShareAccessLogModel(share_link_id=row.id, asset_key=row.asset_key, status=status, client_ip=ip[:80], user_agent=request.headers.get("user-agent", "")[:300]))
+    row.last_access_at = datetime.now(timezone.utc); row.access_count = int(row.access_count or 0) + 1; db.commit()
 
 
 def _get_asset(db: Session, asset_key: str) -> AssetModel:

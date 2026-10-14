@@ -432,6 +432,35 @@ class AccessLogModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, index=True)
 
 
+class ShareLinkModel(Base):
+    __tablename__ = "share_links"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    asset_key: Mapped[str] = mapped_column(String(160), ForeignKey("assets.asset_key", ondelete="CASCADE"), index=True)
+    owner_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token_prefix: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    is_public: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    password_hash: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    last_access_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    access_count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class ShareAccessLogModel(Base):
+    __tablename__ = "share_access_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    share_link_id: Mapped[int] = mapped_column(Integer, ForeignKey("share_links.id", ondelete="CASCADE"), index=True)
+    asset_key: Mapped[str] = mapped_column(String(160), index=True)
+    status: Mapped[str] = mapped_column(String(40), index=True)
+    client_ip: Mapped[str] = mapped_column(String(80), default="")
+    user_agent: Mapped[str] = mapped_column(String(300), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, index=True)
+
+
 class GlobalSourceAssetModel(Base):
     """One globally fetched source work shared by many user references."""
 
