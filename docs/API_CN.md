@@ -96,6 +96,8 @@ GET /api/assets/{asset_key}/thumb      # 公开可见资源
 | GET | `/api/share/{token}/preview` | 按分享 token 访问 preview |
 | GET | `/api/share/{token}/original` | 按分享 token 访问原图 |
 | POST | `/api/assets/{asset_key}/tags` | editor；`{"canonical_tags":["character:…"]}` |
+| POST | `/api/assets/{asset_key}/acl/groups` | owner/admin 将资源绑定到群组，权限为 view/edit/upload |
+| DELETE | `/api/assets/{asset_key}/acl/groups/{group_id}` | owner/admin 解除资源与群组绑定 |
 | DELETE | `/api/assets/{asset_key}` | editor；标记 `pending_cleanup` |
 | DELETE | `/api/assets/{asset_key}/cleanup` | admin；永久删除文件和 metadata |
 

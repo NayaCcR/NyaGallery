@@ -616,6 +616,11 @@ class ShareGroupUpdate(BaseModel):
     member_usernames: list[str] = Field(default_factory=list)
 
 
+class AssetGroupAclUpdate(BaseModel):
+    group_id: int = Field(ge=1)
+    permission: str = Field(pattern="^(view|edit|upload)$")
+
+
 class ShareLinkCreate(BaseModel):
     is_public: bool = True
     password: str | None = Field(default=None, min_length=8, max_length=512)
@@ -1412,6 +1417,26 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         _save_catalog(storage, catalog)
         return tag.to_dict()
+
+    @app.post("/api/assets/{asset_key}/acl/groups")
+    def api_bind_asset_group(asset_key: str, update: AssetGroupAclUpdate, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        asset = _get_asset(db, asset_key); _require_asset_owner_or_admin(asset, principal)
+        group = db.get(ShareGroupModel, update.group_id)
+        if group is None or (group.owner_user_id != principal.user_id and not principal.has_permission("admin")):
+            raise HTTPException(status_code=404, detail="share group not found")
+        existing = db.scalar(select(AssetAclModel).where(AssetAclModel.asset_key == asset.asset_key, AssetAclModel.subject_type == "group", AssetAclModel.subject_id == str(group.id), AssetAclModel.permission == update.permission))
+        if existing is None:
+            db.add(AssetAclModel(asset_key=asset.asset_key, subject_type="group", subject_id=str(group.id), permission=update.permission)); db.commit()
+        return {"asset_key": asset.asset_key, "group_id": group.id, "permission": update.permission}
+
+    @app.delete("/api/assets/{asset_key}/acl/groups/{group_id}")
+    def api_unbind_asset_group(asset_key: str, group_id: int, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        asset = _get_asset(db, asset_key); _require_asset_owner_or_admin(asset, principal)
+        group = db.get(ShareGroupModel, group_id)
+        if group is None or (group.owner_user_id != principal.user_id and not principal.has_permission("admin")):
+            raise HTTPException(status_code=404, detail="share group not found")
+        db.execute(delete(AssetAclModel).where(AssetAclModel.asset_key == asset.asset_key, AssetAclModel.subject_type == "group", AssetAclModel.subject_id == str(group_id))); db.commit()
+        return {"asset_key": asset.asset_key, "group_id": group_id, "deleted": True}
 
     @app.post("/api/assets/{asset_key}/tags")
     def api_update_asset_tags(
