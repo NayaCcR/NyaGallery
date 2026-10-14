@@ -62,31 +62,11 @@ import { useAdminSyncLogs } from "@/hooks/admin/use-admin-sync-logs";
 import { useAdminSecurity } from "@/hooks/admin/use-admin-security";
 import { useAdminTags } from "@/hooks/admin/use-admin-tags";
 import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
-import type { PixivAuthMode, Role } from "@/lib/types";
+import type { PixivAuthMode, PixivSyncResponse, Role } from "@/lib/types";
+import { countPixivResults, parsePixivTargets, resolvePixivSyncKind, runPixivTargets, type PixivTargetResult } from "@/lib/pixiv-targets";
 
 type PixivMode = "pid" | "user";
 type PixivSourceMode = "artist_works" | "bookmarks" | "following" | "search_tag" | "ranking";
-
-function parsePixivTargets(value: string): string[] {
-  const targets = new Set<string>();
-  for (const entry of value.split(/[\s,]+/).map((item) => item.trim()).filter(Boolean)) {
-    if (/^\d+$/.test(entry)) {
-      targets.add(entry);
-      continue;
-    }
-    try {
-      const parsed = new URL(entry);
-      if (!/(^|\.)pixiv\.net$/i.test(parsed.hostname)) continue;
-      const artworkId = parsed.pathname.match(/\/artworks\/(\d+)/i)?.[1]
-        ?? parsed.searchParams.get("illust_id")
-        ?? "";
-      if (/^\d+$/.test(artworkId)) targets.add(artworkId);
-    } catch {
-      continue;
-    }
-  }
-  return [...targets];
-}
 
 const ADMIN_SECTION_ICONS: Record<AdminSection, LucideIcon> = {
   dashboard: LayoutDashboard,
@@ -125,6 +105,7 @@ export default function AdminPage() {
   const sectionDescription = activeSection ? t(`admin.sections.descriptions.${activeSection}`) : "";
 
   const [pid, setPid] = useState("");
+  const [pixivTargetResults, setPixivTargetResults] = useState<PixivTargetResult[]>([]);
   const [pixivUid, setPixivUid] = useState("");
   const [pixivMode, setPixivMode] = useState<PixivMode>("pid");
   const [pixivSourceMode, setPixivSourceMode] = useState<PixivSourceMode>("artist_works");
@@ -463,6 +444,12 @@ export default function AdminPage() {
   }
 
   async function syncPixiv(retryTarget?: string, retryKind?: string) {
+    if (busy === "pixiv") return;
+    const kind = resolvePixivSyncKind(pixivMode, pixivSourceMode, retryKind);
+    if (!kind) {
+      toast.error(t("admin.pixiv.unsupportedRetryKind"));
+      return;
+    }
     const auth_mode = pixivAuthMode;
     if (auth_mode === "local_import") {
       toast.error(t("admin.page.localImportSoon"));
@@ -491,33 +478,52 @@ export default function AdminPage() {
       public_first: pixivPublicFirst,
       rebuild_db: pixivRebuildDb,
       generate_cache: pixivGenerateCache,
-      limit: pixivMode === "user" ? pixivLimit : undefined,
+      limit: kind !== "pid" ? pixivLimit : undefined,
       request_delay_seconds: pixivDelay,
       max_retries: pixivMaxRetries,
       retry_base_seconds: pixivRetryBase,
       retry_max_seconds: pixivRetryMax,
       concurrency: pixivConcurrency,
       dry_run: pixivDryRun,
-      restrict: pixivSourceMode === "bookmarks" ? pixivRestrict : undefined,
+      restrict: kind === "bookmarks" ? pixivRestrict : undefined,
     };
+    const describeResponse = (response: PixivSyncResponse) => pixivDryRun
+      ? t("admin.page.dryRunDone", { count: response.preview?.length ?? 0 })
+      : response.status === "queued"
+        ? t("admin.page.queued", { id: response.sync_job_id ?? "queued" })
+        : t("admin.page.syncDone", { files: response.sync.length, jobs: response.jobs?.length ?? 0 });
+    if (kind === "pid") {
+      const targets = parsePixivTargets(retryTarget ?? pid);
+      if (!targets.length) {
+        toast.error(t("admin.pixiv.pidRequired"));
+        return;
+      }
+      const updateResults = (updates: PixivTargetResult[]) => {
+        setPixivTargetResults((previous) => {
+          if (retryTarget === undefined) return updates;
+          const retried = new Set(updates.map((item) => item.pid ?? item.input));
+          return [...previous.filter((item) => !retried.has(item.pid ?? item.input)), ...updates];
+        });
+      };
+      const results = await run("pixiv", () => runPixivTargets(
+        targets,
+        async (target) => describeResponse(await NyaApi.syncPixivPid(target, options)),
+        updateResults,
+      ), (items) => t("admin.pixiv.batchSummary", countPixivResults(items)));
+      if (results) {
+        setRebuildResult(JSON.stringify(results, null, 2));
+        qc.invalidateQueries({ queryKey: ["search"] });
+        await refreshPixivLogs(false);
+        await refreshOperations(false);
+      }
+      return;
+    }
     const result = await run(
       "pixiv",
-      async () => {
-        if (retryKind === "pid" || pixivMode === "pid") {
-          const targets = parsePixivTargets(retryTarget || pid);
-          if (targets.length === 0) throw new Error(t("admin.pixiv.pidRequired"));
-          let response;
-          for (const target of targets) response = await NyaApi.syncPixivPid(target, options);
-          return response!;
-        }
-        if (retryKind === "bookmarks" || pixivSourceMode === "bookmarks") return NyaApi.syncPixivBookmarks(retryTarget || pixivUid.trim(), options);
-        return NyaApi.syncPixivUser(retryTarget || pixivUid.trim(), options);
-      },
-      (response) => pixivDryRun
-        ? t("admin.page.dryRunDone", { count: response.preview?.length ?? 0 })
-        : response.status === "queued"
-          ? t("admin.page.queued", { id: response.sync_job_id ?? "queued" })
-        : t("admin.page.syncDone", { files: response.sync.length, jobs: response.jobs?.length ?? 0 })
+      () => kind === "bookmarks"
+        ? NyaApi.syncPixivBookmarks(retryTarget ?? pixivUid.trim(), options)
+        : NyaApi.syncPixivUser(retryTarget ?? pixivUid.trim(), options),
+      describeResponse,
     );
     if (result) {
       setRebuildResult(JSON.stringify(result, null, 2));
@@ -726,6 +732,7 @@ export default function AdminPage() {
             pixivPollingMode={pixivPollingMode}
             pixivLastUpdatedAt={pixivLastUpdatedAt}
             onRefreshPixivLogs={() => run("pixiv-log-refresh", () => refreshPixivLogs(), () => t("admin.page.pixivLogsRefreshed"))}
+            pixivTargetResults={pixivTargetResults}
             onRetryPixiv={(target, kind) => syncPixiv(target, kind)}
           />
         )}

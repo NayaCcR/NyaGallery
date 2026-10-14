@@ -715,7 +715,24 @@
       "openPixivLogin": "打开 Pixiv 登录",
       "pasteBrowserTokenPlaceholder": "粘贴 pixiv-login-browser 输出的 refresh token",
       "pidMode": "作品 PID",
-      "pidPlaceholder": "例如 123456",
+      "pidPlaceholder": "作品 PID 或 Pixiv 作品链接，可输入多个",
+      "pidRequired": "请输入作品 PID 或 Pixiv 作品链接。",
+      "targetHint": "用空格、换行或逗号分隔；支持作品链接及旧版 member_illust.php 链接。重复 PID 自动合并，短链暂不支持展开。",
+      "batchResults": "本次作品提交结果",
+      "batchSummary": "共 {total} 项：请求成功 {success}，请求失败 {failed}，无效输入 {invalid}。入队不代表同步完成，请查看下方日志。",
+      "retryTarget": "重试此作品",
+      "unsupportedRetryKind": "不支持此同步类型的重试。",
+      "targetStatus": {
+        "pending": "等待提交",
+        "running": "提交中",
+        "success": "请求成功",
+        "error": "请求失败",
+        "invalid": "未提交：无效输入"
+      },
+      "targetError": {
+        "invalid": "需要正整数 PID，或 http(s) Pixiv 域名下的有效作品路径。请修改输入后重新提交。",
+        "shortLink": "暂不支持短链展开，请粘贴完整 Pixiv 作品链接或 PID。"
+      },
       "pixivId": "Pixiv ID / 邮箱",
       "pixivIdPlaceholder": "Pixiv ID 或邮箱",
       "pixivLoginMissing": "当前后端未安装 pixiv-login。请在后端环境运行 python -m pip install -e \".[pixiv-login]\" 后重启。",

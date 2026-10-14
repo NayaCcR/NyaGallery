@@ -11,6 +11,7 @@ import { formatDate } from "@/components/admin/admin-format";
 import { PixivCookieManager, PixivTokenManager } from "@/components/admin/pixiv-credential-managers";
 import { useI18n } from "@/components/providers/locale-provider";
 import { cn } from "@/lib/utils";
+import { countPixivResults, type PixivTargetResult } from "@/lib/pixiv-targets";
 import type { PixivAuthMode, PixivConfigResponse, PixivCookieSummary, PixivTokenSummary, UploadLogItem } from "@/lib/types";
 
 type PixivMode = "pid" | "user";
@@ -111,6 +112,7 @@ type AdminPixivPanelProps = {
   pixivRetryMax: number;
   onPixivRetryMaxChange: (value: number) => void;
   onSyncPixiv: () => unknown;
+  pixivTargetResults: PixivTargetResult[];
   pixivLogs: UploadLogItem[];
   pixivPollingMode: AdminPollingMode;
   pixivLastUpdatedAt: string | null;
@@ -200,6 +202,7 @@ export function AdminPixivPanel({
   pixivRetryMax,
   onPixivRetryMaxChange,
   onSyncPixiv,
+  pixivTargetResults,
   pixivLogs,
   pixivPollingMode,
   pixivLastUpdatedAt,
@@ -542,7 +545,8 @@ export function AdminPixivPanel({
         {pixivMode === "pid" ? (
           <div className="space-y-1.5">
             <Label htmlFor="pid">{t("admin.pixiv.pidMode")}</Label>
-            <textarea id="pid" value={pid} onChange={(e) => onPidChange(e.target.value)} placeholder={`${t("admin.pixiv.pidPlaceholder")} / Pixiv URL / 多个 ID`} rows={3} className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-ring" />
+            <textarea id="pid" value={pid} onChange={(e) => onPidChange(e.target.value)} placeholder={t("admin.pixiv.pidPlaceholder")} rows={3} className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-ring" />
+            <p className="text-xs text-muted-foreground">{t("admin.pixiv.targetHint")}</p>
           </div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-[1fr_110px] xl:grid-cols-1">
@@ -638,6 +642,28 @@ export function AdminPixivPanel({
             <RefreshCw className="h-4 w-4" />
           </Button>
         </div>
+        {pixivTargetResults.length > 0 && (
+          <div className="space-y-2" aria-live="polite">
+            <h3 className="text-sm font-medium">{t("admin.pixiv.batchResults")}</h3>
+            <p className="text-xs text-muted-foreground">{t("admin.pixiv.batchSummary", countPixivResults(pixivTargetResults))}</p>
+            <div className="max-h-80 space-y-2 overflow-auto">
+              {pixivTargetResults.map((item) => (
+                <div key={item.pid ?? item.input} className="space-y-1 rounded-md border border-border p-2 text-xs">
+                  <div className="break-all font-medium">{item.input}</div>
+                  <p>{t(`admin.pixiv.targetStatus.${item.status}`)}</p>
+                  <p className="break-words text-muted-foreground">
+                    {item.error ? t(`admin.pixiv.targetError.${item.error}`) : item.message}
+                  </p>
+                  {item.status === "error" && item.pid && (
+                    <Button size="sm" variant="outline" disabled={busy === "pixiv"} onClick={() => onRetryPixiv(item.pid!, "pid")}>
+                      {t("admin.pixiv.retryTarget")}
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="max-h-[520px] space-y-2 overflow-auto">
           {pixivLogs.map((log) => <PixivLogRow key={log.id} log={log} onRetry={onRetryPixiv} />)}
           {pixivLogs.length === 0 && <EmptyLine text={t("admin.pixiv.emptyLogs")} />}

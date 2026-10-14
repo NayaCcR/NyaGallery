@@ -715,7 +715,24 @@
       "openPixivLogin": "Open Pixiv Login",
       "pasteBrowserTokenPlaceholder": "Paste the refresh token output from pixiv-login-browser",
       "pidMode": "Artwork PID",
-      "pidPlaceholder": "e.g. 123456",
+      "pidPlaceholder": "Artwork PIDs or Pixiv artwork URLs; multiple entries supported",
+      "pidRequired": "Enter an artwork PID or Pixiv artwork URL.",
+      "targetHint": "Separate entries with spaces, newlines or commas. Artwork URLs and legacy member_illust.php links are supported. Duplicate PIDs are merged; short links cannot be expanded yet.",
+      "batchResults": "Artwork submission results",
+      "batchSummary": "{total} entries: {success} requests succeeded, {failed} failed, {invalid} invalid. Queued requests are not completed syncs; check the logs below.",
+      "retryTarget": "Retry this artwork",
+      "unsupportedRetryKind": "Retry is not supported for this sync type.",
+      "targetStatus": {
+        "pending": "Waiting to submit",
+        "running": "Submitting",
+        "success": "Request succeeded",
+        "error": "Request failed",
+        "invalid": "Not submitted: invalid input"
+      },
+      "targetError": {
+        "invalid": "Enter a positive integer PID or an http(s) URL with a valid artwork path on a Pixiv domain. Correct the input and submit again.",
+        "shortLink": "Short links cannot be expanded yet. Paste the full Pixiv artwork URL or PID."
+      },
       "pixivId": "Pixiv ID / email",
       "pixivIdPlaceholder": "Pixiv ID or email",
       "pixivLoginMissing": "pixiv-login is not installed on the backend. Run python -m pip install -e \".[pixiv-login]\" in the backend environment and restart.",
