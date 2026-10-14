@@ -30,6 +30,7 @@ from sqlalchemy import func, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from nyagallery.exif import browser_mtime, extract_photo_metadata
 from nyagallery.auth import (
     MAX_USERNAME_LENGTH,
     MIN_PASSWORD_LENGTH,
@@ -1717,7 +1718,12 @@ def create_app(
         generate_cache: bool = Form(False),
         storage_strategy: str | None = Form(None),
         original_url: str = Form(""),
+        last_modified_ms: str | None = Form(None),
     ) -> dict[str, object]:
+        try:
+            original_mtime = browser_mtime(last_modified_ms)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         content = await file.read()
         security_settings = get_security_settings(db)
         max_upload_bytes = int(security_settings.get("max_upload_bytes") or 0)
@@ -1748,6 +1754,10 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         width, height = probe_media_size(stored.path, mime_type=file.content_type)
         is_animated = _is_animated_upload(stored.path, file.content_type)
+        extra.update(extract_photo_metadata(
+            stored.path, default_timezone=app.state.nyagallery.config.media.exif_timezone,
+            fallback_time=original_mtime, fallback_source="browser_last_modified",
+        ))
         try:
             alias_updates = _apply_tag_aliases(storage, catalog, tag_aliases)
         except (TagNotFoundError, TagAlreadyExistsError, ValueError, json.JSONDecodeError) as exc:
@@ -1895,6 +1905,7 @@ def create_app(
             payload.generate_cache,
             payload.storage_strategy,
             payload.url.strip(),
+            None,
         )
 
     @app.get("/api/sync/pixiv/config")

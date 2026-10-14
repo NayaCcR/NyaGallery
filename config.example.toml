@@ -218,6 +218,9 @@ download_files = true
 # Module purpose: media decoding, preview generation, upload streaming and background transcode limits.
 # 模块作用：媒体解码、预览图生成、上传分块读取和后台转码任务限制。
 [media]
+# Default timezone for EXIF timestamps without a valid offset: UTC, +08:00, or an installed IANA zone.
+# EXIF 未提供有效偏移时使用的时区；IANA 名称需系统时区数据库或 tzdata。重启后生效。
+exif_timezone = "UTC"
 # Maximum pixels allowed for one decoded frame before resizing. Default 50,000,000.
 # 单帧解码后、缩放前允许的最大像素数。默认 50,000,000。
 max_frame_pixels = 50000000

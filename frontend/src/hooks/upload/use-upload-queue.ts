@@ -180,6 +180,7 @@ export function useUploadQueue({ onSuccess, onError }: UseUploadQueueOptions) {
       updateItem(item.id, { status: "uploading", message: undefined });
       const form = new FormData();
       form.set("file", item.file, item.file.name);
+      form.set("last_modified_ms", String(item.file.lastModified));
       form.set("title", item.title);
       const effectiveArtist = (item.artist || defaultArtist).trim();
       if (effectiveArtist) form.set("artist_name", effectiveArtist);

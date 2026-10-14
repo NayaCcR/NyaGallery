@@ -7,6 +7,7 @@ import tomllib
 from typing import Any, Mapping
 from urllib.parse import quote, urlsplit, urlunsplit
 
+from nyagallery.exif import validate_timezone
 from nyagallery.secret_crypto import (
     SECRET_KEY_ENV,
     decrypt_secret,
@@ -90,6 +91,7 @@ class FanboxConfig:
 
 @dataclass(frozen=True)
 class MediaConfig:
+    exif_timezone: str = "UTC"
     max_frame_pixels: int = 50_000_000
     max_image_pixels: int = 100_000_000
     max_animation_frames: int = 500
@@ -308,6 +310,7 @@ def config_to_dict(config: NyaGalleryConfig, *, redact_secrets: bool = False) ->
             "thumb_max_edge": config.media.thumb_max_edge,
             "avif_quality": config.media.avif_quality,
             "webp_quality": config.media.webp_quality,
+            "exif_timezone": config.media.exif_timezone,
         },
         "network": {
             "default_proxy": config.network.default_proxy,
@@ -442,6 +445,7 @@ def render_config(config: NyaGalleryConfig) -> str:
         f"thumb_max_edge = {int(config.media.thumb_max_edge)}",
         f"avif_quality = {int(config.media.avif_quality)}",
         f"webp_quality = {int(config.media.webp_quality)}",
+        f"exif_timezone = {_toml_string(config.media.exif_timezone)}",
         "",
         "[network]",
         f"default_proxy = {_toml_string(config.network.default_proxy)}",
@@ -644,6 +648,7 @@ def _config_from_dict(data: dict[str, Any], path: Path | None) -> NyaGalleryConf
             download_files=_bool(fanbox.get("download_files"), True),
         ),
         media=MediaConfig(
+            exif_timezone=validate_timezone(str(media.get("exif_timezone", "UTC"))),
             max_frame_pixels=_positive_int(media.get("max_frame_pixels"), 50_000_000),
             max_image_pixels=_positive_int(media.get("max_image_pixels"), 100_000_000),
             max_animation_frames=_positive_int(media.get("max_animation_frames"), 500),
@@ -771,6 +776,7 @@ def _with_env_overrides(config: NyaGalleryConfig) -> NyaGalleryConfig:
         download_files=_bool(os.environ.get("NYAGALLERY_FANBOX_DOWNLOAD_FILES"), config.fanbox.download_files),
     )
     media = MediaConfig(
+        exif_timezone=validate_timezone(os.environ.get("NYAGALLERY_MEDIA_EXIF_TIMEZONE", config.media.exif_timezone)),
         max_frame_pixels=_positive_int(os.environ.get("NYAGALLERY_MEDIA_MAX_FRAME_PIXELS"), config.media.max_frame_pixels),
         max_image_pixels=_positive_int(os.environ.get("NYAGALLERY_MEDIA_MAX_IMAGE_PIXELS"), config.media.max_image_pixels),
         max_animation_frames=_positive_int(os.environ.get("NYAGALLERY_MEDIA_MAX_ANIMATION_FRAMES"), config.media.max_animation_frames),

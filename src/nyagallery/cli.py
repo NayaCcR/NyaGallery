@@ -497,6 +497,7 @@ def main(argv: list[str] | None = None) -> int:
             destination_root=destination_root,
             hardlink=args.hardlink,
             storage_prefix="original",
+            exif_timezone=config.media.exif_timezone,
         )
         if report.failures:
             for path in report.created_paths:

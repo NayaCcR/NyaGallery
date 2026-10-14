@@ -109,6 +109,10 @@ curl -X POST http://127.0.0.1:8001/api/upload \
 
 `canonical_tags` 是空格分隔的 canonical tag 字符串；`tag_aliases` 如需同时维护别名则传 JSON 对象，例如 `{"general:sample":["sample"]}`。上传响应返回资源详情，若 `generate_cache=true` 还会返回排队中的 `transcode_job_id`。
 
+浏览器上传可附带 `last_modified_ms`（`File.lastModified`，整数 Unix 毫秒）；范围为 1980-01-01 至服务器当前时间后 24 小时，格式、单位或范围不合法返回 422。该字段可省略，旧客户端仍可上传。
+
+有 Pillow 时提取 EXIF 拍摄时间、设备和 GPS，写入资源 metadata 的 `extra`：`captured_at` 为带偏移的 ISO 8601，`captured_at_source` 为 `exif:DateTimeOriginal` / `exif:DateTimeDigitized` / `exif:DateTime` / `browser_last_modified` / `file_mtime`。EXIF 时间另存 `exif_captured_at`，`captured_at_timezone_source` 标识 `exif_offset` 或 `configured_default`；`camera` 包含 `make` / `model`，`gps.latitude` / `gps.longitude` 为十进制度（南纬、西经为负，缺损坐标省略）。时间按上述 EXIF 优先级选择有效值，使用对应 OffsetTime；缺失或非法偏移使用 `[media].exif_timezone`。无有效 EXIF 时间时回退浏览器原文件时间；本地 CLI 导入使用源文件 mtime。远程上传或旧客户端未提供原时间时保持缺失，不使用服务器新文件 mtime，也不覆盖 `artwork_date`。Pillow 缺失或文件无法解析不阻断上传。
+
 远程图片可通过 `POST /api/upload/url` 提交 JSON：
 
 ```json

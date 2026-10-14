@@ -87,6 +87,7 @@ download_concurrency = 3
 download_files = true
 
 [media]
+exif_timezone = "UTC"
 max_frame_pixels = 50000000
 max_image_pixels = 100000000
 max_animation_frames = 500
@@ -102,6 +103,8 @@ thumb_max_edge = 420
 avif_quality = 70
 webp_quality = 75
 ```
+
+`exif_timezone` 默认 `UTC`，仅用于无有效 EXIF OffsetTime 的拍摄时间；可设 `+08:00` 等固定偏移，或系统已安装的 IANA 名称（例如 `Asia/Shanghai`，Windows 可能需要另行安装 `tzdata`）。无效/不可用时区在加载配置时明确报错；环境变量 `NYAGALLERY_MEDIA_EXIF_TIMEZONE` 优先。修改后重启生效，不回写已有资源。原文件 mtime 是绝对 Unix 时间，始终保存为 UTC，不应用此默认时区。EXIF 依赖可选 `media` extra 中的 Pillow；未安装时仍可使用 mtime 回退。IANA 夏令时重复时刻采用 Python 的 `fold=0`；需要确定偏移的历史照片应优先保留 EXIF OffsetTime。
 
 媒体上限同时是资源消耗和拒绝服务防线。公网部署应先保持默认值，再根据内存和磁盘吞吐逐步调整；`avif_quality`、`webp_quality` 范围为 1–100。
 

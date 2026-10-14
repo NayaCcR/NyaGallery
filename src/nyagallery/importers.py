@@ -12,6 +12,7 @@ from typing import Any
 from sqlalchemy import MetaData, Table, create_engine, inspect, select
 
 from nyagallery.asset import Asset, AssetBlob
+from nyagallery.exif import extract_photo_metadata, file_mtime
 from nyagallery.compat import LegacyReader
 from nyagallery.storage import sha256_file
 
@@ -150,6 +151,7 @@ def copy_assets_read_only(
     destination_root: Path,
     hardlink: bool = False,
     storage_prefix: str = "",
+    exif_timezone: str = "UTC",
 ) -> ImportReport:
     """Copy immutable originals into a destination using collision-proof names.
 
@@ -170,6 +172,8 @@ def copy_assets_read_only(
         key_prefix = storage_prefix.strip("/")
         storage_key = f"{key_prefix}/{filename}" if key_prefix else filename
         metadata = dict(asset.metadata)
+        photo_extra = extract_photo_metadata(source, default_timezone=exif_timezone, fallback_time=file_mtime(source))
+        metadata["extra"] = {**photo_extra, **(metadata.get("extra") or {})}
         metadata["file_sha256"] = asset.blob.sha256
         metadata["original_filename"] = asset.blob.original_filename or filename
         metadata["original_path"] = storage_key

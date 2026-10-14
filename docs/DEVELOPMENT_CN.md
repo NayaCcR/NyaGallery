@@ -64,6 +64,10 @@ Pixiv PID 管理输入支持纯 ID、Pixiv artworks URL、`member_illust.php?ill
 
 服务端远程 URL 拉取必须限制为 HTTP(S) 公网主机，拒绝私有、回环、链路本地和保留 IP；禁用未验证的重定向，并限制超时、响应体大小和允许的 MIME 类型，防止 SSRF 与资源耗尽。
 
+EXIF 提取集中于 `exif.py`，使用 Pillow `get_ifd` 解引用 EXIF/GPS 子目录，各字段独立校验；损坏 GPS 不应丢失设备和时间。上传队列传 `File.lastModified`，API 校验毫秒单位与范围后才写原图；远程上传显式传空来源时间。本地迁移读取源文件 mtime，保留已有 extra 和 artwork_date。`media.exif_timezone` 在配置读写和环境覆盖中保持一致；IANA 时区依赖系统数据库或可选安装的 tzdata，无数据库时可用固定偏移。
+
+`tests/test_exif.py` 使用真实 JPEG EXIF 子目录，覆盖 offset 优先、默认时区、GPS 缺损、无 Pillow、原文件时间回退及配置往返。运行测试请设 `PYTHONPATH=src`，避免机器中其他 editable 安装被误导入；如默认临时目录不可写，使用工作区内独立 `--basetemp`，可加 `-p no:cacheprovider`。
+
 ## 5. 测试、检查和调试
 
 ```bash
