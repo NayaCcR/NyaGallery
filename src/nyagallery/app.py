@@ -25,6 +25,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -60,6 +61,7 @@ from nyagallery.db import (
     ShareGroupMemberModel,
     ShareGroupModel,
     ShareLinkModel,
+    AssetShortLinkModel,
     ShareAccessLogModel,
     UserModel,
     TranscodeJobModel,
@@ -631,6 +633,11 @@ class ShareLinkCreate(BaseModel):
     expires_at: str | None = None
 
 
+class ShortLinkCreate(BaseModel):
+    slug: str | None = Field(default=None, min_length=3, max_length=80, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+    expires_at: str | None = None
+
+
 class ShareLinkAccess(BaseModel):
     password: str | None = None
 
@@ -1073,6 +1080,55 @@ def create_app(
         )
         db.add(row); db.commit(); db.refresh(row)
         return {"id": row.id, "token": token, "asset_key": row.asset_key, "is_public": row.is_public, "expires_at": row.expires_at, "revoked_at": None}
+
+    @app.post("/api/assets/{asset_key}/short-links")
+    def api_create_short_link(asset_key: str, payload: ShortLinkCreate, request: Request, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        asset = _get_asset(db, asset_key)
+        _require_asset_owner_or_admin(asset, principal)
+        normalized_expiry = normalize_timestamp(payload.expires_at) if payload.expires_at else None
+        if payload.expires_at and normalized_expiry is None:
+            raise HTTPException(status_code=422, detail="invalid expires_at")
+        expires_at = datetime.fromisoformat(normalized_expiry.replace("Z", "+00:00")) if normalized_expiry else None
+        slug = payload.slug or secrets.token_urlsafe(6).replace("-", "_")
+        if db.scalar(select(AssetShortLinkModel.id).where(AssetShortLinkModel.slug == slug)) is not None:
+            raise HTTPException(status_code=409, detail="short-link slug already exists")
+        row = AssetShortLinkModel(slug=slug, asset_key=asset.asset_key, owner_user_id=principal.user_id, expires_at=expires_at)
+        db.add(row)
+        try:
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="short-link slug already exists") from exc
+        db.refresh(row)
+        return {"id": row.id, "slug": row.slug, "asset_key": row.asset_key, "expires_at": row.expires_at, "url": f"{str(request.base_url).rstrip('/')}/s/{row.slug}"}
+
+    @app.get("/api/assets/{asset_key}/short-links")
+    def api_list_short_links(asset_key: str, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        asset = _get_asset(db, asset_key)
+        _require_asset_owner_or_admin(asset, principal)
+        rows = db.scalars(select(AssetShortLinkModel).where(AssetShortLinkModel.asset_key == asset.asset_key).order_by(AssetShortLinkModel.id.desc())).all()
+        return {"items": [{"id": row.id, "slug": row.slug, "asset_key": row.asset_key, "expires_at": row.expires_at, "revoked_at": row.revoked_at} for row in rows]}
+
+    @app.delete("/api/short-links/{link_id}")
+    def api_revoke_short_link(link_id: int, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        row = db.get(AssetShortLinkModel, link_id)
+        if row is None or (row.owner_user_id != principal.user_id and not principal.has_permission("admin")):
+            raise HTTPException(status_code=404, detail="short link not found")
+        row.revoked_at = datetime.now(timezone.utc)
+        db.commit()
+        return {"id": row.id, "revoked": True}
+
+    @app.get("/s/{slug}")
+    def api_short_link(slug: str, db: DbSession, original: bool = False) -> FileResponse:
+        row = db.scalar(select(AssetShortLinkModel).where(AssetShortLinkModel.slug == slug))
+        if row is None:
+            raise HTTPException(status_code=404, detail="short link not found")
+        now = datetime.now(timezone.utc)
+        if row.revoked_at is not None or (row.expires_at is not None and aware_utc(row.expires_at) <= now):
+            raise HTTPException(status_code=410, detail="short link is no longer active")
+        asset = _get_asset(db, row.asset_key)
+        _require_sensitive_view(asset, Principal(username="guest", role="guest"))
+        return _file_response(storage, asset, "original" if original else "preview")
 
     @app.get("/api/assets/{asset_key}/share-links")
     def api_list_share_links(asset_key: str, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:

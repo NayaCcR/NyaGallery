@@ -91,6 +91,10 @@ GET /api/assets/{asset_key}/thumb      # 公开可见资源
 | POST | `/api/assets/{asset_key}/share-links` | owner/admin 创建资源分享链接，可选公开、密码、过期时间；secret 只在创建响应返回 |
 | GET | `/api/assets/{asset_key}/share-links` | owner/admin 列出分享链接元数据，不返回 secret/hash |
 | DELETE | `/api/share-links/{link_id}` | owner/admin 撤销分享链接 |
+| POST | `/api/assets/{asset_key}/short-links` | owner/admin 创建取图短链接，可选 3-80 位自定义 slug 和过期时间；slug 只能含字母、数字、下划线和连字符 |
+| GET | `/api/assets/{asset_key}/short-links` | owner/admin 列出短链接及过期/撤销状态 |
+| DELETE | `/api/short-links/{link_id}` | owner/admin 撤销短链接 |
+| GET | `/s/{slug}` | 无需登录；返回预览文件，追加 `?original=true` 返回原图；过期、撤销或游客敏感内容返回错误 |
 | GET | `/api/share-links/logs` | admin 分页查看分享访问状态、资源、时间和截断客户端信息 |
 | GET | `/api/share/{token}` | 按分享 token 访问资源 metadata；密码通过 HTTPS query/body 传入，公开链接仍受敏感内容策略 |
 | GET | `/api/share/{token}/preview` | 按分享 token 访问 preview |
