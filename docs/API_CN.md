@@ -127,7 +127,7 @@ curl -X POST http://127.0.0.1:8001/api/upload \
 | POST | `/api/media/generate` | editor 生成全部或指定 `asset_key` 缓存 |
 | POST | `/api/rebuild` | admin 从 metadata 重建数据库；`{"generate_cache":true}` 可连带缓存 |
 | GET | `/api/uploads/history` | 当前用户上传历史，admin 可看全部 |
-| GET | `/api/uploads/logs` | 上传/转码日志 |
+| GET | `/api/uploads/logs` | 上传/转码日志；返回 uploader、时间、状态、事件、消息、extra（来源/任务/错误等）和文件指纹相关资源字段 |
 | GET | `/api/transcode/jobs` | 转码任务 |
 | POST | `/api/transcode/assets/{asset_key}/start` | editor 启动单资源转码 |
 | POST | `/api/transcode/cancel-all` | admin 取消运行中的转码 |

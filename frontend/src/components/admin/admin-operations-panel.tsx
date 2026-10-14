@@ -1,6 +1,7 @@
 "use client";
 
-import { Activity, Ban, Gauge, History, ListChecks, RefreshCw } from "lucide-react";
+import { Activity, Ban, Download, Gauge, History, ListChecks, RefreshCw } from "lucide-react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { EmptyLine } from "@/components/admin/admin-fields";
 import {
@@ -42,6 +43,21 @@ export function AdminOperationsPanel({
   onCancelAllTranscode,
 }: AdminOperationsPanelProps) {
   const { t } = useI18n();
+  const [logQuery, setLogQuery] = useState("");
+  const [logStatus, setLogStatus] = useState("all");
+  const filteredLogs = useMemo(() => uploadLogs.filter((log) => {
+    const haystack = JSON.stringify(log).toLowerCase();
+    return (logStatus === "all" || log.status === logStatus) && (!logQuery.trim() || haystack.includes(logQuery.trim().toLowerCase()));
+  }), [logQuery, logStatus, uploadLogs]);
+  const exportLogs = () => {
+    const blob = new Blob([JSON.stringify(filteredLogs, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "nyagallery-upload-logs.json";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <section className="space-y-4 rounded-lg border border-border bg-card p-5 shadow-sm">
@@ -120,14 +136,29 @@ export function AdminOperationsPanel({
       </div>
 
       <div className="space-y-2">
-        <h3 className="flex items-center gap-2 text-xs font-medium uppercase text-muted-foreground">
-          <ListChecks className="h-3.5 w-3.5" /> {t("admin.ops.recentLogs")}
-        </h3>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="flex items-center gap-2 text-xs font-medium uppercase text-muted-foreground">
+            <ListChecks className="h-3.5 w-3.5" /> {t("admin.ops.recentLogs")}
+          </h3>
+          <Button variant="outline" size="sm" onClick={exportLogs} disabled={filteredLogs.length === 0}>
+            <Download className="h-4 w-4" /> {t("admin.ops.exportLogs")}
+          </Button>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_160px]">
+          <input value={logQuery} onChange={(event) => setLogQuery(event.target.value)} placeholder={t("admin.ops.searchLogs")} className="h-9 rounded-md border border-input bg-transparent px-3 text-sm focus-ring" />
+          <select value={logStatus} onChange={(event) => setLogStatus(event.target.value)} className="h-9 rounded-md border border-input bg-background px-3 text-sm">
+            <option value="all">{t("admin.ops.allLogStatuses")}</option>
+            <option value="success">{t("admin.logs.statuses.success")}</option>
+            <option value="error">{t("admin.logs.statuses.error")}</option>
+            <option value="queued">{t("admin.logs.statuses.queued")}</option>
+            <option value="running">{t("admin.logs.statuses.running")}</option>
+          </select>
+        </div>
         <div className="max-h-72 overflow-auto rounded-lg border border-border">
-          {uploadLogs.map((log) => (
+          {filteredLogs.map((log) => (
             <UploadLogRow key={log.id} log={log} />
           ))}
-          {uploadLogs.length === 0 && <div className="p-6 text-center text-sm text-muted-foreground">{t("admin.ops.emptyLogs")}</div>}
+          {filteredLogs.length === 0 && <div className="p-6 text-center text-sm text-muted-foreground">{t("admin.ops.emptyLogs")}</div>}
         </div>
       </div>
     </section>

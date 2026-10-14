@@ -60,6 +60,8 @@ Pixiv PID 管理输入支持纯 ID、Pixiv artworks URL、`member_illust.php?ill
 
 上传页目录拖放通过 `webkitGetAsEntry` 递归展开目录，读取失败时对该条目跳过；普通文件继续使用 `DataTransfer.files` 回退，所有文件汇入同一去重和进度队列。
 
+管理操作日志在客户端支持关键字搜索、状态过滤和 JSON 导出；搜索针对返回日志的序列化字段，导出只包含当前筛选结果。
+
 服务端远程 URL 拉取必须限制为 HTTP(S) 公网主机，拒绝私有、回环、链路本地和保留 IP；禁用未验证的重定向，并限制超时、响应体大小和允许的 MIME 类型，防止 SSRF 与资源耗尽。
 
 ## 5. 测试、检查和调试
