@@ -1038,20 +1038,22 @@ def create_app(
         return _asset_response(storage, asset, catalog)
 
     @app.get("/api/assets/{asset_key}/api-examples")
-    def api_asset_examples(asset_key: str, db: DbSession, principal: ViewPrincipal) -> dict[str, object]:
+    def api_asset_examples(asset_key: str, request: Request, db: DbSession, principal: ViewPrincipal) -> dict[str, object]:
         """Return copyable examples with a placeholder token only."""
         asset = _get_asset(db, asset_key)
         _require_asset_access(db, asset, principal)
         _require_sensitive_view(asset, principal)
-        base = "https://your-host"
+        base = str(request.base_url).rstrip("/")
         endpoint = f"/api/assets/{asset.asset_key}"
-        token = "<token>"
+        token = "<nya_token_with_view_or_download_scope>"
         return {
             "asset_key": asset.asset_key,
             "formats": {
                 "curl": {
                     "metadata": f'curl -H "Authorization: Bearer {token}" {base}{endpoint}',
                     "original": f'curl -H "Authorization: Bearer {token}" -o original{Path(asset.original_filename).suffix or ".bin"} {base}{endpoint}/original',
+                    "preview": f'curl -H "Authorization: Bearer {token}" -o preview{Path(asset.original_filename).suffix or ".bin"} {base}{endpoint}/preview',
+                    "thumb": f'curl -H "Authorization: Bearer {token}" -o thumb{Path(asset.original_filename).suffix or ".bin"} {base}{endpoint}/thumb',
                     "upload": f'curl -X POST -H "Authorization: Bearer {token}" -F "file=@image.jpg" -F "visibility=private" {base}/api/assets',
                 },
                 "fetch": {

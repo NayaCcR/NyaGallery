@@ -114,6 +114,8 @@ curl -X POST http://127.0.0.1:8001/api/upload \
 
 资源响应包含 `published_at`、`captured_at`、`uploaded_at`、`scraped_at` 四个可选 ISO 8601 时间字段；`GET /api/timeline` 提供仅基于资产的 UTC 日历时间线，支持 `published_at`、`captured_at`、`uploaded_at`、`scraped_at` 和 `upload_timestamp`，服务端先按时间上界筛选再分页，返回 `timeline_time` 供客户端分组；`uploaded_at` 保持历史语义（crawl time），`upload_timestamp` 才是真实上传时间。时间线沿用图库权限和 guest 敏感内容过滤，未知时间归入客户端的未知时间组。posts 的独立正文时间线尚未纳入；旧资源会在数据库初始化时补齐可确定的来源事件，缺失值保持为空。搜索支持 `sort=published_at|captured_at|scraped_at|upload_timestamp`，排序缺失时按入库/抓取时间回退，但不会向响应填入推断值。`captured_at` 为带偏移的 ISO 8601，`captured_at_source` 为 `exif:DateTimeOriginal` / `exif:DateTimeDigitized` / `exif:DateTime` / `browser_last_modified` / `file_mtime`。EXIF 时间另存 `exif_captured_at`，`captured_at_timezone_source` 标识 `exif_offset` 或 `configured_default`；`camera` 包含 `make` / `model`，`gps.latitude` / `gps.longitude` 为十进制度（南纬、西经为负，缺损坐标省略）。时间按上述 EXIF 优先级选择有效值，使用对应 OffsetTime；缺失或非法偏移使用 `[media].exif_timezone`。无有效 EXIF 时间时回退浏览器原文件时间；本地 CLI 导入使用源文件 mtime。远程上传或旧客户端未提供原时间时保持缺失，不使用服务器新文件 mtime，也不覆盖 `artwork_date`。Pillow 缺失或文件无法解析不阻断上传。
 
+`GET /api/assets/{asset_key}/api-examples` 返回基于当前请求 Host 的 curl/fetch/python 示例，不包含真实 Token。元数据和 preview/thumb 需要 `view` scope，原图需要 `download` scope；示例中的占位 Token 必须由调用者通过 API Key 管理页面或签发接口获得。
+
 远程图片可通过 `POST /api/upload/url` 提交 JSON：
 
 ```json
