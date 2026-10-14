@@ -60,7 +60,7 @@ API Token 支持可选 scopes。旧记录的 null scopes 按当前用户角色�
 
 API 请求优先复用 `frontend/src/lib/api.ts`，让 cookie、CSRF 和错误格式保持一致。文件 URL 使用后端返回的资源链接，不能把服务器本地路径渲染到浏览器。
 
-资源分享链接只保存 token hash 和密码 hash，创建响应中的 secret 只返回一次；公开访问不能绕过 guest 敏感内容策略。每次 metadata/preview/original 访问写入截断 UA、脱敏前的受控客户端地址、状态和时间，日志不得记录 token 或密码。分享接口由 owner/admin 管理，过期和撤销在每次访问时校验。
+资源分享链接只保存 token hash 和密码 hash，创建响应中的 secret 只返回一次；公开访问不能绕过 guest 敏感内容策略。每次 metadata/preview/original 访问写入截断 UA、受控客户端地址、状态和时间，日志不得记录 token 或密码。分享接口由 owner/admin 管理，过期和撤销在每次访问时校验；管理员通过 `/api/share-links/logs` 分页查看访问记录。
 
 上传页目录拖放通过 `webkitGetAsEntry` 递归展开目录，读取失败时对该条目跳过；普通文件继续使用 `DataTransfer.files` 回退，所有文件汇入同一去重和进度队列。
 
