@@ -965,6 +965,7 @@
     "admin": "管理",
     "faq": "FAQ",
     "files": "所有文件",
+    "timeline": "时间线",
     "home": "首页",
     "posts": "帖子",
     "search": "搜索",
@@ -1053,6 +1054,18 @@
       },
       "projectHome": "项目主页",
       "title": "关于 NyaGallery"
+    },
+    "timeline": {
+      "title": "资产时间线",
+      "field": "时间字段",
+      "granularity": "分组粒度",
+      "beforeDate": "截止日期",
+      "invalidDate": "日期无效",
+      "day": "日",
+      "month": "月",
+      "year": "年",
+      "empty": "没有可显示的资产时间",
+      "unknown": "未知时间"
     },
     "files": {
       "collapseWorks": "折叠多页",

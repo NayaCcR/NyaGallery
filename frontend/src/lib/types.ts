@@ -314,6 +314,19 @@ export interface SearchResponse {
   order: SearchOrder;
 }
 
+export interface TimelineAsset extends Asset {
+  timeline_time: string | null;
+}
+
+export interface TimelineResponse {
+  items: TimelineAsset[];
+  limit: number;
+  offset: number;
+  time_field: string;
+  before: string | null;
+  has_more: boolean;
+}
+
 export interface AssetSiblingResponse {
   items: Asset[];
   current_asset_key: string;

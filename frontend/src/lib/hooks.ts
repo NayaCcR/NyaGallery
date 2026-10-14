@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { ApiError, NyaApi } from "./api";
-import type { Asset, MeResponse, PostListResponse, PostSort, RegistrationStatusResponse, SearchOrder, SearchResponse, SearchSort, SiteConfigResponse, TagSuggestResponse, TagSummaryResponse } from "./types";
+import type { Asset, MeResponse, PostListResponse, PostSort, RegistrationStatusResponse, SearchOrder, SearchResponse, SearchSort, SiteConfigResponse, TagSuggestResponse, TagSummaryResponse, TimelineResponse } from "./types";
 
 const PAGE_SIZE = 40;
 const POSTS_PAGE_SIZE = 20;
@@ -79,6 +79,16 @@ function mergeSearchPages(
     order,
     hasMore: pages.some((page) => page.items.length >= PAGE_SIZE),
   };
+}
+
+export function useTimeline(timeField: string, before: string | null, options: { enabled?: boolean; q?: string } = {}) {
+  return useInfiniteQuery<TimelineResponse, Error>({
+    queryKey: ["timeline", timeField, before, options.q ?? ""],
+    queryFn: ({ pageParam = 0 }) => NyaApi.timeline({ time_field: timeField, limit: PAGE_SIZE, offset: pageParam as number, before, q: options.q }),
+    enabled: options.enabled ?? true,
+    initialPageParam: 0,
+    getNextPageParam: (last) => last.has_more ? last.offset + PAGE_SIZE : undefined,
+  });
 }
 
 export function usePosts(

@@ -163,7 +163,7 @@ from nyagallery.db import (
     update_transcode_job,
     upload_log_to_dict,
 )
-from nyagallery.metadata import GalleryMetadata, make_asset_key, parse_pixiv_filename, utc_now_iso
+from nyagallery.metadata import GalleryMetadata, make_asset_key, normalize_timestamp, parse_pixiv_filename, utc_now_iso
 from nyagallery.media import MediaGenerator, is_animated_raster, media_limits_from_config, probe_media_size
 from nyagallery.virtual_folders import VirtualFolder, VirtualFolderCatalog
 from nyagallery.fanbox import (
@@ -915,6 +915,37 @@ def create_app(
             "offset": offset,
             "sort": sort_key,
             "order": sort_order,
+        }
+
+    @app.get("/api/timeline")
+    def api_timeline(
+        db: DbSession,
+        principal: ViewPrincipal,
+        time_field: str = "uploaded_at",
+        q: str = "",
+        limit: Annotated[int, Query(ge=1, le=200)] = 40,
+        offset: Annotated[int, Query(ge=0)] = 0,
+        before: str | None = None,
+    ) -> dict[str, object]:
+        allowed_fields = {"published_at", "captured_at", "uploaded_at", "scraped_at", "upload_timestamp"}
+        if time_field not in allowed_fields:
+            raise HTTPException(status_code=422, detail="unsupported timeline time field")
+        normalized_before = normalize_timestamp(before) if before else None
+        if before and normalized_before is None:
+            raise HTTPException(status_code=422, detail="invalid timeline before timestamp")
+        safe_query = _query_with_guest_safety(q, principal)
+        items = search_asset_dicts(
+            db, catalog, safe_query, limit=limit, offset=offset,
+            sort=time_field, order="desc", timeline_before=normalized_before, timeline=True,
+            user_id=principal.user_id, is_admin=_is_admin_principal(principal),
+        )
+        return {
+            "items": items,
+            "limit": limit,
+            "offset": offset,
+            "time_field": time_field,
+            "before": normalized_before,
+            "has_more": len(items) >= limit,
         }
 
     @app.get("/api/posts")

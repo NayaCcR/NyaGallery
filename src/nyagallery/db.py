@@ -1076,6 +1076,8 @@ def search_asset_dicts(
     include_deleted: bool = False,
     user_id: int | None | object = _UNSET_VIEWER,
     is_admin: bool = False,
+    timeline_before: str | None = None,
+    timeline: bool = False,
 ) -> list[dict[str, object]]:
     """Return search results through SQLAlchemy Core and the normal API mapper."""
     parsed = catalog.parse_query(query) if isinstance(query, str) else query
@@ -1139,11 +1141,20 @@ def search_asset_dicts(
         "asset_key": assets.c.asset_key,
     }
     time_key = normalize_asset_sort(sort)
-    expression = (_time_sort_expression(assets.c, time_key)
-                  if time_key in {"published_at", "captured_at", "scraped_at", "upload_timestamp"}
-                  else sort_columns.get(time_key, assets.c.asset_key))
+    timeline_value_expression = None
+    if timeline and time_key in {"published_at", "captured_at", "scraped_at", "upload_timestamp", "uploaded_at"}:
+        timeline_value_expression = _timeline_time_expression(assets.c, time_key)
+        expression = _timeline_order_expression(timeline_value_expression, session)
+    else:
+        expression = (_time_sort_expression(assets.c, time_key)
+                      if time_key in {"published_at", "captured_at", "scraped_at", "upload_timestamp"}
+                      else sort_columns.get(time_key, assets.c.asset_key))
+    if timeline_before is not None:
+        statement = statement.where(_timeline_compare_expression(timeline_value_expression, timeline_before, session) if timeline and timeline_value_expression is not None else expression < timeline_before)
     sorted_expression = expression.desc() if normalize_sort_order(order) == "desc" else expression.asc()
     group = assets.c.source_id.desc() if normalize_sort_order(order) == "desc" else assets.c.source_id.asc()
+    if timeline_value_expression is not None:
+        statement = statement.add_columns(timeline_value_expression.label("timeline_time"))
     statement = statement.order_by(
         (func.coalesce(expression, "") == "").asc(),
         sorted_expression,
@@ -1163,7 +1174,10 @@ def search_asset_dicts(
     for asset_key, tag in tag_rows:
         tags_by_asset.setdefault(str(asset_key), []).append(SimpleNamespace(tag=str(tag)))
     return [
-        asset_to_dict(SimpleNamespace(**dict(row), tags=tags_by_asset.get(str(row["asset_key"]), [])), catalog)
+        {
+            **asset_to_dict(SimpleNamespace(**dict(row), tags=tags_by_asset.get(str(row["asset_key"]), [])), catalog),
+            **({"timeline_time": row["timeline_time"]} if timeline and "timeline_time" in row else {}),
+        }
         for row in rows
     ]
 
@@ -3193,6 +3207,30 @@ def _time_sort_expression(columns, sort_key: str):
     primary = "uploaded_at" if sort_key == "upload_timestamp" else sort_key
     keys = list(dict.fromkeys([primary, "uploaded_at", "scraped_at", "published_at", "captured_at"]))
     return func.coalesce(*(getattr(columns, key) for key in keys))
+
+
+def _timeline_time_expression(columns, sort_key: str):
+    if sort_key == "uploaded_at":
+        return columns.crawl_time
+    return _time_sort_expression(columns, sort_key)
+
+
+def _timeline_order_expression(expression, session: Session):
+    dialect = session.get_bind().dialect.name
+    if dialect == "sqlite":
+        return func.julianday(expression)
+    if dialect in {"postgresql", "postgres"}:
+        return func.extract("epoch", expression.cast(DateTime(timezone=True)))
+    return expression
+
+
+def _timeline_compare_expression(expression, before: str, session: Session):
+    dialect = session.get_bind().dialect.name
+    if dialect == "sqlite":
+        return func.julianday(expression) < func.julianday(before)
+    if dialect in {"postgresql", "postgres"}:
+        return func.extract("epoch", expression.cast(DateTime(timezone=True))) < func.extract("epoch", text(f"TIMESTAMPTZ '{before}'"))
+    return expression < before
 
 
 def _sort_expression(sort_key: str):

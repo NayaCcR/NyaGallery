@@ -568,7 +568,7 @@ GET /api/search?sort=uploaded_at&order=desc
 GET /api/search?sort=original_filename&order=asc
 ```
 
-可用排序字段：`artwork_date`、`uploaded_at`、`published_at`、`captured_at`、`scraped_at`、`upload_timestamp`、`pixiv_upload_date`、`original_filename`、`title`、`artist`、`source_id`、`asset_key`。多时间排序会按所选时间优先，缺失时回退到入库/抓取时间；API 返回字段仍保留为空，不会伪造来源事件。
+可用排序字段：`artwork_date`、`uploaded_at`、`published_at`、`captured_at`、`scraped_at`、`upload_timestamp`、`pixiv_upload_date`、`original_filename`、`title`、`artist`、`source_id`、`asset_key`。多时间排序会按所选时间优先，缺失时回退到入库/抓取时间；API 返回字段仍保留为空，不会伪造来源事件。`/timeline` 导航提供资产时间线，可选择上述五个时间字段并按 UTC 日分组、滚动分页；`uploaded_at` 在历史数据中表示 crawl time，真实上传时间选择 `upload_timestamp`。posts 独立内容尚未纳入此时间线，未知时间会单独显示。
 
 API 示例：
 

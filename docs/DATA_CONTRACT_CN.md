@@ -29,6 +29,10 @@
 
 `nyagallery convert --from file|database --to file|database` 默认只做 dry-run；切换到 `file` 时需要 `--output <dir>`，加入 `--confirm` 后才会在目标旁边创建备份，写入临时目录，逐文件计算 SHA256，再原子切换。切换到 `database` 会校验原图 SHA256 后在一个事务内导入索引，并保存数据库侧车备份。源文件始终只读。
 
+## 资产时间字段
+
+`published_at`、`captured_at`、`uploaded_at`、`scraped_at` 是可选时间字段；写入、导出和往返时统一为带 `Z` 的 UTC ISO 8601 微秒精度。缺失值保持 `null`，序列化时允许省略，不得用其他事件时间伪造。file/database 两种后端导出都保留显式值。历史排序中的 `uploaded_at` 仍表示入库/抓取时间（legacy `crawl_time`），真实上传事件使用 `upload_timestamp` 排序。资产时间线按所选字段实际值排序；字段缺失时按既定回退表达式定位，但响应中的显式字段不会被填充，无法解析的值归入未知时间。
+
 ## 旧数据
 
 `nyagallery.creator_metadata.v1` 由 `LegacyReader` 只读解析。启动和索引重建仍能读取旧的单资源 JSON 及 creator 分组 JSON，不自动覆盖旧文件。显式转换或 `migrate-metadata` 才会写新文件。

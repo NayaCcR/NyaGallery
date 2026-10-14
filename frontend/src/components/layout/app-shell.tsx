@@ -7,6 +7,7 @@ import {
   ArrowRightLeft,
   AtSign,
   BadgeDollarSign,
+  CalendarDays,
   Database,
   Globe2,
   Hash,
@@ -55,6 +56,7 @@ type NavDef = {
 const PRIMARY_NAV: NavDef[] = [
   { href: "/", labelKey: "nav.home", icon: Sparkles },
   { href: "/files", labelKey: "nav.files", icon: Images },
+  { href: "/timeline", labelKey: "nav.timeline", icon: CalendarDays },
   { href: "/posts", labelKey: "nav.posts", icon: MessageSquareText },
   { href: "/search", labelKey: "nav.search", icon: Search },
 ];

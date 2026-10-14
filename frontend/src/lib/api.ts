@@ -59,6 +59,7 @@ import type {
   TagSuggestResponse,
   TagSuggestion,
   TagSummaryResponse,
+  TimelineResponse,
   TranscodeJobResponse,
   TranscodeJob,
   UploadHistoryResponse,
@@ -201,6 +202,13 @@ export const NyaApi = {
     if (params.sort) search.set("sort", params.sort);
     if (params.order) search.set("order", params.order);
     return api<SearchResponse>(`/api/search?${search.toString()}`);
+  },
+
+  timeline: (params: { time_field: string; limit?: number; offset?: number; before?: string | null; q?: string }) => {
+    const search = new URLSearchParams({ time_field: params.time_field, limit: String(params.limit ?? 40), offset: String(params.offset ?? 0) });
+    if (params.before) search.set("before", params.before);
+    if (params.q) search.set("q", params.q);
+    return api<TimelineResponse>(`/api/timeline?${search.toString()}`);
   },
 
   posts: (

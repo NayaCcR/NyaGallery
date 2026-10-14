@@ -965,6 +965,7 @@
     "admin": "Admin",
     "faq": "FAQ",
     "files": "Files",
+    "timeline": "Timeline",
     "home": "Home",
     "posts": "Posts",
     "search": "Search",
@@ -1053,6 +1054,18 @@
       },
       "projectHome": "Project Home",
       "title": "About NyaGallery"
+    },
+    "timeline": {
+      "title": "Asset Timeline",
+      "field": "Time field",
+      "granularity": "Group by",
+      "beforeDate": "Through date",
+      "invalidDate": "Invalid date",
+      "day": "Day",
+      "month": "Month",
+      "year": "Year",
+      "empty": "No assets with a timeline time",
+      "unknown": "Unknown time"
     },
     "files": {
       "collapseWorks": "Collapse pages",
