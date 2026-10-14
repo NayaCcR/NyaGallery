@@ -1072,8 +1072,13 @@ def create_app(
         return {"items": [{"id": row.id, "asset_key": row.asset_key, "token_prefix": row.token_prefix, "is_public": row.is_public, "expires_at": row.expires_at, "revoked_at": row.revoked_at, "access_count": row.access_count} for row in rows]}
 
     @app.get("/api/share-links/logs")
-    def api_share_access_logs(db: DbSession, _principal: AdminPrincipal, limit: Annotated[int, Query(ge=1, le=200)] = 50, offset: Annotated[int, Query(ge=0)] = 0) -> dict[str, object]:
-        rows = db.scalars(select(ShareAccessLogModel).order_by(ShareAccessLogModel.created_at.desc(), ShareAccessLogModel.id.desc()).offset(offset).limit(limit)).all()
+    def api_share_access_logs(db: DbSession, _principal: AdminPrincipal, limit: Annotated[int, Query(ge=1, le=200)] = 50, offset: Annotated[int, Query(ge=0)] = 0, asset_key: str | None = None, status: str | None = None) -> dict[str, object]:
+        statement = select(ShareAccessLogModel)
+        if asset_key:
+            statement = statement.where(ShareAccessLogModel.asset_key == asset_key.strip())
+        if status:
+            statement = statement.where(ShareAccessLogModel.status == status.strip())
+        rows = db.scalars(statement.order_by(ShareAccessLogModel.created_at.desc(), ShareAccessLogModel.id.desc()).offset(offset).limit(limit)).all()
         return {"items": [{"id": row.id, "share_link_id": row.share_link_id, "asset_key": row.asset_key, "status": row.status, "client_ip": row.client_ip, "user_agent": row.user_agent, "created_at": row.created_at} for row in rows], "limit": limit, "offset": offset}
 
     @app.delete("/api/share-links/{link_id}")

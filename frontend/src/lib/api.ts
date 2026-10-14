@@ -233,7 +233,7 @@ export const NyaApi = {
   createShareLink: (assetKey: string, payload: { is_public?: boolean; password?: string; expires_at?: string }) =>
     api<{ id: number; token: string; asset_key: string; is_public: boolean; expires_at: string | null }>(`/api/assets/${encodeURIComponent(assetKey)}/share-links`, { method: "POST", body: payload }),
 
-  shareAccessLogs: (limit = 50, offset = 0) => api<{ items: Array<{ id: number; share_link_id: number; asset_key: string; status: string; client_ip: string; user_agent: string; created_at: string | null }>; limit: number; offset: number }>(`/api/share-links/logs?limit=${limit}&offset=${offset}`),
+  shareAccessLogs: (limit = 50, offset = 0, assetKey = "", status = "") => api<{ items: Array<{ id: number; share_link_id: number; asset_key: string; status: string; client_ip: string; user_agent: string; created_at: string | null }>; limit: number; offset: number }>(`/api/share-links/logs?limit=${limit}&offset=${offset}&asset_key=${encodeURIComponent(assetKey)}&status=${encodeURIComponent(status)}`),
 
   accessGroups: () => api<AccessGroupsResponse>("/api/access/groups"),
   permissionGroups: () => api<PermissionGroupsResponse>("/api/access/permission-groups"),

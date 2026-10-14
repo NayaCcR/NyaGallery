@@ -22,10 +22,12 @@ export function AdminAccessPanel() {
   const [folderQuery, setFolderQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [shareLogs, setShareLogs] = useState<Array<{ id: number; asset_key: string; status: string; client_ip: string; user_agent: string; created_at: string | null }>>([]);
+  const [shareLogAsset, setShareLogAsset] = useState("");
+  const [shareLogStatus, setShareLogStatus] = useState("");
 
   async function refresh() {
     const [access, roleGroups, virtualFolders, logs] = await Promise.all([
-      NyaApi.accessGroups(), NyaApi.permissionGroups(), NyaApi.virtualFolders(), NyaApi.shareAccessLogs(),
+      NyaApi.accessGroups(), NyaApi.permissionGroups(), NyaApi.virtualFolders(), NyaApi.shareAccessLogs(50, 0, shareLogAsset, shareLogStatus),
     ]);
     setGroups(access.items);
     setShareLogs(logs.items);
@@ -88,6 +90,7 @@ export function AdminAccessPanel() {
 
     <section className="space-y-4 rounded-lg border border-border bg-card p-6 shadow-sm">
       <div><h2 className="flex items-center gap-2 text-sm font-medium">{t("admin.access.shareLogs")}</h2><p className="mt-1 text-xs text-muted-foreground">{t("admin.access.shareLogsHint")}</p></div>
+      <div className="grid gap-2 sm:grid-cols-[1fr_160px_auto]"><Input value={shareLogAsset} onChange={(event) => setShareLogAsset(event.target.value)} placeholder={t("admin.access.shareLogAsset")} /><select value={shareLogStatus} onChange={(event) => setShareLogStatus(event.target.value)} className="h-9 rounded-md border border-input bg-background px-2 text-sm"><option value="">{t("admin.access.shareLogAllStatuses")}</option><option value="metadata">metadata</option><option value="preview">preview</option><option value="original">original</option></select><Button variant="outline" onClick={() => void refresh()} disabled={busy}>{t("common.refresh")}</Button></div>
       <div className="divide-y divide-border rounded-md border border-border">{shareLogs.length === 0 ? <p className="p-3 text-xs text-muted-foreground">{t("admin.access.emptyShareLogs")}</p> : shareLogs.map((log) => <div key={log.id} className="grid gap-1 p-3 text-xs sm:grid-cols-[1fr_100px_170px]"><code>{log.asset_key}</code><span className="text-muted-foreground">{log.status}</span><span className="text-muted-foreground">{log.created_at ?? "-"}</span><span className="truncate text-muted-foreground sm:col-span-3">{log.user_agent || log.client_ip || "-"}</span></div>)}</div>
     </section>
   </div>;

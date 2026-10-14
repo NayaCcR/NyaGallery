@@ -23,7 +23,9 @@
       "createFolder": "Save folder",
       "shareLogs": "Share access logs",
       "shareLogsHint": "Review recent share-link access status, assets and timestamps.",
-      "emptyShareLogs": "No share access logs"
+      "emptyShareLogs": "No share access logs",
+      "shareLogAsset": "Filter by asset ID",
+      "shareLogAllStatuses": "All access types"
     },
     "migration": {
       "loadFailed": "Migration settings failed to load",
