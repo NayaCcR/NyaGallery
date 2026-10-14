@@ -856,7 +856,10 @@
       "createFirst": "Create this tag in the tag catalog first",
       "exportSummary": "Export Summary",
       "exported": "Exported {count} tags",
+      "implicationPlaceholder": "Implied tags: general:hair, color:red",
+      "relationsSaved": "Saved semantic relations for {name}",
       "saveAlias": "Save alias",
+      "saveRelations": "Save relations",
       "searchPlaceholder": "Search tag / alias",
       "title": "Tag Aliases"
     },

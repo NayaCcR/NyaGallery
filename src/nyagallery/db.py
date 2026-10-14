@@ -947,6 +947,36 @@ def backfill_source_tag_index(session: Session, catalog: TagCatalog) -> SourceTa
     return SourceTagBackfillResult(asset_count, tag_count, label_count)
 
 
+def refresh_asset_tag_index(session: Session, catalog: TagCatalog) -> int:
+    """Recompute derived tags without changing assets, ownership or source tags."""
+    changed = 0
+    for asset in session.scalars(select(AssetModel)):
+        desired = catalog.canonicalize_tags(
+            pixiv_tags=asset.pixiv_tags or (),
+            source_tag_details=source_tag_details_from_extra(asset.extra),
+            canonical_tags=asset.canonical_tags or (),
+            source=asset.source,
+            artist_name=asset.artist_name,
+            uploader_username=asset.uploader_username,
+            width=asset.width,
+            height=asset.height,
+            artwork_date=asset.artwork_date,
+            source_type=asset.source_type,
+            age_rating=asset.age_rating,
+            is_ai_generated=asset.is_ai_generated,
+            is_animated=asset.is_animated,
+            mime_type=asset.mime_type,
+        )
+        existing = {item.tag: item for item in asset.tags}
+        if set(existing) == desired:
+            continue
+        asset.tags = [existing[name] if name in existing else AssetTagModel(asset_key=asset.asset_key, tag=name)
+                      for name in sorted(desired, key=tag_sort_key)]
+        changed += 1
+    session.flush()
+    return changed
+
+
 def upsert_asset(
     session: Session,
     storage: GalleryStorage,

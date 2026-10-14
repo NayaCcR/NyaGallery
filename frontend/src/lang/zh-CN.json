@@ -856,7 +856,10 @@
       "createFirst": "先在标签目录中创建该 tag",
       "exportSummary": "导出汇总",
       "exported": "已导出 {count} 个标签",
+      "implicationPlaceholder": "上位标签：general:hair, color:red",
+      "relationsSaved": "已保存 {name} 的语义关系",
       "saveAlias": "保存别名",
+      "saveRelations": "保存关系",
       "searchPlaceholder": "搜索 tag / alias",
       "title": "标签别名"
     },

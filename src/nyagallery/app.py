@@ -128,6 +128,7 @@ from nyagallery.db import (
     purge_pending_asset,
     random_asset,
     rebuild_database,
+    refresh_asset_tag_index,
     rebuild_posts,
     registration_invite_to_dict,
     release_registration_invite,
@@ -238,7 +239,7 @@ from nyagallery.security import (
 from nyagallery.secret_crypto import SecretEncryptionError, secret_encryption_enabled
 from nyagallery.storage import GalleryStorage, OriginalAlreadyExistsError, StorageError
 from nyagallery.storage import MetadataAlreadyExistsError, sha256_bytes
-from nyagallery.tags import TagAlreadyExistsError, TagCatalog, TagNotFoundError, source_tag_details_from_extra
+from nyagallery.tags import InvalidTagRelationError, TagAlreadyExistsError, TagCatalog, TagNotFoundError, source_tag_details_from_extra
 
 
 bearer = HTTPBearer(auto_error=False)
@@ -305,6 +306,11 @@ class TagAliasesUpdate(BaseModel):
 
 class TagLabelsUpdate(BaseModel):
     labels: dict[str, str] = Field(default_factory=dict)
+
+
+class TagRelationsUpdate(BaseModel):
+    implications: list[str] = Field(default_factory=list)
+    suggestions: list[str] | None = None
 
 
 class UserCreate(BaseModel):
@@ -1249,6 +1255,32 @@ def create_app(
         except (TagNotFoundError, TagAlreadyExistsError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         _save_catalog(storage, catalog)
+        return tag.to_dict()
+
+    @app.put("/api/tags/{tag_name}/relations")
+    def api_update_tag_relations(
+        tag_name: str,
+        update: TagRelationsUpdate,
+        db: DbSession,
+        _principal: AdminPrincipal,
+    ) -> dict[str, object]:
+        candidate = TagCatalog.from_dict(catalog.to_dict())
+        try:
+            candidate.set_implications(tag_name, update.implications)
+            if update.suggestions is not None:
+                candidate.set_suggestions(tag_name, update.suggestions)
+            tag = candidate.require(tag_name)
+        except (TagNotFoundError, TagAlreadyExistsError, InvalidTagRelationError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            refresh_asset_tag_index(db, candidate)
+            _save_catalog(storage, candidate)
+            db.commit()
+        except Exception:
+            db.rollback()
+            _save_catalog(storage, catalog)
+            raise
+        catalog.__dict__.update(candidate.__dict__)
         return tag.to_dict()
 
     @app.put("/api/tags/{tag_name}/labels")

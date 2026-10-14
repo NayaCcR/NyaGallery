@@ -14,10 +14,13 @@ type AdminTagsPanelProps = {
   onTagFilterChange: (value: string) => void;
   aliasDrafts: Record<string, string>;
   onAliasDraftsChange: Dispatch<SetStateAction<Record<string, string>>>;
+  implicationDrafts: Record<string, string>;
+  onImplicationDraftsChange: Dispatch<SetStateAction<Record<string, string>>>;
   summaryPath: string | null;
   onRefreshTags: () => unknown;
   onExportTagSummary: () => unknown;
   onSaveAliases: (tagName: string) => unknown;
+  onSaveImplications: (tagName: string) => unknown;
 };
 
 export function AdminTagsPanel({
@@ -27,10 +30,13 @@ export function AdminTagsPanel({
   onTagFilterChange,
   aliasDrafts,
   onAliasDraftsChange,
+  implicationDrafts,
+  onImplicationDraftsChange,
   summaryPath,
   onRefreshTags,
   onExportTagSummary,
   onSaveAliases,
+  onSaveImplications,
 }: AdminTagsPanelProps) {
   const { t } = useI18n();
 
@@ -71,6 +77,12 @@ export function AdminTagsPanel({
               placeholder="alias1, alias2"
               className="font-mono text-xs"
             />
+            <Input
+              value={implicationDrafts[tag.name] ?? ""}
+              onChange={(e) => onImplicationDraftsChange((drafts) => ({ ...drafts, [tag.name]: e.target.value }))}
+              placeholder={t("admin.tags.implicationPlaceholder")}
+              className="font-mono text-xs"
+            />
             <Button
               size="sm"
               variant="outline"
@@ -79,6 +91,9 @@ export function AdminTagsPanel({
               title={tag.source === "observed" ? t("admin.tags.createFirst") : t("admin.tags.saveAlias")}
             >
               <Save className="h-4 w-4" /> {t("common.save")}
+            </Button>
+            <Button size="sm" variant="outline" disabled={busy === `tag-relations-${tag.name}` || tag.source === "observed"} onClick={() => onSaveImplications(tag.name)}>
+              <Save className="h-4 w-4" /> {t("admin.tags.saveRelations")}
             </Button>
           </div>
         ))}

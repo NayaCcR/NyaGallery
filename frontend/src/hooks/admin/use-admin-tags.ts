@@ -15,12 +15,14 @@ export function useAdminTags({ run }: UseAdminTagsOptions) {
   const [tags, setTags] = useState<TagSummaryItem[]>([]);
   const [tagFilter, setTagFilter] = useState("");
   const [aliasDrafts, setAliasDrafts] = useState<Record<string, string>>({});
+  const [implicationDrafts, setImplicationDrafts] = useState<Record<string, string>>({});
   const [summaryPath, setSummaryPath] = useState<string | null>(null);
 
   const loadTags = useCallback(async () => {
     const summary = await NyaApi.tagSummary();
     setTags(summary.items);
     setAliasDrafts(Object.fromEntries(summary.items.map((tag) => [tag.name, tag.aliases.join(", ")])));
+    setImplicationDrafts(Object.fromEntries(summary.items.map((tag) => [tag.name, tag.implications.join(", ")])));
   }, []);
 
   const filteredTags = useMemo(() => {
@@ -30,6 +32,11 @@ export function useAdminTags({ run }: UseAdminTagsOptions) {
       [tag.name, tag.category, ...tag.aliases].join(" ").toLowerCase().includes(needle)
     );
   }, [tagFilter, tags]);
+
+  const implicationsFromDraft = useCallback(
+    (name: string): string[] => Array.from(new Set((implicationDrafts[name] ?? "").split(/[,\n，]/).map((item) => item.trim()).filter(Boolean))),
+    [implicationDrafts]
+  );
 
   const aliasesFromDraft = useCallback(
     (name: string): string[] =>
@@ -56,6 +63,14 @@ export function useAdminTags({ run }: UseAdminTagsOptions) {
     [aliasesFromDraft, loadTags, run, t]
   );
 
+  const saveImplications = useCallback(
+    async (tagName: string) => {
+      await run(`tag-relations-${tagName}`, () => NyaApi.updateTagRelations(tagName, implicationsFromDraft(tagName)), (tag) => t("admin.tags.relationsSaved", { name: tag.name }));
+      await loadTags();
+    },
+    [implicationsFromDraft, loadTags, run, t]
+  );
+
   const exportTagSummary = useCallback(async () => {
     await run("tag-export", () => NyaApi.exportTagSummary(), (result) => {
       setSummaryPath(result.path);
@@ -70,9 +85,12 @@ export function useAdminTags({ run }: UseAdminTagsOptions) {
     setTagFilter,
     aliasDrafts,
     setAliasDrafts,
+    implicationDrafts,
+    setImplicationDrafts,
     summaryPath,
     loadTags,
     saveAliases,
+    saveImplications,
     exportTagSummary,
   };
 }

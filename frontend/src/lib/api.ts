@@ -263,6 +263,12 @@ export const NyaApi = {
       body: { aliases },
     }),
 
+  updateTagRelations: (tagName: string, implications: string[], suggestions?: string[]) =>
+    api<TagSuggestion>(`/api/tags/${encodeURIComponent(tagName)}/relations`, {
+      method: "PUT",
+      body: { implications, suggestions },
+    }),
+
   updateTagLabels: (tagName: string, labels: Record<string, string>) =>
     api<TagSuggestion>(`/api/tags/${encodeURIComponent(tagName)}/labels`, {
       method: "PUT",

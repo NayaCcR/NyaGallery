@@ -87,6 +87,7 @@ GET /api/assets/{asset_key}/thumb      # 公开可见资源
 | GET | `/api/tags/summary` | viewer；标签计数 |
 | POST | `/api/tags/summary/export` | admin；写出 `tags/summary.json` |
 | PUT | `/api/tags/{tag_name}/aliases` | admin；`{"aliases":["旧名"]}` |
+| PUT | `/api/tags/{tag_name}/relations` | admin；`{"implications":["上位标签"],"suggestions":["相关标签"]}`；循环关系返回 400 并保留原状态 |
 | PUT | `/api/tags/{tag_name}/labels` | admin；`{"labels":{"zh-CN":"…","en-US":"…"}}` |
 | POST | `/api/assets/{asset_key}/tags` | editor；`{"canonical_tags":["character:…"]}` |
 | DELETE | `/api/assets/{asset_key}` | editor；标记 `pending_cleanup` |

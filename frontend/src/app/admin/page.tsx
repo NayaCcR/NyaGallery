@@ -268,9 +268,12 @@ export default function AdminPage() {
     setTagFilter,
     aliasDrafts,
     setAliasDrafts,
+    implicationDrafts,
+    setImplicationDrafts,
     summaryPath,
     loadTags,
     saveAliases,
+    saveImplications,
     exportTagSummary,
   } = useAdminTags({ run });
 
@@ -994,10 +997,13 @@ export default function AdminPage() {
             onTagFilterChange={setTagFilter}
             aliasDrafts={aliasDrafts}
             onAliasDraftsChange={setAliasDrafts}
+            implicationDrafts={implicationDrafts}
+            onImplicationDraftsChange={setImplicationDrafts}
             summaryPath={summaryPath}
             onRefreshTags={() => run("tag-refresh", loadTags, () => t("admin.page.tagsRefreshed"))}
             onExportTagSummary={exportTagSummary}
             onSaveAliases={saveAliases}
+            onSaveImplications={saveImplications}
           />
           )}
 

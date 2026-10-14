@@ -56,7 +56,7 @@ Windows PowerShell 使用 `$env:NYA_API_BACKEND = "http://127.0.0.1:8001"`。Nex
 
 API 请求优先复用 `frontend/src/lib/api.ts`，让 cookie、CSRF 和错误格式保持一致。文件 URL 使用后端返回的资源链接，不能把服务器本地路径渲染到浏览器。
 
-Pixiv PID 管理输入支持纯 ID、Pixiv artworks URL、`member_illust.php?illust_id=...` 和多项分隔输入；解析在前端完成，每个作品独立调用单 PID API，避免改变后端单任务语义。
+标签目录支持 alias、labels、implications、suggestions。关系更新先在目录副本中校验自环和循环，再提交目录并刷新已有资源的派生标签索引；失败时回滚数据库与目录文件，不能用全量重建删除资源或 ACL。
 
 上传页目录拖放通过 `webkitGetAsEntry` 递归展开目录，读取失败时对该条目跳过；普通文件继续使用 `DataTransfer.files` 回退，所有文件汇入同一去重和进度队列。
 
