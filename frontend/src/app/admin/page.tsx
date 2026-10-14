@@ -727,7 +727,7 @@ export default function AdminPage() {
             onPixivRetryBaseChange={setPixivRetryBase}
             pixivRetryMax={pixivRetryMax}
             onPixivRetryMaxChange={setPixivRetryMax}
-            onSyncPixiv={syncPixiv}
+            onSyncPixiv={() => syncPixiv()}
             pixivLogs={pixivLogs}
             pixivPollingMode={pixivPollingMode}
             pixivLastUpdatedAt={pixivLastUpdatedAt}
@@ -781,7 +781,7 @@ export default function AdminPage() {
             onSaveToken={misskey.saveCurrentToken}
             onUpdateTokenLabel={misskey.updateTokenLabel}
             onRevokeToken={misskey.revokeToken}
-            onSync={syncMisskey}
+            onSync={() => syncMisskey()}
             logs={misskeyLogs}
             pollingMode={misskeyPollingMode}
             lastUpdatedAt={misskeyLastUpdatedAt}
