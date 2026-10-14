@@ -285,13 +285,18 @@ class MediaGenerator:
         progress: ProgressCallback | None = None,
         deadline: float | None = None,
     ) -> GeneratedMedia:
-        Image, ImageOps, ImageSequence = _load_pillow(self.limits)
+        Image, ImageOps, _ = _load_pillow(self.limits)
         _check_deadline(deadline)
         with Image.open(original_path) as source:
             frames = []
             durations = []
             first_frame_size: tuple[int, int] | None = None
-            total_frames = max(1, int(getattr(source, "n_frames", 1) or 1))
+            # APNG's optional default image is a poster, not an animation frame.
+            is_apng = source.format == "PNG"
+            first_index = 1 if is_apng and source.info.get("default_image") else 0
+            total_frames = max(1, int(getattr(source, "n_frames", 1) or 1)) - first_index
+            loop = int(source.info.get("loop") or 0)
+            _validate_frame_size(source.size, label="animation", limits=self.limits)
             if total_frames > self.limits.max_animation_frames:
                 raise MediaGenerationError(
                     f"animated image has too many frames: {total_frames} > {self.limits.max_animation_frames}"
@@ -299,20 +304,25 @@ class MediaGenerator:
             _check_animation_memory(total_frames, source.size, self.limits)
             start = time.perf_counter()
             last_emit = 0.0
-            for index, frame in enumerate(ImageSequence.Iterator(source), 1):
+            canvas = Image.new("RGBA", source.size) if is_apng else None
+            for index in range(1, total_frames + 1):
                 _check_deadline(deadline)
-                if index > self.limits.max_animation_frames:
-                    raise MediaGenerationError(
-                        f"animated image has too many frames: {index} > {self.limits.max_animation_frames}"
-                    )
-                _validate_frame_size(frame.size, label=f"frame {index}", limits=self.limits)
-                image = ImageOps.exif_transpose(frame)
+                source.seek(first_index + index - 1)
+                _validate_frame_size(source.size, label=f"frame {index}", limits=self.limits)
+                if is_apng:
+                    image, canvas = _composite_apng_frame(source, canvas)
+                    image = ImageOps.exif_transpose(image)
+                else:
+                    # Pillow handles GIF disposal during sequential seeking.
+                    image = ImageOps.exif_transpose(source)
+                duration = source.info.get("duration")
                 _validate_frame_size(image.size, label=f"frame {index}", limits=self.limits)
                 _check_animation_memory(total_frames, image.size, self.limits)
                 if first_frame_size is None:
                     first_frame_size = image.size
                 frames.append(_fit_image(image.convert("RGBA"), self.preview_max_edge))
-                durations.append(max(20, int(frame.info.get("duration") or source.info.get("duration") or 100)))
+                # WebP uses integer milliseconds; retain zero and short delays.
+                durations.append(100 if duration is None else max(0, round(float(duration))))
                 now = time.perf_counter()
                 if index == 1 or index == total_frames or now - last_emit >= 0.75:
                     elapsed = max(0.001, now - start)
@@ -326,7 +336,6 @@ class MediaGenerator:
                         frames_per_second=index / elapsed,
                     )
                     last_emit = now
-            loop = int(source.info.get("loop") or 0)
 
         if not frames:
             raise MediaGenerationError(f"animated image has no frames: {original_path}")
@@ -624,6 +633,33 @@ def _fit_image(image, max_edge: int):
 def _save_avif(image, path: Path, quality: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     image.save(path, format="AVIF", quality=quality)
+
+
+def _composite_apng_frame(source, canvas):
+    """Decode the APNG rectangle and composite with straight-alpha OVER.
+
+    Pillow's APNG OVER path uses masked paste, which also interpolates alpha
+    (e.g. half-transparent blue over opaque red becomes alpha 191, not 255).
+    Force SOURCE decoding, then composite the decoded rectangle ourselves.
+    Sequential seeking still lets the PNG decoder manage its stream state.
+    """
+    blend = source.info.get("blend", 0)
+    disposal = source.info.get("disposal", 0)
+    extent = source.dispose_extent
+    source.blend_op = 0
+    region = source.convert("RGBA").crop(extent)
+    previous = canvas.copy() if disposal == 2 else None
+    if blend == 1:
+        canvas.alpha_composite(region, dest=extent[:2])
+    else:
+        canvas.paste(region, extent)
+    displayed = canvas.copy()
+    displayed.info = source.info.copy()
+    if disposal == 1:
+        canvas.paste((0, 0, 0, 0), extent)
+    elif disposal == 2:
+        canvas = previous
+    return displayed, canvas
 
 
 def _save_animated_webp(frames, durations: list[int], path: Path, quality: int, *, loop: int = 0) -> None:
