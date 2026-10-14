@@ -755,6 +755,20 @@ def create_app(
     def api_storage_strategies(_principal: UploadPrincipal) -> dict[str, object]:
         return _storage_strategy_response(storage)
 
+    @app.get("/api/me/api-addresses")
+    def api_me_api_addresses(request: Request, _principal: ApiPrincipal) -> dict[str, object]:
+        base = str(request.base_url).rstrip("/")
+        asset = "<asset_key>"
+        return {
+            "base_url": base,
+            "metadata": f"{base}/api/assets/{asset}",
+            "preview": f"{base}/api/assets/{asset}/preview",
+            "original": f"{base}/api/assets/{asset}/original",
+            "thumb": f"{base}/api/assets/{asset}/thumb",
+            "short_link_create": f"{base}/api/assets/{asset}/short-links",
+            "required_scopes": {"metadata": "view", "preview": "view", "thumb": "view", "original": "download", "short_link_create": "edit_tags"},
+        }
+
     @app.get("/api/me")
     def api_me(request: Request, principal: ViewPrincipal) -> dict[str, object]:
         return {

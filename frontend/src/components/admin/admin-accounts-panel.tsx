@@ -1,7 +1,7 @@
 "use client";
 
-import type { Dispatch, SetStateAction } from "react";
-import { KeyRound, LockKeyhole, UserPlus } from "lucide-react";
+import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import { Copy, KeyRound, LockKeyhole, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,7 +9,8 @@ import { EmptyLine } from "@/components/admin/admin-fields";
 import { TokenList } from "@/components/admin/admin-operation-rows";
 import { useI18n } from "@/components/providers/locale-provider";
 import { cn } from "@/lib/utils";
-import type { ApiTokenSummary, Role, UserSummary } from "@/lib/types";
+import { NyaApi } from "@/lib/api";
+import type { ApiAddressesResponse, ApiTokenSummary, Role, UserSummary } from "@/lib/types";
 
 const ADMIN_CREATABLE_ROLES: Role[] = ["viewer", "editor", "admin"];
 const DEVELOPER_CREATABLE_ROLES: Role[] = [...ADMIN_CREATABLE_ROLES, "developer"];
@@ -86,9 +87,26 @@ export function AdminAccountsPanel({
   const { t } = useI18n();
   const activeTokenTarget = isAdmin ? tokenTarget : currentUsername;
   const creatableRoles = isDeveloper ? DEVELOPER_CREATABLE_ROLES : ADMIN_CREATABLE_ROLES;
+  const [apiAddresses, setApiAddresses] = useState<ApiAddressesResponse | null>(null);
+  useEffect(() => {
+    let active = true;
+    NyaApi.apiAddresses().then((response) => { if (active) setApiAddresses(response); }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
 
   return (
     <>
+      {apiAddresses && (
+        <section className="space-y-3 rounded-lg border border-border bg-card p-6 shadow-sm">
+          <h2 className="flex items-center gap-2 text-sm font-medium"><KeyRound className="h-4 w-4" /> {t("admin.accounts.apiAddresses")}</h2>
+          <p className="text-xs text-muted-foreground">{t("admin.accounts.apiAddressesHint")}</p>
+          <div className="space-y-2">
+            {(["metadata", "preview", "thumb", "original", "short_link_create"] as const).map((key) => (
+              <div key={key} className="flex items-center gap-2"><code className="min-w-0 flex-1 overflow-x-auto rounded border border-border bg-muted/30 px-2 py-1 text-xs">{apiAddresses[key]}</code><Button variant="ghost" size="icon" title={t("admin.accounts.copyAddress")} onClick={() => void navigator.clipboard?.writeText(apiAddresses[key])}><Copy className="h-4 w-4" /></Button></div>
+            ))}
+          </div>
+        </section>
+      )}
       {isAdmin && (
         <section className="space-y-3 rounded-lg border border-border bg-card p-6 shadow-sm">
           <h2 className="flex items-center gap-2 text-sm font-medium">

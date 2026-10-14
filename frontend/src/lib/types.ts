@@ -203,6 +203,16 @@ export interface AssetApiExamplesResponse {
   formats: Record<string, Record<string, string>>;
 }
 
+export interface ApiAddressesResponse {
+  base_url: string;
+  metadata: string;
+  preview: string;
+  original: string;
+  thumb: string;
+  short_link_create: string;
+  required_scopes: Record<string, string>;
+}
+
 export interface PixivTagDetail {
   name: string;
   translated_name: string | null;

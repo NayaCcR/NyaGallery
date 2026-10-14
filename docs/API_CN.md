@@ -57,6 +57,7 @@ Content-Type: application/json
 | GET | `/health` | 健康和存储/Redis 状态 |
 | GET | `/api/site/config` | 站点名称、logo、备案和布局 |
 | GET | `/api/me` | 当前用户、角色、权限和鉴权方式 |
+| GET | `/api/me/api-addresses` | 需要 api 权限；返回当前请求 Host 下的资源 metadata、preview、thumb、original 和短链接创建地址模板及所需 scope |
 | GET | `/api/storage/strategies` | 当前用户可用的原图策略 |
 | GET | `/api/search?q=tag&limit=50&offset=0&sort=asset_key&order=asc` | 资源搜索 |
 | GET | `/api/posts?source=misskey_io&limit=20&offset=0` | 帖子列表 |
