@@ -62,7 +62,7 @@ Pixiv PID 管理输入支持纯 ID、Pixiv artworks URL、`member_illust.php?ill
 
 管理操作日志在客户端支持关键字搜索、状态过滤和 JSON 导出；搜索针对返回日志的序列化字段，导出只包含当前筛选结果。
 
-服务端远程 URL 拉取必须限制为 HTTP(S) 公网主机，拒绝私有、回环、链路本地和保留 IP；禁用未验证的重定向，并限制超时、响应体大小和允许的 MIME 类型，防止 SSRF 与资源耗尽。
+服务端远程 URL 拉取集中于 `remote_upload.py`，仅允许无用户信息的 HTTP(S) URL。单次 DNS 结果中的每个地址都必须为全局可路由单播地址，IPv4 映射 IPv6 还要检查其 IPv4 地址；底层 socket 直接连接已验证的数值地址，不能校验后再按主机名解析。HTTPS 使用默认信任库和原域名 SNI/hostname 校验；不使用环境代理，不跟随任何重定向。端点通过线程池调用下载函数，并在复用上传链路后关闭内存文件流。下载限制为站点上限与 100 MiB 中的较小值，10 秒连接/读写超时和 30 秒总预算（含 DNS 等待），总时限通过关闭传输 socket 中断慢速响应。系统 DNS 调用本身无法取消；超时后守护解析线程可继续等待系统返回，但不会建立连接。响应 MIME 仅检查上游 `image/*` 声明，不能宣称完成内容解码验证。客户端只接收通用网络错误；测试使用模拟 DNS/socket/TLS，不真实抓取外网。
 
 EXIF 提取集中于 `exif.py`，使用 Pillow `get_ifd` 解引用 EXIF/GPS 子目录，各字段独立校验；损坏 GPS 不应丢失设备和时间。上传队列传 `File.lastModified`，API 校验毫秒单位与范围后才写原图；远程上传显式传空来源时间。本地迁移读取源文件 mtime，保留已有 extra 和 artwork_date。`media.exif_timezone` 在配置读写和环境覆盖中保持一致；IANA 时区依赖系统数据库或可选安装的 tzdata，无数据库时可用固定偏移。
 
