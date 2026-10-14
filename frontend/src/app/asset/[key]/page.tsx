@@ -227,8 +227,8 @@ export default function AssetDetailPage() {
             <ArrowLeft className="h-4 w-4" /> {t("common.back")}
           </Button>
           <div className="flex items-center gap-1 rounded-md border border-border p-1">
-            <Button variant={fitMode === "fill" ? "secondary" : "ghost"} size="sm" onClick={() => setFitMode("fill")}>{t("common.fill")}</Button>
-            <Button variant={fitMode === "fit" ? "secondary" : "ghost"} size="sm" onClick={() => setFitMode("fit")}>{t("common.fit")}</Button>
+            <Button variant={fitMode === "fill" ? "secondary" : "ghost"} size="sm" aria-pressed={fitMode === "fill"} onClick={() => setFitMode("fill")}>{t("common.fill")}</Button>
+            <Button variant={fitMode === "fit" ? "secondary" : "ghost"} size="sm" aria-pressed={fitMode === "fit"} onClick={() => setFitMode("fit")}>{t("common.fit")}</Button>
           </div>
         </div>
         <div className="space-y-4">
@@ -555,6 +555,7 @@ function AssetPageImage({
             onError={() => setLoaded(true)}
             className={cn(
               "h-auto w-full",
+              fitMode === "fit" && "max-h-[calc(100dvh-8rem)] object-contain",
               isGif ? "bg-muted" : "bg-black",
               loaded ? "block" : "absolute inset-0 opacity-0"
             )}
@@ -568,7 +569,8 @@ function AssetPageImage({
             alt={asset.title || asset.asset_key}
             onLoad={() => setLoaded(true)}
             className={cn(
-              cn("h-auto w-full bg-muted", fitMode === "fit" ? "object-contain" : "object-cover"),
+              "h-auto w-full bg-muted",
+              fitMode === "fit" ? "max-h-[calc(100dvh-8rem)] object-contain" : "object-cover",
               loaded ? "block" : "absolute inset-0 opacity-0"
             )}
           />
