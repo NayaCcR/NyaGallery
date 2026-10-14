@@ -20,7 +20,10 @@
       "virtualFoldersHint": "Saved tag queries; changing them never moves physical files.",
       "folderName": "Folder name",
       "folderQuery": "Tag query",
-      "createFolder": "Save folder"
+      "createFolder": "Save folder",
+      "shareLogs": "Share access logs",
+      "shareLogsHint": "Review recent share-link access status, assets and timestamps.",
+      "emptyShareLogs": "No share access logs"
     },
     "migration": {
       "loadFailed": "Migration settings failed to load",

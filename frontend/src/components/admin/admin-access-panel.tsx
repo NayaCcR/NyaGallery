@@ -21,12 +21,14 @@ export function AdminAccessPanel() {
   const [folderName, setFolderName] = useState("");
   const [folderQuery, setFolderQuery] = useState("");
   const [busy, setBusy] = useState(false);
+  const [shareLogs, setShareLogs] = useState<Array<{ id: number; asset_key: string; status: string; client_ip: string; user_agent: string; created_at: string | null }>>([]);
 
   async function refresh() {
-    const [access, roleGroups, virtualFolders] = await Promise.all([
-      NyaApi.accessGroups(), NyaApi.permissionGroups(), NyaApi.virtualFolders(),
+    const [access, roleGroups, virtualFolders, logs] = await Promise.all([
+      NyaApi.accessGroups(), NyaApi.permissionGroups(), NyaApi.virtualFolders(), NyaApi.shareAccessLogs(),
     ]);
     setGroups(access.items);
+    setShareLogs(logs.items);
     setPermissions(roleGroups.items);
     setFolders(virtualFolders.items);
   }
@@ -82,6 +84,11 @@ export function AdminAccessPanel() {
       <div><h2 className="flex items-center gap-2 text-sm font-medium"><FolderTree className="h-4 w-4" />{t("admin.access.virtualFolders")}</h2><p className="mt-1 text-xs text-muted-foreground">{t("admin.access.virtualFoldersHint")}</p></div>
       <div className="grid gap-3 md:grid-cols-[1fr_2fr_auto] md:items-end"><div className="space-y-1.5"><Label>{t("admin.access.folderName")}</Label><Input value={folderName} onChange={(event) => setFolderName(event.target.value)} /></div><div className="space-y-1.5"><Label>{t("admin.access.folderQuery")}</Label><Input value={folderQuery} onChange={(event) => setFolderQuery(event.target.value)} placeholder="tag:type/static" /></div><Button disabled={busy || !folderName.trim() || !folderQuery.trim()} onClick={createFolder}>{t("admin.access.createFolder")}</Button></div>
       <div className="space-y-2">{folders.map((folder) => <div key={folder.name} className="rounded-md border border-border p-3 text-xs"><div className="font-medium">{folder.name}</div><code className="text-muted-foreground">{folder.query}</code></div>)}</div>
+    </section>
+
+    <section className="space-y-4 rounded-lg border border-border bg-card p-6 shadow-sm">
+      <div><h2 className="flex items-center gap-2 text-sm font-medium">{t("admin.access.shareLogs")}</h2><p className="mt-1 text-xs text-muted-foreground">{t("admin.access.shareLogsHint")}</p></div>
+      <div className="divide-y divide-border rounded-md border border-border">{shareLogs.length === 0 ? <p className="p-3 text-xs text-muted-foreground">{t("admin.access.emptyShareLogs")}</p> : shareLogs.map((log) => <div key={log.id} className="grid gap-1 p-3 text-xs sm:grid-cols-[1fr_100px_170px]"><code>{log.asset_key}</code><span className="text-muted-foreground">{log.status}</span><span className="text-muted-foreground">{log.created_at ?? "-"}</span><span className="truncate text-muted-foreground sm:col-span-3">{log.user_agent || log.client_ip || "-"}</span></div>)}</div>
     </section>
   </div>;
 }
