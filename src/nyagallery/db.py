@@ -20,6 +20,7 @@ from nyagallery.auth import (
     hash_opaque_token,
     hash_password,
     hash_secret,
+    permissions_for_role,
     token_prefix,
     validate_role,
     verify_opaque_token,
@@ -231,6 +232,7 @@ class UserTokenModel(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_used_ip: Mapped[str | None] = mapped_column(String(120), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    scopes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
 
@@ -594,6 +596,7 @@ def init_database(engine: Engine) -> None:
         session.commit()
     _ensure_column(engine, "user_tokens", "last_used_at", "DATETIME")
     _ensure_column(engine, "user_tokens", "last_used_ip", "VARCHAR(120)")
+    _ensure_column(engine, "user_tokens", "scopes", "JSON")
     _ensure_column(engine, "upload_logs", "asset_key", "VARCHAR(160)")
     _ensure_column(engine, "upload_logs", "uploader_user_id", "INTEGER")
     _ensure_column(engine, "upload_logs", "uploader_username", "VARCHAR(80)")
@@ -1379,11 +1382,27 @@ def change_user_password(session: Session, user_id: int, old_password: str, new_
     return user
 
 
+def _normalize_token_scopes(role: str, scopes: list[str] | None) -> list[str] | None:
+    if scopes is None:
+        return None
+    normalized = [str(scope).strip().lower() for scope in scopes]
+    if not normalized or any(not scope for scope in normalized):
+        raise ValueError("scopes must not be empty")
+    if len(set(normalized)) != len(normalized):
+        raise ValueError("scopes must not contain duplicates")
+    allowed = permissions_for_role(role)
+    unknown = sorted(set(normalized) - allowed)
+    if unknown:
+        raise ValueError(f"scopes exceed role permissions: {', '.join(unknown)}")
+    return sorted(normalized)
+
+
 def issue_api_token(
     session: Session,
     username: str,
     *,
     label: str = "",
+    scopes: list[str] | None = None,
     created_by_user_id: int | None = None,
     created_by_username: str | None = None,
 ) -> str:
@@ -1396,6 +1415,7 @@ def issue_api_token(
         token_prefix=token_prefix(token),
         token_hash=hash_secret(token),
         label=label.strip(),
+        scopes=_normalize_token_scopes(user.role, scopes),
         created_by_user_id=created_by_user_id,
         created_by_username=created_by_username,
     )
@@ -1405,13 +1425,13 @@ def issue_api_token(
     return token
 
 
-def authenticate_api_token(
+def authenticate_api_token_with_scopes(
     session: Session,
     token: str,
     *,
     record_usage: bool = False,
     client_ip: str | None = None,
-) -> UserModel | None:
+) -> tuple[UserModel, frozenset[str] | None] | None:
     prefix = token_prefix(token)
     row = session.scalar(
         select(UserTokenModel).where(
@@ -1426,9 +1446,8 @@ def authenticate_api_token(
                 row.last_used_at = now_utc()
                 row.last_used_ip = (client_ip or "")[:120] or None
                 session.flush()
-            return user
+            return user, (frozenset(row.scopes) if row.scopes is not None else None)
 
-    # Legacy single-token column support.
     user = session.scalar(
         select(UserModel).where(
             UserModel.api_token_prefix == prefix,
@@ -1436,8 +1455,21 @@ def authenticate_api_token(
         )
     )
     if user and user.api_token_hash and verify_secret(token, user.api_token_hash):
-        return user
+        return user, None
     return None
+
+
+def authenticate_api_token(
+    session: Session,
+    token: str,
+    *,
+    record_usage: bool = False,
+    client_ip: str | None = None,
+) -> UserModel | None:
+    authenticated = authenticate_api_token_with_scopes(
+        session, token, record_usage=record_usage, client_ip=client_ip
+    )
+    return authenticated[0] if authenticated else None
 
 
 def list_api_tokens(session: Session, username: str) -> list[UserTokenModel]:
@@ -1451,6 +1483,18 @@ def list_api_tokens(session: Session, username: str) -> list[UserTokenModel]:
             .order_by(UserTokenModel.created_at.desc(), UserTokenModel.id.desc())
         ).all()
     )
+
+
+def update_api_token_scopes(session: Session, token_id: int, scopes: list[str] | None) -> UserTokenModel:
+    row = session.get(UserTokenModel, token_id)
+    if row is None:
+        raise ValueError(f"token not found: {token_id}")
+    user = session.get(UserModel, row.user_id)
+    if user is None:
+        raise ValueError(f"user not found: {row.user_id}")
+    row.scopes = _normalize_token_scopes(user.role, scopes)
+    session.commit()
+    return row
 
 
 def revoke_api_token(session: Session, token_id: int) -> UserTokenModel:
@@ -1476,6 +1520,7 @@ def api_token_to_dict(token: UserTokenModel) -> dict[str, object]:
         "user_id": token.user_id,
         "token_prefix": token.token_prefix,
         "label": token.label,
+        "scopes": sorted(token.scopes) if token.scopes is not None else None,
         "created_by_user_id": token.created_by_user_id,
         "created_by_username": token.created_by_username,
         "last_used_at": _datetime_to_iso(token.last_used_at),

@@ -1,4 +1,4 @@
-import type {
+import type { ApiTokenSummary,
   AccessLogResponse,
   AssetSiblingResponse,
   ApiTokenListResponse,
@@ -597,14 +597,19 @@ export const NyaApi = {
       body: { new_password: newPassword },
     }),
 
-  issueToken: (username: string, label = "") =>
+  issueToken: (username: string, label = "", scopes?: string[]) =>
     api<IssueTokenResponse>(
       `/api/users/${encodeURIComponent(username)}/token`,
-      { method: "POST", body: { label } }
+      { method: "POST", body: { label, scopes } }
     ),
 
   userTokens: (username: string) =>
     api<ApiTokenListResponse>(`/api/users/${encodeURIComponent(username)}/tokens`),
+
+  updateTokenScopes: (tokenId: number, scopes?: string[]) =>
+    api<ApiTokenSummary>(`/api/tokens/${encodeURIComponent(String(tokenId))}`, {
+      method: "PATCH", body: { scopes },
+    }),
 
   revokeToken: (tokenId: number) =>
     api<{ id: number; is_active: boolean; revoked_at: string | null }>(

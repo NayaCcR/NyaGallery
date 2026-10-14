@@ -49,9 +49,14 @@ class Principal:
     username: str
     role: str
     user_id: int | None = None
+    permissions: frozenset[str] | None = None
+
+    def effective_permissions(self) -> frozenset[str]:
+        role_permissions = permissions_for_role(self.role)
+        return role_permissions if self.permissions is None else role_permissions & self.permissions
 
     def has_permission(self, permission: str) -> bool:
-        return permission in permissions_for_role(self.role)
+        return permission in self.effective_permissions()
 
 
 def permissions_for_role(role: str) -> frozenset[str]:

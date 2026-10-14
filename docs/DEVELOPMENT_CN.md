@@ -54,6 +54,8 @@ Windows PowerShell 使用 `$env:NYA_API_BACKEND = "http://127.0.0.1:8001"`。Nex
 
 页面位于 `frontend/src/app`，可复用 UI 在 `components/ui`，后台业务面板在 `components/admin`，请求 hooks 在 `hooks`，类型集中在 `lib/types.ts`。新增文案同时修改 `src/lang/zh-CN.json` 和 `en-US.json`，使用 `useI18n().t(...)`，不要在组件里硬编码语言分支。
 
+API Token 支持可选 scopes。旧记录的 null scopes 按当前用户角色权限兼容计算；显式 scopes 必须同时���目标角色和调用者 effective permissions 的子集，不能通过签发或更新 Token 提权。撤销和角色降级立即影响有效权限；Token 列表不得输出 secret、hash 或完整 Token。旧数据库启动时自动增加 scopes 列。
+
 API 请求优先复用 `frontend/src/lib/api.ts`，让 cookie、CSRF 和错误格式保持一致。文件 URL 使用后端返回的资源链接，不能把服务器本地路径渲染到浏览器。
 
 标签目录支持 alias、labels、implications、suggestions。关系更新先在目录副本中校验自环和循环，再提交目录并刷新已有资源的派生标签索引；失败时回滚数据库与目录文件，不能用全量重建删除资源或 ACL。

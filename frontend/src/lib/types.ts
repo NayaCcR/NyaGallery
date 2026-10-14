@@ -977,6 +977,7 @@ export interface ApiTokenSummary {
   user_id: number;
   token_prefix: string;
   label: string;
+  scopes: string[] | null;
   created_by_user_id: number | null;
   created_by_username: string | null;
   last_used_at: string | null;

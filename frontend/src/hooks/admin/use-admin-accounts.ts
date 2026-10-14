@@ -19,6 +19,7 @@ export function useAdminAccounts({ run, onError }: UseAdminAccountsOptions) {
   const [users, setUsers] = useState<UserSummary[]>([]);
   const [tokenTarget, setTokenTarget] = useState("");
   const [tokenLabel, setTokenLabel] = useState("");
+  const [tokenScopes, setTokenScopes] = useState("view, api");
   const [issuedToken, setIssuedToken] = useState<string | null>(null);
   const [apiTokens, setApiTokens] = useState<ApiTokenSummary[]>([]);
 
@@ -85,13 +86,13 @@ export function useAdminAccounts({ run, onError }: UseAdminAccountsOptions) {
     async (username: string) => {
       const target = username.trim();
       if (!target) return;
-      await run("token", () => NyaApi.issueToken(target, tokenLabel.trim()), (result) => {
+      await run("token", () => NyaApi.issueToken(target, tokenLabel.trim(), tokenScopes.split(/[,\n，]/).map((item) => item.trim()).filter(Boolean)), (result) => {
         setIssuedToken(result.token);
         void loadTokensFor(target, false);
         return t("admin.accounts.tokenIssued");
       });
     },
-    [loadTokensFor, run, t, tokenLabel]
+    [loadTokensFor, run, t, tokenLabel, tokenScopes]
   );
 
   const createUser = useCallback(async () => {
@@ -144,6 +145,14 @@ export function useAdminAccounts({ run, onError }: UseAdminAccountsOptions) {
     [onError, run, t, userPasswordDrafts]
   );
 
+  const updateTokenScopes = useCallback(
+    async (tokenId: number, scopes: string[] | null) => {
+      const result = await run(`token-scopes-${tokenId}`, () => NyaApi.updateTokenScopes(tokenId, scopes ?? undefined), () => t("admin.accounts.tokenScopesUpdated"));
+      if (result) setApiTokens((tokens) => tokens.map((token) => token.id === result.id ? result : token));
+    },
+    [loadTokensFor, run, t, tokenTarget]
+  );
+
   return {
     newUser,
     setNewUser,
@@ -158,12 +167,15 @@ export function useAdminAccounts({ run, onError }: UseAdminAccountsOptions) {
     setTokenTarget,
     tokenLabel,
     setTokenLabel,
+    tokenScopes,
+    setTokenScopes,
     issuedToken,
     apiTokens,
     loadTokensFor,
     loadUserTokens,
     revokeUserToken,
     issueTokenForTarget,
+    updateTokenScopes,
     createUser,
     changePassword,
     resetUserPassword,

@@ -44,3 +44,7 @@
 ## 迁移与回滚
 
 Importer 先读取源、转换 Asset、只读校验 SHA256，再复制或硬链接原图，保留 `external_refs`。目标写入失败时不修改源；目标目录可使用转换命令生成的备份恢复。Lsky importer 重新计算 SHA256，不把源数据库表直接复制到目标库。
+
+## API Token
+
+API Token 响应只包含 `token_prefix`、`label`、`scopes`、使用时间和撤销状态等元数据，不包含 secret、hash 或完整 Token。`scopes: null` 表示兼容旧行为，按用户当前 role 权限计算；非 null 时为规范化权限名数组，且不能超过调用者和目标角色权限。旧数据库初始化时自动增加 scopes 字段。

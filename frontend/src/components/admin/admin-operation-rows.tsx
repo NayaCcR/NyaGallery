@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { RotateCcw, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyLine } from "@/components/admin/admin-fields";
@@ -557,12 +558,15 @@ export function TokenList({
   tokens,
   busy,
   onRevoke,
+  onUpdateScopes,
 }: {
   tokens: ApiTokenSummary[];
   busy: string | null;
   onRevoke: (tokenId: number) => void;
+  onUpdateScopes?: (tokenId: number, scopes: string[] | null) => void;
 }) {
   const { t } = useI18n();
+  const [scopeDrafts, setScopeDrafts] = useState<Record<number, string>>({});
 
   if (tokens.length === 0) {
     return <EmptyLine text={t("admin.tokens.empty")} />;
@@ -583,9 +587,20 @@ export function TokenList({
               {item.last_used_ip || t("admin.tokens.noIp")}
             </div>
           </div>
+          <div className="min-w-0 text-muted-foreground">
+            <div className="break-words">{item.scopes == null ? t("admin.tokens.legacyScopes") : item.scopes.join(", ") || t("admin.tokens.noScopes")}</div>
+            {item.is_active && onUpdateScopes && (
+              <input aria-label={t("admin.tokens.updateScopes")} className="mt-1 w-full min-w-0 rounded-md border border-input bg-background px-2 py-1" value={scopeDrafts[item.id] ?? item.scopes?.join(", ") ?? ""} onChange={(event) => setScopeDrafts((drafts) => ({ ...drafts, [item.id]: event.target.value }))} disabled={busy !== null} placeholder="view, api" />
+            )}
+          </div>
           <div className={item.is_active ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}>
             {item.is_active ? t("admin.tokens.active") : t("admin.tokens.revoked")}
           </div>
+          {item.is_active && onUpdateScopes && (
+            <Button size="sm" variant="ghost" disabled={busy !== null || !scopeDrafts[item.id]?.trim()} onClick={() => onUpdateScopes(item.id, scopeDrafts[item.id].split(/[,\n，]/).map((value) => value.trim()).filter(Boolean))}>
+              {t("admin.tokens.updateScopes")}
+            </Button>
+          )}
           <Button
             size="sm"
             variant="outline"

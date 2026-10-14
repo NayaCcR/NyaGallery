@@ -155,7 +155,8 @@ X：`GET /api/sync/x/config`、`GET /api/sync/x/logs`、`POST /api/sync/x/posts`
 | --- | --- | --- |
 | POST/GET | `/api/users` | admin 创建/列出用户 |
 | POST | `/api/users/{username}/password` | admin 重设密码 |
-| POST/GET | `/api/users/{username}/token(s)` | 签发/列出 Bearer Token |
+| POST/GET | `/api/users/{username}/token(s)` | 签发/列出 Bearer Token，可选 `scopes` 权限集合；不能超出调用者和目标角色权限 |
+| PATCH | `/api/tokens/{token_id}` | 更新 Token scopes，撤销/角色降级立即影响有效权限 |
 | DELETE | `/api/tokens/{token_id}` | 撤销 Token |
 | GET | `/api/access/permission-groups` | admin；列出 `viewer`、`editor`、`admin`、`developer` 及其权限标识 |
 | GET/POST | `/api/access/groups` | admin；列出或创建资源共享访问组，创建请求为 `{"name":"组名","member_usernames":["alice"]}` |

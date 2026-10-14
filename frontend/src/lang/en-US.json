@@ -542,6 +542,8 @@
       "existingUsersHint": "Regular users can be reset here; admin/developer passwords must be changed by the account owner above or through the developer console.",
       "issue": "Issue",
       "issueToken": "Issue API Token",
+      "tokenScopes": "Permission scopes",
+      "tokenScopesUpdated": "Token scopes updated",
       "newPassword": "New password",
       "oldPassword": "Old password",
       "passwordMismatch": "The two new passwords do not match",
@@ -864,6 +866,9 @@
       "title": "Tag Aliases"
     },
     "tokens": {
+      "legacyScopes": "Current role permissions",
+      "noScopes": "No permissions",
+      "updateScopes": "Save scopes",
       "active": "Active",
       "empty": "No API tokens yet",
       "noIp": "No IP",

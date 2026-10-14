@@ -65,6 +65,7 @@ from nyagallery.db import (
     api_token_to_dict,
     asset_to_dict,
     authenticate_api_token,
+    authenticate_api_token_with_scopes,
     authenticate_login_session,
     authenticate_user,
     backfill_source_tag_index,
@@ -134,6 +135,7 @@ from nyagallery.db import (
     release_registration_invite,
     search_asset_dicts,
     revoke_api_token,
+    update_api_token_scopes,
     revoke_misskey_token,
     revoke_registration_invite,
     revoke_x_token,
@@ -350,6 +352,11 @@ class PasswordResetRequest(BaseModel):
 
 class TokenCreate(BaseModel):
     label: str = ""
+    scopes: list[str] | None = None
+
+
+class TokenScopesUpdate(BaseModel):
+    scopes: list[str] | None = None
 
 
 class PixivTokenCreate(BaseModel):
@@ -723,7 +730,7 @@ def create_app(
             "username": principal.username,
             "role": principal.role,
             "user_id": principal.user_id,
-            "permissions": sorted(permissions_for_role(principal.role)),
+            "permissions": sorted(principal.effective_permissions()),
             "auth_method": getattr(request.state, "nyagallery_auth_method", "guest"),
             "csrf_token": getattr(request.state, "nyagallery_csrf_token", None),
         }
@@ -2987,10 +2994,17 @@ def create_app(
         request: TokenCreate | None = None,
     ) -> dict[str, object]:
         _require_self_or_admin(username, principal)
+        requested_scopes = request.scopes if request else None
+        if principal.permissions is not None:
+            allowed = principal.effective_permissions()
+            requested_scopes = sorted(allowed if requested_scopes is None else set(requested_scopes))
+            if not set(requested_scopes).issubset(allowed):
+                raise HTTPException(status_code=403, detail="token scopes cannot exceed caller scopes")
         token = issue_api_token(
             db,
             username,
             label=request.label if request else "",
+            scopes=requested_scopes,
             created_by_user_id=principal.user_id,
             created_by_username=principal.username,
         )
@@ -3004,6 +3018,27 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return {"items": [api_token_to_dict(token) for token in tokens]}
+
+    @app.patch("/api/tokens/{token_id}")
+    def api_update_token_scopes(
+        token_id: int,
+        request: TokenScopesUpdate,
+        db: DbSession,
+        principal: ApiPrincipal,
+    ) -> dict[str, object]:
+        if not _is_admin_principal(principal) and not api_token_belongs_to_user(db, token_id, principal.user_id):
+            raise HTTPException(status_code=403, detail="permission denied")
+        requested_scopes = request.scopes
+        if principal.permissions is not None:
+            allowed = principal.effective_permissions()
+            requested_scopes = sorted(allowed if requested_scopes is None else set(requested_scopes))
+            if not set(requested_scopes).issubset(allowed):
+                raise HTTPException(status_code=403, detail="token scopes cannot exceed caller scopes")
+        try:
+            token = update_api_token_scopes(db, token_id, requested_scopes)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return api_token_to_dict(token)
 
     @app.delete("/api/tokens/{token_id}")
     def api_revoke_token(token_id: int, db: DbSession, principal: ApiPrincipal) -> dict[str, object]:
@@ -3292,7 +3327,7 @@ def _role_has_admin_permission(role: str) -> bool:
 
 
 def _is_admin_principal(principal: Principal) -> bool:
-    return _role_has_admin_permission(principal.role)
+    return principal.has_permission("admin")
 
 
 def _is_developer_principal(principal: Principal) -> bool:
@@ -5330,10 +5365,11 @@ def _request_identity(request: Request, db: Session, *, client_ip_value: str) ->
     authorization = request.headers.get("authorization", "")
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() == "bearer" and token.strip():
-        user = authenticate_api_token(db, token.strip(), record_usage=True, client_ip=client_ip_value)
-        if user is None:
+        authenticated = authenticate_api_token_with_scopes(db, token.strip(), record_usage=True, client_ip=client_ip_value)
+        if authenticated is None:
             return {"user_id": None, "username": None, "role": None, "auth_method": "bearer"}
-        return {"user_id": user.id, "username": user.username, "role": user.role, "auth_method": "bearer"}
+        user, scopes = authenticated
+        return {"user_id": user.id, "username": user.username, "role": user.role, "permissions": sorted(scopes) if scopes is not None else None, "auth_method": "bearer"}
 
     session_token = request.cookies.get(SESSION_COOKIE, "")
     authenticated = authenticate_login_session(db, session_token)
@@ -5354,6 +5390,7 @@ def _attach_request_identity(request: Request, identity: dict[str, object]) -> N
     request.state.nyagallery_user_id = identity.get("user_id")
     request.state.nyagallery_username = identity.get("username")
     request.state.nyagallery_role = identity.get("role")
+    request.state.nyagallery_permissions = identity.get("permissions")
     request.state.nyagallery_csrf_token = identity.get("csrf_token")
 
 
@@ -5631,7 +5668,9 @@ def _principal_from_state(request: Request) -> Principal | None:
     if not username or not role or role == "guest":
         return None
     user_id = getattr(request.state, "nyagallery_user_id", None)
-    return Principal(str(username), str(role), user_id if isinstance(user_id, int) else None)
+    raw_permissions = getattr(request.state, "nyagallery_permissions", None)
+    permissions = frozenset(raw_permissions) if isinstance(raw_permissions, (list, tuple, set, frozenset)) else None
+    return Principal(str(username), str(role), user_id if isinstance(user_id, int) else None, permissions)
 
 
 def _require_self_or_admin(username: str, principal: Principal) -> None:
@@ -5652,12 +5691,15 @@ def require_permission(permission: str):
         state_auth_method = getattr(request.state, "nyagallery_auth_method", None)
         if credentials:
             if state_auth_method == "bearer" and state_principal:
-                if permission in permissions_for_role(state_principal.role):
+                if state_principal.has_permission(permission):
                     return state_principal
                 raise HTTPException(status_code=403, detail="permission denied")
-            user = authenticate_api_token(db, credentials.credentials)
-            if user and permission in permissions_for_role(user.role):
-                return Principal(user.username, user.role, user.id)
+            authenticated = authenticate_api_token_with_scopes(db, credentials.credentials)
+            if authenticated:
+                user, scopes = authenticated
+                principal = Principal(user.username, user.role, user.id, scopes)
+                if principal.has_permission(permission):
+                    return principal
             raise HTTPException(status_code=403, detail="permission denied")
 
         session_token = request.cookies.get(SESSION_COOKIE, "")

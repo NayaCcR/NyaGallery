@@ -218,6 +218,9 @@ export default function AdminPage() {
     setTokenTarget,
     tokenLabel,
     setTokenLabel,
+    tokenScopes,
+    setTokenScopes,
+    updateTokenScopes,
     issuedToken,
     apiTokens,
     loadTokensFor,
@@ -1042,6 +1045,9 @@ export default function AdminPage() {
           onTokenTargetChange={setTokenTarget}
           tokenLabel={tokenLabel}
           onTokenLabelChange={setTokenLabel}
+          tokenScopes={tokenScopes}
+          onTokenScopesChange={setTokenScopes}
+          onUpdateTokenScopes={updateTokenScopes}
           issuedToken={issuedToken}
           apiTokens={apiTokens}
           onLoadTokens={loadUserTokens}

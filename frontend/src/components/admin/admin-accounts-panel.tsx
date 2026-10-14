@@ -38,11 +38,14 @@ type AdminAccountsPanelProps = {
   onTokenTargetChange: (value: string) => void;
   tokenLabel: string;
   onTokenLabelChange: (value: string) => void;
+  tokenScopes: string;
+  onTokenScopesChange: (value: string) => void;
   issuedToken: string | null;
   apiTokens: ApiTokenSummary[];
   onLoadTokens: (username: string) => unknown;
   onIssueToken: (username: string) => unknown;
   onRevokeToken: (tokenId: number, username: string) => unknown;
+  onUpdateTokenScopes: (tokenId: number, scopes: string[] | null) => unknown;
   passwordDraft: PasswordDraft;
   onPasswordDraftChange: Dispatch<SetStateAction<PasswordDraft>>;
   users: UserSummary[];
@@ -64,11 +67,14 @@ export function AdminAccountsPanel({
   onTokenTargetChange,
   tokenLabel,
   onTokenLabelChange,
+  tokenScopes,
+  onTokenScopesChange,
   issuedToken,
   apiTokens,
   onLoadTokens,
   onIssueToken,
   onRevokeToken,
+  onUpdateTokenScopes,
   passwordDraft,
   onPasswordDraftChange,
   users,
@@ -139,6 +145,10 @@ export function AdminAccountsPanel({
             <Label>{t("admin.accounts.tokenLabel")}</Label>
             <Input value={tokenLabel} onChange={(e) => onTokenLabelChange(e.target.value)} placeholder={t("admin.accounts.tokenLabelPlaceholder")} />
           </div>
+          <div className="grow space-y-1.5">
+            <Label htmlFor="token-scopes">{t("admin.accounts.tokenScopes")}</Label>
+            <Input id="token-scopes" value={tokenScopes} onChange={(event) => onTokenScopesChange(event.target.value)} placeholder="view, api" />
+          </div>
           <Button variant="outline" disabled={busy === "token-list" || !activeTokenTarget} onClick={() => onLoadTokens(activeTokenTarget)}>
             {t("admin.accounts.viewExisting")}
           </Button>
@@ -158,7 +168,7 @@ export function AdminAccountsPanel({
               ? t("admin.accounts.userTokens", { username: tokenTarget })
               : t("admin.accounts.currentTokens")}
           </h3>
-          <TokenList tokens={apiTokens} busy={busy} onRevoke={(tokenId) => onRevokeToken(tokenId, activeTokenTarget)} />
+          <TokenList tokens={apiTokens} busy={busy} onRevoke={(tokenId) => onRevokeToken(tokenId, activeTokenTarget)} onUpdateScopes={onUpdateTokenScopes} />
         </div>
       </section>
 
