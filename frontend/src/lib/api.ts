@@ -352,9 +352,14 @@ export const NyaApi = {
       body: settings,
     }),
 
-  accessLogs: (limit = 80, offset = 0, q = "") => {
+  accessLogs: (limit = 80, offset = 0, q = "", filters: { assetKey?: string; userId?: string; accessType?: string; createdAfter?: string; createdBefore?: string } = {}) => {
     const search = new URLSearchParams({ limit: String(limit), offset: String(offset) });
     if (q.trim()) search.set("q", q.trim());
+    if (filters.assetKey?.trim()) search.set("asset_key", filters.assetKey.trim());
+    if (filters.userId?.trim()) search.set("user_id", filters.userId.trim());
+    if (filters.accessType?.trim()) search.set("access_type", filters.accessType.trim());
+    if (filters.createdAfter) search.set("created_after", filters.createdAfter);
+    if (filters.createdBefore) search.set("created_before", filters.createdBefore);
     return api<AccessLogResponse>(`/api/security/access-logs?${search.toString()}`);
   },
 

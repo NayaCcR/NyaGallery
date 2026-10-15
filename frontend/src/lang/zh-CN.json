@@ -823,6 +823,11 @@
     "security": {
       "accessLogEnabled": "记录访问日志",
       "accessLogPlaceholder": "过滤 IP / 用户 / 路径 / 拒绝原因",
+      "accessLogAssetPlaceholder": "资源 ID",
+      "accessLogUserPlaceholder": "用户 ID",
+      "accessLogTypeAll": "全部访问类型",
+      "accessLogAfter": "起始时间",
+      "accessLogBefore": "结束时间",
       "accessLogRetention": "日志保留条数",
       "accessLogs": "访问日志",
       "concurrency": "并发",

@@ -823,6 +823,11 @@
     "security": {
       "accessLogEnabled": "Record access logs",
       "accessLogPlaceholder": "Filter IP / user / path / rejection reason",
+      "accessLogAssetPlaceholder": "Asset ID",
+      "accessLogUserPlaceholder": "User ID",
+      "accessLogTypeAll": "All access types",
+      "accessLogAfter": "Start time",
+      "accessLogBefore": "End time",
       "accessLogRetention": "Access log retention",
       "accessLogs": "Access Logs",
       "concurrency": "Concurrency",

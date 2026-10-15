@@ -298,6 +298,16 @@ export default function AdminPage() {
     accessLogs,
     accessLogFilter,
     setAccessLogFilter,
+    accessLogAsset,
+    setAccessLogAsset,
+    accessLogUser,
+    setAccessLogUser,
+    accessLogType,
+    setAccessLogType,
+    accessLogAfter,
+    setAccessLogAfter,
+    accessLogBefore,
+    setAccessLogBefore,
     roleLimitTarget,
     setRoleLimitTarget,
     userLimitTarget,
@@ -953,6 +963,16 @@ export default function AdminPage() {
             accessLogs={accessLogs}
             accessLogFilter={accessLogFilter}
             onAccessLogFilterChange={setAccessLogFilter}
+            accessLogAsset={accessLogAsset}
+            onAccessLogAssetChange={setAccessLogAsset}
+            accessLogUser={accessLogUser}
+            onAccessLogUserChange={setAccessLogUser}
+            accessLogType={accessLogType}
+            onAccessLogTypeChange={setAccessLogType}
+            accessLogAfter={accessLogAfter}
+            onAccessLogAfterChange={setAccessLogAfter}
+            accessLogBefore={accessLogBefore}
+            onAccessLogBeforeChange={setAccessLogBefore}
             roleLimitTarget={roleLimitTarget}
             onRoleLimitTargetChange={setRoleLimitTarget}
             userLimitTarget={userLimitTarget}

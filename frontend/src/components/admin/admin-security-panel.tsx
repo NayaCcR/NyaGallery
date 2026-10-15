@@ -19,6 +19,16 @@ type AdminSecurityPanelProps = {
   accessLogs: AccessLogItem[];
   accessLogFilter: string;
   onAccessLogFilterChange: (value: string) => void;
+  accessLogAsset: string;
+  onAccessLogAssetChange: (value: string) => void;
+  accessLogUser: string;
+  onAccessLogUserChange: (value: string) => void;
+  accessLogType: string;
+  onAccessLogTypeChange: (value: string) => void;
+  accessLogAfter: string;
+  onAccessLogAfterChange: (value: string) => void;
+  accessLogBefore: string;
+  onAccessLogBeforeChange: (value: string) => void;
   roleLimitTarget: Role;
   onRoleLimitTargetChange: (value: Role) => void;
   userLimitTarget: string;
@@ -38,6 +48,16 @@ export function AdminSecurityPanel({
   accessLogs,
   accessLogFilter,
   onAccessLogFilterChange,
+  accessLogAsset,
+  onAccessLogAssetChange,
+  accessLogUser,
+  onAccessLogUserChange,
+  accessLogType,
+  onAccessLogTypeChange,
+  accessLogAfter,
+  onAccessLogAfterChange,
+  accessLogBefore,
+  onAccessLogBeforeChange,
   roleLimitTarget,
   onRoleLimitTargetChange,
   userLimitTarget,
@@ -179,6 +199,13 @@ export function AdminSecurityPanel({
               <RefreshCw className="h-4 w-4" /> {t("admin.security.query")}
             </Button>
           </div>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+          <Input value={accessLogAsset} onChange={(e) => onAccessLogAssetChange(e.target.value)} placeholder={t("admin.security.accessLogAssetPlaceholder")} />
+          <Input value={accessLogUser} onChange={(e) => onAccessLogUserChange(e.target.value)} placeholder={t("admin.security.accessLogUserPlaceholder")} />
+          <select value={accessLogType} onChange={(e) => onAccessLogTypeChange(e.target.value)} className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"><option value="">{t("admin.security.accessLogTypeAll")}</option><option value="metadata">metadata</option><option value="preview">preview</option><option value="thumb">thumb</option><option value="original">original</option><option value="short_link">short_link</option><option value="share_link">share_link</option></select>
+          <Input type="datetime-local" value={accessLogAfter} onChange={(e) => onAccessLogAfterChange(e.target.value)} aria-label={t("admin.security.accessLogAfter")} />
+          <Input type="datetime-local" value={accessLogBefore} onChange={(e) => onAccessLogBeforeChange(e.target.value)} aria-label={t("admin.security.accessLogBefore")} />
         </div>
         <div className="max-h-96 overflow-auto rounded-lg border border-border">
           {accessLogs.map((log) => <AccessLogRow key={log.id} log={log} />)}

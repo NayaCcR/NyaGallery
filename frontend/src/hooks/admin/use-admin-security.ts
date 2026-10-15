@@ -22,20 +22,25 @@ export function useAdminSecurity({ run, onUsersLoaded }: UseAdminSecurityOptions
   const [securityDraft, setSecurityDraft] = useState<SecuritySettings | null>(null);
   const [accessLogs, setAccessLogs] = useState<AccessLogItem[]>([]);
   const [accessLogFilter, setAccessLogFilter] = useState("");
+  const [accessLogAsset, setAccessLogAsset] = useState("");
+  const [accessLogUser, setAccessLogUser] = useState("");
+  const [accessLogType, setAccessLogType] = useState("");
+  const [accessLogAfter, setAccessLogAfter] = useState("");
+  const [accessLogBefore, setAccessLogBefore] = useState("");
   const [roleLimitTarget, setRoleLimitTarget] = useState<Role>("viewer");
   const [userLimitTarget, setUserLimitTarget] = useState("");
 
   const loadSecurity = useCallback(async () => {
     const [settings, logs, userList] = await Promise.all([
       NyaApi.securitySettings(),
-      NyaApi.accessLogs(80, 0, accessLogFilter),
+      NyaApi.accessLogs(80, 0, accessLogFilter, { assetKey: accessLogAsset, userId: accessLogUser, accessType: accessLogType, createdAfter: accessLogAfter, createdBefore: accessLogBefore }),
       NyaApi.users(),
     ]);
     setSecurityDraft(settings);
     setAccessLogs(logs.items);
     onUsersLoaded(userList.items);
     setUserLimitTarget((current) => current || userList.items[0]?.username || "");
-  }, [accessLogFilter, onUsersLoaded]);
+  }, [accessLogAfter, accessLogAsset, accessLogBefore, accessLogFilter, accessLogType, accessLogUser, onUsersLoaded]);
 
   const saveSecurity = useCallback(async () => {
     if (!securityDraft) return;
@@ -80,6 +85,16 @@ export function useAdminSecurity({ run, onUsersLoaded }: UseAdminSecurityOptions
     accessLogs,
     accessLogFilter,
     setAccessLogFilter,
+    accessLogAsset,
+    setAccessLogAsset,
+    accessLogUser,
+    setAccessLogUser,
+    accessLogType,
+    setAccessLogType,
+    accessLogAfter,
+    setAccessLogAfter,
+    accessLogBefore,
+    setAccessLogBefore,
     roleLimitTarget,
     setRoleLimitTarget,
     userLimitTarget,

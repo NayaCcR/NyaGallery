@@ -874,6 +874,8 @@ export interface AccessLogItem {
   role: Role | string | null;
   method: string;
   path: string;
+  asset_key: string | null;
+  access_type: string | null;
   query_string: string;
   status_code: number;
   duration_ms: number;

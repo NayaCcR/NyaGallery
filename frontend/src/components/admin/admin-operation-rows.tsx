@@ -536,7 +536,7 @@ function failedTargets(extra: UploadLogItem["extra"]): string[] {
 }
 
 export function AccessLogRow({ log }: { log: AccessLogItem }) {
-  const path = log.query_string ? `${log.path}?${log.query_string}` : log.path;
+  const path = `${log.path}${log.asset_key ? ` · ${log.asset_key}` : ""}${log.access_type ? ` · ${log.access_type}` : ""}${log.query_string ? `?${log.query_string}` : ""}`;
   const actor = `${log.username || "guest"} · ${log.client_ip}`;
   return (
     <div className="grid gap-1 border-b border-border p-3 text-xs last:border-b-0 lg:grid-cols-[150px_74px_minmax(0,1fr)_170px_80px] lg:items-center">
