@@ -55,4 +55,6 @@ Importer 先读取源、转换 Asset、只读校验 SHA256，再复制或硬链�
 
 资产评论保存 `asset_key`、作者用户 ID/用户名、正文、创建/更新时间和软删除时间。读取沿用资源 ACL 与游客敏感内容策略；创建需要登录，编辑和删除限评论作者或 admin，删除只写入 `deleted_at`，不会立即清除数据库记录。
 
+资产点赞以 `asset_key + user_id` 唯一约束保存，接口返回总数和当前用户状态；添加和移除操作幂等，读取沿用资源 ACL，写入需要登录。
+
 API Token 响应只包含 `token_prefix`、`label`、`scopes`、使用时间和撤销状态等元数据，不包含 secret、hash 或完整 Token。`scopes: null` 表示兼容旧行为，按用户当前 role 权限计算；非 null 时为规范化权限名数组，且不能超过调用者和目标角色权限。旧数据库初始化时自动增加 scopes 字段。

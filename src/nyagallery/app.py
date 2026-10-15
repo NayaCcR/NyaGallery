@@ -56,6 +56,7 @@ from nyagallery.config import (
 from nyagallery.db import (
     AssetModel,
     AssetCommentModel,
+    AssetLikeModel,
     AssetAclModel,
     aware_utc,
     PostModel,
@@ -1197,6 +1198,40 @@ def create_app(
         _require_asset_access(db, asset, principal)
         _require_sensitive_view(asset, principal)
         return _asset_response(storage, asset, catalog)
+
+    @app.get("/api/assets/{asset_key}/likes")
+    def api_asset_likes(asset_key: str, db: DbSession, principal: ViewPrincipal) -> dict[str, object]:
+        asset = _get_asset(db, asset_key)
+        _require_asset_access(db, asset, principal)
+        count = db.scalar(select(func.count(AssetLikeModel.id)).where(AssetLikeModel.asset_key == asset.asset_key)) or 0
+        liked = principal.user_id is not None and db.scalar(select(AssetLikeModel.id).where(AssetLikeModel.asset_key == asset.asset_key, AssetLikeModel.user_id == principal.user_id)) is not None
+        return {"asset_key": asset.asset_key, "count": count, "liked": liked}
+
+    @app.put("/api/assets/{asset_key}/likes")
+    def api_set_asset_like(asset_key: str, db: DbSession, principal: ViewPrincipal) -> dict[str, object]:
+        asset = _get_asset(db, asset_key)
+        _require_asset_access(db, asset, principal)
+        if principal.user_id is None or principal.role == "guest":
+            raise HTTPException(status_code=401, detail="login required to like")
+        existing = db.scalar(select(AssetLikeModel).where(AssetLikeModel.asset_key == asset.asset_key, AssetLikeModel.user_id == principal.user_id))
+        if existing is None:
+            db.add(AssetLikeModel(asset_key=asset.asset_key, user_id=principal.user_id))
+            db.commit()
+        count = db.scalar(select(func.count(AssetLikeModel.id)).where(AssetLikeModel.asset_key == asset.asset_key)) or 0
+        return {"asset_key": asset.asset_key, "count": count, "liked": True}
+
+    @app.delete("/api/assets/{asset_key}/likes")
+    def api_remove_asset_like(asset_key: str, db: DbSession, principal: ViewPrincipal) -> dict[str, object]:
+        asset = _get_asset(db, asset_key)
+        _require_asset_access(db, asset, principal)
+        if principal.user_id is None or principal.role == "guest":
+            raise HTTPException(status_code=401, detail="login required to unlike")
+        existing = db.scalar(select(AssetLikeModel).where(AssetLikeModel.asset_key == asset.asset_key, AssetLikeModel.user_id == principal.user_id))
+        if existing is not None:
+            db.delete(existing)
+            db.commit()
+        count = db.scalar(select(func.count(AssetLikeModel.id)).where(AssetLikeModel.asset_key == asset.asset_key)) or 0
+        return {"asset_key": asset.asset_key, "count": count, "liked": False}
 
     @app.get("/api/assets/{asset_key}/comments")
     def api_asset_comments(
