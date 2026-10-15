@@ -55,6 +55,7 @@ from nyagallery.config import (
 )
 from nyagallery.db import (
     AssetModel,
+    AssetCommentModel,
     AssetAclModel,
     aware_utc,
     PostModel,
@@ -638,6 +639,10 @@ class ShortLinkCreate(BaseModel):
     expires_at: str | None = None
 
 
+class AssetCommentCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=4000)
+
+
 class ShareLinkAccess(BaseModel):
     password: str | None = None
 
@@ -1192,6 +1197,66 @@ def create_app(
         _require_asset_access(db, asset, principal)
         _require_sensitive_view(asset, principal)
         return _asset_response(storage, asset, catalog)
+
+    @app.get("/api/assets/{asset_key}/comments")
+    def api_asset_comments(
+        asset_key: str,
+        db: DbSession,
+        principal: ViewPrincipal,
+        limit: Annotated[int, Query(ge=1, le=100)] = 50,
+        offset: Annotated[int, Query(ge=0)] = 0,
+    ) -> dict[str, object]:
+        asset = _get_asset(db, asset_key)
+        _require_asset_access(db, asset, principal)
+        rows = db.scalars(select(AssetCommentModel).where(
+            AssetCommentModel.asset_key == asset.asset_key,
+            AssetCommentModel.deleted_at.is_(None),
+        ).order_by(AssetCommentModel.created_at.desc(), AssetCommentModel.id.desc()).offset(offset).limit(limit)).all()
+        return {"items": [{"id": row.id, "asset_key": row.asset_key, "user_id": row.user_id, "username": row.username, "body": row.body, "created_at": row.created_at, "updated_at": row.updated_at} for row in rows], "limit": limit, "offset": offset}
+
+    @app.post("/api/assets/{asset_key}/comments")
+    def api_create_asset_comment(asset_key: str, payload: AssetCommentCreate, db: DbSession, principal: ViewPrincipal) -> dict[str, object]:
+        asset = _get_asset(db, asset_key)
+        _require_asset_access(db, asset, principal)
+        if principal.user_id is None or principal.role == "guest":
+            raise HTTPException(status_code=401, detail="login required to comment")
+        row = AssetCommentModel(asset_key=asset.asset_key, user_id=principal.user_id, username=principal.username, body=payload.body.strip())
+        if not row.body:
+            raise HTTPException(status_code=422, detail="comment body must not be empty")
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return {"id": row.id, "asset_key": row.asset_key, "user_id": row.user_id, "username": row.username, "body": row.body, "created_at": row.created_at, "updated_at": row.updated_at}
+
+    @app.patch("/api/assets/{asset_key}/comments/{comment_id}")
+    def api_update_asset_comment(asset_key: str, comment_id: int, payload: AssetCommentCreate, db: DbSession, principal: ViewPrincipal) -> dict[str, object]:
+        asset = _get_asset(db, asset_key)
+        _require_asset_access(db, asset, principal)
+        row = db.scalar(select(AssetCommentModel).where(AssetCommentModel.id == comment_id, AssetCommentModel.asset_key == asset.asset_key, AssetCommentModel.deleted_at.is_(None)))
+        if row is None:
+            raise HTTPException(status_code=404, detail="comment not found")
+        if row.user_id != principal.user_id and not _is_admin_principal(principal):
+            raise HTTPException(status_code=403, detail="comment owner or admin required")
+        body = payload.body.strip()
+        if not body:
+            raise HTTPException(status_code=422, detail="comment body must not be empty")
+        row.body = body
+        row.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        return {"id": row.id, "asset_key": row.asset_key, "user_id": row.user_id, "username": row.username, "body": row.body, "created_at": row.created_at, "updated_at": row.updated_at}
+
+    @app.delete("/api/assets/{asset_key}/comments/{comment_id}")
+    def api_delete_asset_comment(asset_key: str, comment_id: int, db: DbSession, principal: ViewPrincipal) -> dict[str, object]:
+        asset = _get_asset(db, asset_key)
+        _require_asset_access(db, asset, principal)
+        row = db.scalar(select(AssetCommentModel).where(AssetCommentModel.id == comment_id, AssetCommentModel.asset_key == asset.asset_key, AssetCommentModel.deleted_at.is_(None)))
+        if row is None:
+            raise HTTPException(status_code=404, detail="comment not found")
+        if row.user_id != principal.user_id and not _is_admin_principal(principal):
+            raise HTTPException(status_code=403, detail="comment owner or admin required")
+        row.deleted_at = datetime.now(timezone.utc)
+        db.commit()
+        return {"id": row.id, "deleted": True}
 
     @app.get("/api/assets/{asset_key}/api-examples")
     def api_asset_examples(asset_key: str, request: Request, db: DbSession, principal: ViewPrincipal) -> dict[str, object]:

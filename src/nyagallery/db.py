@@ -139,6 +139,19 @@ class AssetModel(Base):
     )
 
 
+class AssetCommentModel(Base):
+    __tablename__ = "asset_comments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    asset_key: Mapped[str] = mapped_column(String(160), ForeignKey("assets.asset_key", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    username: Mapped[str] = mapped_column(String(80), default="")
+    body: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class AssetTagModel(Base):
     __tablename__ = "asset_tags"
 

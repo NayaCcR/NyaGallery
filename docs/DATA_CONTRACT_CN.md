@@ -53,4 +53,6 @@ Importer 先读取源、转换 Asset、只读校验 SHA256，再复制或硬链�
 
 通用访问日志保存可选 `asset_key` 和 `access_type`。资源 API 的访问类型为 `metadata`、`preview`、`thumb`、`original` 或 `api_examples`；短链接和分享链接分别记录为 `short_link`、`share_link`。日志仍受启用开关和 retention 清理策略控制，查询可按资源、用户、类型和时间范围筛选。
 
+资产评论保存 `asset_key`、作者用户 ID/用户名、正文、创建/更新时间和软删除时间。读取沿用资源 ACL 与游客敏感内容策略；创建需要登录，编辑和删除限评论作者或 admin，删除只写入 `deleted_at`，不会立即清除数据库记录。
+
 API Token 响应只包含 `token_prefix`、`label`、`scopes`、使用时间和撤销状态等元数据，不包含 secret、hash 或完整 Token。`scopes: null` 表示兼容旧行为，按用户当前 role 权限计算；非 null 时为规范化权限名数组，且不能超过调用者和目标角色权限。旧数据库初始化时自动增加 scopes 字段。

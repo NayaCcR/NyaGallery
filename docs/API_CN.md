@@ -100,6 +100,8 @@ GET /api/assets/{asset_key}/thumb      # 公开可见资源
 | GET | `/api/share/{token}` | 按分享 token 访问资源 metadata；密码通过 HTTPS query/body 传入，公开链接仍受敏感内容策略 |
 | GET | `/api/share/{token}/preview` | 按分享 token 访问 preview |
 | GET | `/api/share/{token}/original` | 按分享 token 访问原图 |
+| GET/POST | `/api/assets/{asset_key}/comments` | 需要 view；读取或创建资产评论，创建需要登录；支持 `limit`/`offset` |
+| PATCH/DELETE | `/api/assets/{asset_key}/comments/{comment_id}` | 需要 view；评论作者或 admin 可编辑/软删除评论 |
 | POST | `/api/assets/{asset_key}/tags` | editor；`{"canonical_tags":["character:…"]}` |
 | POST | `/api/assets/{asset_key}/acl/groups` | owner/admin 将资源绑定到群组，权限为 view/edit/upload |
 | DELETE | `/api/assets/{asset_key}/acl/groups/{group_id}` | owner/admin 解除资源与群组绑定 |
