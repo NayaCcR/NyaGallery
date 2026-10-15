@@ -152,6 +152,15 @@ class AssetCommentModel(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class NotificationPreferenceModel(Base):
+    __tablename__ = "notification_preferences"
+
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    mention_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    like_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+
+
 class NotificationModel(Base):
     __tablename__ = "notifications"
 

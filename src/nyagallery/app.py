@@ -59,6 +59,7 @@ from nyagallery.db import (
     AssetCommentModel,
     AssetMentionModel,
     NotificationModel,
+    NotificationPreferenceModel,
     AssetLikeModel,
     AssetAclModel,
     aware_utc,
@@ -651,6 +652,11 @@ class NotificationReadRequest(BaseModel):
     notification_ids: list[int] = Field(default_factory=list, max_length=200)
 
 
+class NotificationPreferenceUpdate(BaseModel):
+    mention_enabled: bool = True
+    like_enabled: bool = True
+
+
 class ShareLinkAccess(BaseModel):
     password: str | None = None
 
@@ -781,6 +787,26 @@ def create_app(
             "short_link_create": f"{base}/api/assets/{asset}/short-links",
             "required_scopes": {"metadata": "view", "preview": "view", "thumb": "view", "original": "download", "short_link_create": "edit_tags"},
         }
+
+    @app.get("/api/notification-preferences")
+    def api_notification_preferences(db: DbSession, principal: ViewPrincipal) -> dict[str, bool]:
+        if principal.user_id is None:
+            raise HTTPException(status_code=401, detail="login required")
+        row = db.get(NotificationPreferenceModel, principal.user_id)
+        return {"mention_enabled": row.mention_enabled if row else True, "like_enabled": row.like_enabled if row else True}
+
+    @app.put("/api/notification-preferences")
+    def api_update_notification_preferences(payload: NotificationPreferenceUpdate, db: DbSession, principal: ViewPrincipal) -> dict[str, bool]:
+        if principal.user_id is None:
+            raise HTTPException(status_code=401, detail="login required")
+        row = db.get(NotificationPreferenceModel, principal.user_id)
+        if row is None:
+            row = NotificationPreferenceModel(user_id=principal.user_id)
+            db.add(row)
+        row.mention_enabled = payload.mention_enabled
+        row.like_enabled = payload.like_enabled
+        db.commit()
+        return {"mention_enabled": row.mention_enabled, "like_enabled": row.like_enabled}
 
     @app.get("/api/notifications")
     def api_notifications(db: DbSession, principal: ViewPrincipal, limit: Annotated[int, Query(ge=1, le=100)] = 50, offset: Annotated[int, Query(ge=0)] = 0, unread_only: bool = False) -> dict[str, object]:
@@ -6193,7 +6219,8 @@ def _replace_asset_comment_mentions(db: Session, comment_id: int, body: str, *, 
     users = db.scalars(select(UserModel).where(func.lower(UserModel.username).in_(usernames), UserModel.is_active.is_(True))).all()
     for user in users:
         db.add(AssetMentionModel(comment_id=comment_id, user_id=user.id, username=user.username))
-        if actor_user_id != user.id:
+        preference = db.get(NotificationPreferenceModel, user.id)
+        if actor_user_id != user.id and (preference is None or preference.mention_enabled):
             db.add(NotificationModel(recipient_user_id=user.id, actor_user_id=actor_user_id, kind="comment_mention", asset_key=asset_key, comment_id=comment_id, message="You were mentioned in an asset comment"))
 
 
