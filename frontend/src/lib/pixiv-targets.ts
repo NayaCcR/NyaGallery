@@ -15,6 +15,19 @@ function normalizePid(value: string): string | undefined {
   return normalized || undefined;
 }
 
+export async function resolvePixivShortLink(input: string, fetcher: typeof fetch = fetch): Promise<string | undefined> {
+  let current = input;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const response = await fetcher(current, { method: "HEAD", redirect: "follow" });
+    const finalUrl = response.url || current;
+    if (finalUrl === current) break;
+    current = finalUrl;
+    if (/pixiv\.net/i.test(new URL(current).hostname)) break;
+  }
+  const resolved = parsePixivTargets(current).find((target) => target.pid);
+  return resolved?.pid;
+}
+
 export function parsePixivTargets(value: string): PixivTarget[] {
   const seen = new Set<string>();
   const targets: PixivTarget[] = [];
