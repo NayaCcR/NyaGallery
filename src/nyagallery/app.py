@@ -58,6 +58,7 @@ from nyagallery.db import (
     AssetModel,
     AssetCommentModel,
     AssetMentionModel,
+    NotificationModel,
     AssetLikeModel,
     AssetAclModel,
     aware_utc,
@@ -646,6 +647,10 @@ class AssetCommentCreate(BaseModel):
     body: str = Field(min_length=1, max_length=4000)
 
 
+class NotificationReadRequest(BaseModel):
+    notification_ids: list[int] = Field(default_factory=list, max_length=200)
+
+
 class ShareLinkAccess(BaseModel):
     password: str | None = None
 
@@ -776,6 +781,31 @@ def create_app(
             "short_link_create": f"{base}/api/assets/{asset}/short-links",
             "required_scopes": {"metadata": "view", "preview": "view", "thumb": "view", "original": "download", "short_link_create": "edit_tags"},
         }
+
+    @app.get("/api/notifications")
+    def api_notifications(db: DbSession, principal: ViewPrincipal, limit: Annotated[int, Query(ge=1, le=100)] = 50, offset: Annotated[int, Query(ge=0)] = 0, unread_only: bool = False) -> dict[str, object]:
+        if principal.user_id is None:
+            raise HTTPException(status_code=401, detail="login required")
+        query = select(NotificationModel).where(NotificationModel.recipient_user_id == principal.user_id)
+        if unread_only:
+            query = query.where(NotificationModel.read_at.is_(None))
+        rows = db.scalars(query.order_by(NotificationModel.created_at.desc(), NotificationModel.id.desc()).offset(offset).limit(limit)).all()
+        unread = db.scalar(select(func.count(NotificationModel.id)).where(NotificationModel.recipient_user_id == principal.user_id, NotificationModel.read_at.is_(None))) or 0
+        return {"items": [{"id": row.id, "kind": row.kind, "asset_key": row.asset_key, "comment_id": row.comment_id, "message": row.message, "read_at": row.read_at, "created_at": row.created_at, "actor_user_id": row.actor_user_id} for row in rows], "unread_count": unread, "limit": limit, "offset": offset}
+
+    @app.post("/api/notifications/read")
+    def api_mark_notifications_read(payload: NotificationReadRequest, db: DbSession, principal: ViewPrincipal) -> dict[str, object]:
+        if principal.user_id is None:
+            raise HTTPException(status_code=401, detail="login required")
+        query = select(NotificationModel).where(NotificationModel.recipient_user_id == principal.user_id, NotificationModel.read_at.is_(None))
+        if payload.notification_ids:
+            query = query.where(NotificationModel.id.in_(payload.notification_ids))
+        rows = db.scalars(query).all()
+        now = datetime.now(timezone.utc)
+        for row in rows:
+            row.read_at = now
+        db.commit()
+        return {"marked": len(rows)}
 
     @app.get("/api/me")
     def api_me(request: Request, principal: ViewPrincipal) -> dict[str, object]:
@@ -1262,7 +1292,7 @@ def create_app(
             raise HTTPException(status_code=422, detail="comment body must not be empty")
         db.add(row)
         db.flush()
-        _replace_asset_comment_mentions(db, row.id, row.body)
+        _replace_asset_comment_mentions(db, row.id, row.body, actor_user_id=principal.user_id, asset_key=row.asset_key)
         db.commit()
         db.refresh(row)
         return _asset_comment_to_dict(db, row)
@@ -1281,7 +1311,7 @@ def create_app(
             raise HTTPException(status_code=422, detail="comment body must not be empty")
         row.body = body
         row.updated_at = datetime.now(timezone.utc)
-        _replace_asset_comment_mentions(db, row.id, row.body)
+        _replace_asset_comment_mentions(db, row.id, row.body, actor_user_id=principal.user_id, asset_key=row.asset_key)
         db.commit()
         return _asset_comment_to_dict(db, row)
 
@@ -6154,14 +6184,17 @@ def _asset_comment_to_dict(db: Session, row: AssetCommentModel) -> dict[str, obj
     return {"id": row.id, "asset_key": row.asset_key, "user_id": row.user_id, "username": row.username, "body": row.body, "created_at": row.created_at, "updated_at": row.updated_at, "mentions": [{"user_id": item.user_id, "username": item.username} for item in mentions]}
 
 
-def _replace_asset_comment_mentions(db: Session, comment_id: int, body: str) -> None:
+def _replace_asset_comment_mentions(db: Session, comment_id: int, body: str, *, actor_user_id: int | None, asset_key: str) -> None:
     db.query(AssetMentionModel).filter(AssetMentionModel.comment_id == comment_id).delete(synchronize_session=False)
+    db.query(NotificationModel).filter(NotificationModel.comment_id == comment_id, NotificationModel.kind == "comment_mention").delete(synchronize_session=False)
     usernames = {match.lower() for match in re.findall(r"@([A-Za-z0-9][A-Za-z0-9_.-]{0,79})", body)}
     if not usernames:
         return
     users = db.scalars(select(UserModel).where(func.lower(UserModel.username).in_(usernames), UserModel.is_active.is_(True))).all()
     for user in users:
         db.add(AssetMentionModel(comment_id=comment_id, user_id=user.id, username=user.username))
+        if actor_user_id != user.id:
+            db.add(NotificationModel(recipient_user_id=user.id, actor_user_id=actor_user_id, kind="comment_mention", asset_key=asset_key, comment_id=comment_id, message="You were mentioned in an asset comment"))
 
 
 def _require_asset_access(db: Session, asset: AssetModel, principal: Principal) -> None:

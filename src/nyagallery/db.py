@@ -152,6 +152,20 @@ class AssetCommentModel(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class NotificationModel(Base):
+    __tablename__ = "notifications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    recipient_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    actor_user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String(40), index=True)
+    asset_key: Mapped[str | None] = mapped_column(String(160), nullable=True, index=True)
+    comment_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    message: Mapped[str] = mapped_column(String(500), default="")
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, index=True)
+
+
 class AssetMentionModel(Base):
     __tablename__ = "asset_comment_mentions"
     __table_args__ = (UniqueConstraint("comment_id", "user_id", name="uq_asset_comment_mention"),)

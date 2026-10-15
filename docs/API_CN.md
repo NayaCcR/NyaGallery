@@ -104,6 +104,8 @@ GET /api/assets/{asset_key}/thumb      # 公开可见资源
 | PATCH/DELETE | `/api/assets/{asset_key}/comments/{comment_id}` | 需要 view；评论作者或 admin 可编辑/软删除评论；正文中的 `@username` 会解析为现有启用用户 |
 | GET | `/api/assets/{asset_key}/likes` | 需要 view；返回点赞总数和当前用户是否已点赞 |
 | PUT/DELETE | `/api/assets/{asset_key}/likes` | 需要登录且有 view；幂等地添加或移除当前用户的点赞 |
+| GET | `/api/notifications` | 需要登录；分页读取当前用户通知，支持 `unread_only=true` |
+| POST | `/api/notifications/read` | 需要登录；将指定通知或当前用户全部未读通知标记为已读 |
 | POST | `/api/assets/{asset_key}/tags` | editor；`{"canonical_tags":["character:…"]}` |
 | POST | `/api/assets/{asset_key}/acl/groups` | owner/admin 将资源绑定到群组，权限为 view/edit/upload |
 | DELETE | `/api/assets/{asset_key}/acl/groups/{group_id}` | owner/admin 解除资源与群组绑定 |
