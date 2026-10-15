@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from io import BytesIO
 import os
 from pathlib import Path
+import shutil
+import subprocess
 import threading
 from typing import Callable
 import time
@@ -107,6 +109,40 @@ class MediaGenerationError(RuntimeError):
 
 class MediaGenerationTimeout(MediaGenerationError):
     pass
+
+
+def convert_mp4(input_path: str | Path, output_path: str | Path, *, output_format: str, fps: int = 12, max_edge: int = 1280, timeout_seconds: int = 300, max_input_bytes: int = MAX_VIDEO_BYTES) -> Path:
+    source = Path(input_path)
+    target = Path(output_path)
+    if output_format not in {"gif", "webp"}:
+        raise MediaGenerationError("output_format must be gif or webp")
+    if not source.is_file():
+        raise MediaGenerationError("video input does not exist")
+    if source.stat().st_size > max_input_bytes:
+        raise MediaGenerationError("video input exceeds size limit")
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        raise MediaGenerationError("ffmpeg is required for MP4 conversion")
+    if fps < 1 or fps > 60 or max_edge < 16 or max_edge > 4096:
+        raise MediaGenerationError("invalid conversion limits")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    vf = f"fps={fps},scale='min({max_edge},iw)':-2:flags=lanczos"
+    command = [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(source), "-vf", vf, "-an"]
+    if output_format == "webp":
+        command.extend(["-loop", "0", "-c:v", "libwebp", "-q:v", "75"])
+    else:
+        command.extend(["-f", "gif"])
+    command.append(str(target))
+    try:
+        subprocess.run(command, check=True, capture_output=True, timeout=timeout_seconds, shell=False)
+    except subprocess.TimeoutExpired as exc:
+        raise MediaGenerationTimeout("MP4 conversion timed out") from exc
+    except subprocess.CalledProcessError as exc:
+        detail = exc.stderr.decode("utf-8", errors="replace")[-500:] if exc.stderr else "unknown ffmpeg error"
+        raise MediaGenerationError(detail) from exc
+    if not target.is_file() or target.stat().st_size == 0:
+        raise MediaGenerationError("ffmpeg produced no output")
+    return target
 
 
 def resolve_media_concurrency(value: int = 0) -> int:
