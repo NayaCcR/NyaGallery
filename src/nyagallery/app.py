@@ -603,6 +603,9 @@ class SecuritySettingsUpdate(BaseModel):
     csrf_origin_check_enabled: bool | None = None
     trusted_origins: list[str] | None = None
     trust_proxy_headers: bool | None = None
+    bot_protection_enabled: bool | None = None
+    bot_blocked_user_agents: list[str] | None = None
+    bot_blocked_ips: list[str] | None = None
 
 
 class DeveloperConfigUpdate(BaseModel):
@@ -5861,6 +5864,16 @@ def _security_rejection_reason(
     identity: dict[str, object],
     request_bytes: int,
 ) -> str | None:
+    if settings.get("bot_protection_enabled", False):
+        user_agent = request.headers.get("user-agent", "").casefold()
+        blocked_agents = [str(value).strip().casefold() for value in settings.get("bot_blocked_user_agents", []) if str(value).strip()]
+        if any(value in user_agent for value in blocked_agents):
+            return "bot user-agent blocked"
+        ip = client_ip(request, trust_proxy_headers=bool(settings.get("trust_proxy_headers")))
+        blocked_ips = {str(value).strip() for value in settings.get("bot_blocked_ips", []) if str(value).strip()}
+        if ip in blocked_ips:
+            return "bot IP blocked"
+
     if request.method.upper() in UNSAFE_METHODS:
         max_upload_bytes = int(settings.get("max_upload_bytes") or 0)
         if max_upload_bytes > 0 and request_bytes > max_upload_bytes:
@@ -5894,7 +5907,7 @@ def _security_rejection_reason(
 def _security_rejection_status(reason: str) -> int:
     if reason == "request body too large":
         return 413
-    if reason in {"csrf origin denied", "csrf token invalid", "viewer API path is not whitelisted"}:
+    if reason in {"csrf origin denied", "csrf token invalid", "viewer API path is not whitelisted", "bot user-agent blocked", "bot IP blocked"}:
         return 403
     return 429
 

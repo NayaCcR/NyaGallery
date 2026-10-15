@@ -51,6 +51,8 @@ Importer 先读取源、转换 Asset、只读校验 SHA256，再复制或硬链�
 
 取图短链接保存唯一 `slug`、资源 ID、创建者、可选 `expires_at` 和 `revoked_at`；自定义 slug 只允许字母、数字、下划线和连字符，冲突返回 409。短链接不保存 secret，公开解析默认返回 preview，`original=true` 才返回原图，并沿用过期、撤销和 guest 敏感内容策略。
 
+安全策略中的 Bot 防护默认关闭；开启后按不区分大小写的 User-Agent 子串和精确客户端 IP 拒绝请求，返回 403 并记录访问日志拒绝原因。该规则与已有 IP/用户限流并行执行。
+
 通用访问日志保存可选 `asset_key` 和 `access_type`。资源 API 的访问类型为 `metadata`、`preview`、`thumb`、`original` 或 `api_examples`；短链接和分享链接分别记录为 `short_link`、`share_link`。日志仍受启用开关和 retention 清理策略控制，查询可按资源、用户、类型和时间范围筛选。
 
 分块上传会话保存在 storage 根目录的 `chunked/{upload_id}`，manifest 记录文件名、总大小、分块数、可选 SHA-256、MIME 和创建用户；分块支持乱序与重复覆盖，完成时缺块、大小或摘要不匹配会拒绝提交，成功后删除临时会话并复用普通上传元数据流程。

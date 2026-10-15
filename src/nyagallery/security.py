@@ -61,6 +61,9 @@ DEFAULT_SECURITY_SETTINGS: dict[str, object] = {
     "csrf_origin_check_enabled": True,
     "trusted_origins": [],
     "trust_proxy_headers": False,
+    "bot_protection_enabled": False,
+    "bot_blocked_user_agents": [],
+    "bot_blocked_ips": [],
 }
 
 BOOL_FIELDS = {
@@ -69,6 +72,7 @@ BOOL_FIELDS = {
     "viewer_api_whitelist_enabled",
     "csrf_origin_check_enabled",
     "trust_proxy_headers",
+    "bot_protection_enabled",
 }
 
 INT_FIELDS = {
@@ -87,6 +91,8 @@ INT_FIELDS = {
 LIST_FIELDS = {
     "viewer_api_whitelist",
     "trusted_origins",
+    "bot_blocked_user_agents",
+    "bot_blocked_ips",
 }
 
 LIMIT_OVERRIDE_FIELDS = {

@@ -188,7 +188,7 @@ X：`GET /api/sync/x/config`、`GET /api/sync/x/logs`、`POST /api/sync/x/posts`
 | PUT/DELETE | `/api/access/groups/{group_id}` | admin；更新自己创建的共享访问组或将其删除 |
 | POST | `/api/assets/acl/groups/bulk` | editor；将最多 500 个 `asset_keys` 批量绑定到自己拥有的分享组，权限为 `view`、`edit` 或 `upload`；资源和群组全部通过校验后整体提交 |
 | POST/DELETE | `/api/assets/{asset_key}/acl/groups[/{group_id}]` | editor；为单个自有资源绑定分享组权限或解除该组的所有授权 |
-| GET/PUT | `/api/security/settings` | admin 安全策略和限流，含注册入口 `registration_mode` |
+| GET/PUT | `/api/security/settings` | admin 安全策略和限流，含注册入口 `registration_mode`；Bot 防护可用 `bot_protection_enabled`、`bot_blocked_user_agents` 和 `bot_blocked_ips` 配置，默认关闭 |
 | GET | `/api/security/access-logs` | admin 访问日志；支持 `q`、`asset_key`、`user_id`、`access_type`、`created_after` 和 `created_before` 筛选；资源 API 请求会记录资源 ID与 metadata/preview/thumb/original/api_examples 类型 |
 | GET/POST | `/api/registration/invites` | admin；列出或生成注册邀请码，创建请求为 `{"label":"...","code":null,"max_uses":1,"expires_in_days":null}`，响应中的 `code` 仅在创建时返回一次 |
 | DELETE | `/api/registration/invites/{invite_id}` | admin；作废邀请码（已使用的次数不受影响） |
