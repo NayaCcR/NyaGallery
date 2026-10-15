@@ -1274,6 +1274,10 @@ def create_app(
         existing = db.scalar(select(AssetLikeModel).where(AssetLikeModel.asset_key == asset.asset_key, AssetLikeModel.user_id == principal.user_id))
         if existing is None:
             db.add(AssetLikeModel(asset_key=asset.asset_key, user_id=principal.user_id))
+            if asset.uploader_user_id is not None and asset.uploader_user_id != principal.user_id:
+                preference = db.get(NotificationPreferenceModel, asset.uploader_user_id)
+                if preference is None or preference.like_enabled:
+                    db.add(NotificationModel(recipient_user_id=asset.uploader_user_id, actor_user_id=principal.user_id, kind="asset_like", asset_key=asset.asset_key, message="Your asset was liked"))
             db.commit()
         count = db.scalar(select(func.count(AssetLikeModel.id)).where(AssetLikeModel.asset_key == asset.asset_key)) or 0
         return {"asset_key": asset.asset_key, "count": count, "liked": True}
