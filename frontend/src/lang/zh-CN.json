@@ -1,5 +1,12 @@
 {
   "admin": {
+    "notifications": {
+      "title": "通知",
+      "markAllRead": "全部标为已读",
+      "empty": "暂无通知",
+      "loadFailed": "通知加载失败",
+      "readFailed": "通知状态更新失败"
+    },
     "access": {
       "loadFailed": "访问控制加载失败",
       "saveFailed": "访问控制保存失败",

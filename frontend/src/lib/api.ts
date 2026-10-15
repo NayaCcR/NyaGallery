@@ -5,6 +5,7 @@ import type { ApiTokenSummary,
   Asset,
   AssetApiExamplesResponse,
   ApiAddressesResponse,
+  NotificationsResponse,
   AccessGroupsResponse,
   MigrationConfigResponse,
   PermissionGroupsResponse,
@@ -232,6 +233,8 @@ export const NyaApi = {
   assetApiExamples: (assetKey: string) =>
     api<AssetApiExamplesResponse>(`/api/assets/${encodeURIComponent(assetKey)}/api-examples`),
   apiAddresses: () => api<ApiAddressesResponse>("/api/me/api-addresses"),
+  notifications: (unreadOnly = false) => api<NotificationsResponse>(`/api/notifications?unread_only=${unreadOnly}`),
+  markNotificationsRead: (notification_ids: number[] = []) => api<{ marked: number }>("/api/notifications/read", { method: "POST", body: { notification_ids } }),
   createShareLink: (assetKey: string, payload: { is_public?: boolean; password?: string; expires_at?: string }) =>
     api<{ id: number; token: string; asset_key: string; is_public: boolean; expires_at: string | null }>(`/api/assets/${encodeURIComponent(assetKey)}/share-links`, { method: "POST", body: payload }),
 

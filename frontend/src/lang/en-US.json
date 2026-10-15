@@ -1,5 +1,12 @@
 {
   "admin": {
+    "notifications": {
+      "title": "Notifications",
+      "markAllRead": "Mark all read",
+      "empty": "No notifications",
+      "loadFailed": "Failed to load notifications",
+      "readFailed": "Failed to update notification state"
+    },
     "access": {
       "loadFailed": "Access settings failed to load",
       "saveFailed": "Access settings failed to save",

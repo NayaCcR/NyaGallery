@@ -35,6 +35,7 @@ import { AdminRegistrationPanel } from "@/components/admin/admin-registration-pa
 import { AdminTagsPanel } from "@/components/admin/admin-tags-panel";
 import { AdminAccessPanel } from "@/components/admin/admin-access-panel";
 import { AdminMigrationPanel } from "@/components/admin/admin-migration-panel";
+import { AdminNotificationsPanel } from "@/components/admin/admin-notifications-panel";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useI18n } from "@/components/providers/locale-provider";
 import { useToast } from "@/components/providers/toast-provider";
@@ -914,6 +915,7 @@ export default function AdminPage() {
         )}
 
         <main className="space-y-6">
+        <AdminNotificationsPanel />
         {activeSection === "operations" && (
           <AdminOperationsPanel
             isAdmin={isAdmin}

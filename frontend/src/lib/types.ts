@@ -203,6 +203,24 @@ export interface AssetApiExamplesResponse {
   formats: Record<string, Record<string, string>>;
 }
 
+export interface NotificationItem {
+  id: number;
+  kind: string;
+  asset_key: string | null;
+  comment_id: number | null;
+  message: string;
+  actor_user_id: number | null;
+  read_at: string | null;
+  created_at: string;
+}
+
+export interface NotificationsResponse {
+  items: NotificationItem[];
+  unread_count: number;
+  limit: number;
+  offset: number;
+}
+
 export interface ApiAddressesResponse {
   base_url: string;
   metadata: string;
