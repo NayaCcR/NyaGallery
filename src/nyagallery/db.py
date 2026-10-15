@@ -152,6 +152,17 @@ class AssetCommentModel(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class AssetMentionModel(Base):
+    __tablename__ = "asset_comment_mentions"
+    __table_args__ = (UniqueConstraint("comment_id", "user_id", name="uq_asset_comment_mention"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    comment_id: Mapped[int] = mapped_column(Integer, ForeignKey("asset_comments.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    username: Mapped[str] = mapped_column(String(80), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, index=True)
+
+
 class AssetLikeModel(Base):
     __tablename__ = "asset_likes"
     __table_args__ = (UniqueConstraint("asset_key", "user_id", name="uq_asset_like"),)

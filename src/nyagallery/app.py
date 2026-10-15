@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import os
 import queue
+import re
 import secrets
 import threading
 import time
@@ -56,6 +57,7 @@ from nyagallery.config import (
 from nyagallery.db import (
     AssetModel,
     AssetCommentModel,
+    AssetMentionModel,
     AssetLikeModel,
     AssetAclModel,
     aware_utc,
@@ -1247,7 +1249,7 @@ def create_app(
             AssetCommentModel.asset_key == asset.asset_key,
             AssetCommentModel.deleted_at.is_(None),
         ).order_by(AssetCommentModel.created_at.desc(), AssetCommentModel.id.desc()).offset(offset).limit(limit)).all()
-        return {"items": [{"id": row.id, "asset_key": row.asset_key, "user_id": row.user_id, "username": row.username, "body": row.body, "created_at": row.created_at, "updated_at": row.updated_at} for row in rows], "limit": limit, "offset": offset}
+        return {"items": [_asset_comment_to_dict(db, row) for row in rows], "limit": limit, "offset": offset}
 
     @app.post("/api/assets/{asset_key}/comments")
     def api_create_asset_comment(asset_key: str, payload: AssetCommentCreate, db: DbSession, principal: ViewPrincipal) -> dict[str, object]:
@@ -1259,9 +1261,11 @@ def create_app(
         if not row.body:
             raise HTTPException(status_code=422, detail="comment body must not be empty")
         db.add(row)
+        db.flush()
+        _replace_asset_comment_mentions(db, row.id, row.body)
         db.commit()
         db.refresh(row)
-        return {"id": row.id, "asset_key": row.asset_key, "user_id": row.user_id, "username": row.username, "body": row.body, "created_at": row.created_at, "updated_at": row.updated_at}
+        return _asset_comment_to_dict(db, row)
 
     @app.patch("/api/assets/{asset_key}/comments/{comment_id}")
     def api_update_asset_comment(asset_key: str, comment_id: int, payload: AssetCommentCreate, db: DbSession, principal: ViewPrincipal) -> dict[str, object]:
@@ -1277,8 +1281,9 @@ def create_app(
             raise HTTPException(status_code=422, detail="comment body must not be empty")
         row.body = body
         row.updated_at = datetime.now(timezone.utc)
+        _replace_asset_comment_mentions(db, row.id, row.body)
         db.commit()
-        return {"id": row.id, "asset_key": row.asset_key, "user_id": row.user_id, "username": row.username, "body": row.body, "created_at": row.created_at, "updated_at": row.updated_at}
+        return _asset_comment_to_dict(db, row)
 
     @app.delete("/api/assets/{asset_key}/comments/{comment_id}")
     def api_delete_asset_comment(asset_key: str, comment_id: int, db: DbSession, principal: ViewPrincipal) -> dict[str, object]:
@@ -6142,6 +6147,21 @@ def _access_group_to_dict(db: Session, group: ShareGroupModel) -> dict[str, obje
         "owner_user_id": group.owner_user_id,
         "members": [{"id": user.id, "username": user.username} for user in users],
     }
+
+
+def _asset_comment_to_dict(db: Session, row: AssetCommentModel) -> dict[str, object]:
+    mentions = db.scalars(select(AssetMentionModel).where(AssetMentionModel.comment_id == row.id).order_by(AssetMentionModel.id)).all()
+    return {"id": row.id, "asset_key": row.asset_key, "user_id": row.user_id, "username": row.username, "body": row.body, "created_at": row.created_at, "updated_at": row.updated_at, "mentions": [{"user_id": item.user_id, "username": item.username} for item in mentions]}
+
+
+def _replace_asset_comment_mentions(db: Session, comment_id: int, body: str) -> None:
+    db.query(AssetMentionModel).filter(AssetMentionModel.comment_id == comment_id).delete(synchronize_session=False)
+    usernames = {match.lower() for match in re.findall(r"@([A-Za-z0-9][A-Za-z0-9_.-]{0,79})", body)}
+    if not usernames:
+        return
+    users = db.scalars(select(UserModel).where(func.lower(UserModel.username).in_(usernames), UserModel.is_active.is_(True))).all()
+    for user in users:
+        db.add(AssetMentionModel(comment_id=comment_id, user_id=user.id, username=user.username))
 
 
 def _require_asset_access(db: Session, asset: AssetModel, principal: Principal) -> None:

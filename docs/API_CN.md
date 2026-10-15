@@ -101,7 +101,7 @@ GET /api/assets/{asset_key}/thumb      # 公开可见资源
 | GET | `/api/share/{token}/preview` | 按分享 token 访问 preview |
 | GET | `/api/share/{token}/original` | 按分享 token 访问原图 |
 | GET/POST | `/api/assets/{asset_key}/comments` | 需要 view；读取或创建资产评论，创建需要登录；支持 `limit`/`offset` |
-| PATCH/DELETE | `/api/assets/{asset_key}/comments/{comment_id}` | 需要 view；评论作者或 admin 可编辑/软删除评论 |
+| PATCH/DELETE | `/api/assets/{asset_key}/comments/{comment_id}` | 需要 view；评论作者或 admin 可编辑/软删除评论；正文中的 `@username` 会解析为现有启用用户 |
 | GET | `/api/assets/{asset_key}/likes` | 需要 view；返回点赞总数和当前用户是否已点赞 |
 | PUT/DELETE | `/api/assets/{asset_key}/likes` | 需要登录且有 view；幂等地添加或移除当前用户的点赞 |
 | POST | `/api/assets/{asset_key}/tags` | editor；`{"canonical_tags":["character:…"]}` |
