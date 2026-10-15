@@ -6,6 +6,8 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 import importlib.util
 import io
+import hashlib
+import shutil
 import json
 from pathlib import Path
 import os
@@ -655,6 +657,14 @@ class NotificationReadRequest(BaseModel):
 class NotificationPreferenceUpdate(BaseModel):
     mention_enabled: bool = True
     like_enabled: bool = True
+
+
+class ChunkUploadInit(BaseModel):
+    filename: str = Field(min_length=1, max_length=500)
+    total_size: int = Field(gt=0)
+    total_chunks: int = Field(gt=0, le=100000)
+    sha256: str | None = Field(default=None, min_length=64, max_length=64, pattern=r"^[0-9a-fA-F]{64}$")
+    content_type: str | None = Field(default=None, max_length=120)
 
 
 class ShareLinkAccess(BaseModel):
@@ -2143,6 +2153,72 @@ def create_app(
             detail=f"target={user.username}",
         )
         return user_to_dict(user)
+
+    @app.post("/api/upload/chunks/init")
+    def api_chunk_upload_init(payload: ChunkUploadInit, request: Request, db: DbSession, principal: UploadPrincipal) -> dict[str, object]:
+        security_settings = get_security_settings(db)
+        max_upload_bytes = int(security_settings.get("max_upload_bytes") or 0)
+        if max_upload_bytes > 0 and payload.total_size > max_upload_bytes:
+            raise HTTPException(status_code=413, detail="request body too large")
+        upload_id = secrets.token_urlsafe(18)
+        root = storage.root / "chunked" / upload_id
+        root.mkdir(parents=True, exist_ok=False)
+        (root / "manifest.json").write_text(json.dumps({"filename": payload.filename, "total_size": payload.total_size, "total_chunks": payload.total_chunks, "sha256": payload.sha256, "content_type": payload.content_type, "user_id": principal.user_id}, ensure_ascii=True), encoding="utf-8")
+        return {"upload_id": upload_id, "total_chunks": payload.total_chunks, "received": []}
+
+    @app.put("/api/upload/chunks/{upload_id}/{chunk_index}")
+    async def api_chunk_upload_part(upload_id: str, chunk_index: int, request: Request, db: DbSession, principal: UploadPrincipal) -> dict[str, object]:
+        if chunk_index < 0:
+            raise HTTPException(status_code=422, detail="invalid chunk index")
+        root = storage.root / "chunked" / upload_id
+        manifest_path = root / "manifest.json"
+        if not manifest_path.is_file():
+            raise HTTPException(status_code=404, detail="upload session not found")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest.get("user_id") != principal.user_id:
+            raise HTTPException(status_code=403, detail="upload session owner required")
+        if chunk_index >= int(manifest["total_chunks"]):
+            raise HTTPException(status_code=422, detail="chunk index out of range")
+        content = await request.body()
+        if not content:
+            raise HTTPException(status_code=422, detail="empty chunk")
+        max_upload_bytes = int(get_security_settings(db).get("max_upload_bytes") or 0)
+        if max_upload_bytes > 0 and len(content) > max_upload_bytes:
+            raise HTTPException(status_code=413, detail="chunk too large")
+        (root / f"{chunk_index:08d}.part").write_bytes(content)
+        received = sorted(int(path.stem) for path in root.glob("*.part"))
+        return {"upload_id": upload_id, "chunk_index": chunk_index, "received": received}
+
+    @app.post("/api/upload/chunks/{upload_id}/complete")
+    async def api_chunk_upload_complete(upload_id: str, background_tasks: BackgroundTasks, db: DbSession, principal: UploadPrincipal) -> dict[str, object]:
+        root = storage.root / "chunked" / upload_id
+        manifest_path = root / "manifest.json"
+        if not manifest_path.is_file():
+            raise HTTPException(status_code=404, detail="upload session not found")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest.get("user_id") != principal.user_id:
+            raise HTTPException(status_code=403, detail="upload session owner required")
+        parts = [root / f"{index:08d}.part" for index in range(int(manifest["total_chunks"]))]
+        if any(not part.is_file() for part in parts):
+            raise HTTPException(status_code=409, detail="upload is missing chunks")
+        combined = root / "complete.bin"
+        digest = hashlib.sha256()
+        total = 0
+        with combined.open("wb") as output:
+            for part in parts:
+                data = part.read_bytes()
+                total += len(data)
+                digest.update(data)
+                output.write(data)
+        if total != int(manifest["total_size"]):
+            raise HTTPException(status_code=422, detail="uploaded size does not match manifest")
+        if manifest.get("sha256") and digest.hexdigest().lower() != str(manifest["sha256"]).lower():
+            raise HTTPException(status_code=422, detail="uploaded sha256 does not match manifest")
+        with combined.open("rb") as stream:
+            upload_file = UploadFile(filename=str(manifest["filename"]), file=stream, size=total, headers={"content-type": str(manifest.get("content_type") or "application/octet-stream")})
+            response = await api_upload(background_tasks, db, principal, upload_file, title="", source_id=None, artist_name="", canonical_tags="", tag_aliases="", generate_cache=False, storage_strategy=None, original_url="", last_modified_ms=None)
+        shutil.rmtree(root, ignore_errors=True)
+        return response
 
     @app.post("/api/upload")
     async def api_upload(

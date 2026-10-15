@@ -151,6 +151,9 @@ curl -X POST http://127.0.0.1:8001/api/upload \
 | POST | `/api/upload` | 上传原图，可选作者、标题、标签、存储策略和缓存 |
 | POST | `/api/upload/url` | 拉取单个远程 http/https 图片并按上传流程入库；需 upload 权限，仅允许公网图片目标 |
 | POST | `/api/upload` | multipart 支持多文件和 ZIP；目录拖放由前端展开为多个文件请求 |
+| POST | `/api/upload/chunks/init` | editor；初始化可恢复分块上传，提交文件名、总大小、分块数和可选 SHA-256 |
+| PUT | `/api/upload/chunks/{upload_id}/{chunk_index}` | editor；写入或覆盖单个分块，会校验会话所有权 |
+| POST | `/api/upload/chunks/{upload_id}/complete` | editor；检查所有分块、总大小和 SHA-256 后复用普通上传流程 |
 | POST | `/api/media/generate` | editor 生成全部或指定 `asset_key` 缓存 |
 | POST | `/api/rebuild` | admin 从 metadata 重建数据库；`{"generate_cache":true}` 可连带缓存 |
 | GET | `/api/uploads/history` | 当前用户上传历史，admin 可看全部 |

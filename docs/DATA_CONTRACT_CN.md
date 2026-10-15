@@ -53,6 +53,8 @@ Importer 先读取源、转换 Asset、只读校验 SHA256，再复制或硬链�
 
 通用访问日志保存可选 `asset_key` 和 `access_type`。资源 API 的访问类型为 `metadata`、`preview`、`thumb`、`original` 或 `api_examples`；短链接和分享链接分别记录为 `short_link`、`share_link`。日志仍受启用开关和 retention 清理策略控制，查询可按资源、用户、类型和时间范围筛选。
 
+分块上传会话保存在 storage 根目录的 `chunked/{upload_id}`，manifest 记录文件名、总大小、分块数、可选 SHA-256、MIME 和创建用户；分块支持乱序与重复覆盖，完成时缺块、大小或摘要不匹配会拒绝提交，成功后删除临时会话并复用普通上传元数据流程。
+
 资产评论保存 `asset_key`、作者用户 ID/用户名、正文、创建/更新时间和软删除时间。读取沿用资源 ACL 与游客敏感内容策略；创建需要登录，编辑和删除限评论作者或 admin，删除只写入 `deleted_at`，不会立即清除数据库记录。
 
 资产点赞以 `asset_key + user_id` 唯一约束保存，接口返回总数和当前用户状态；添加和移除操作幂等，读取沿用资源 ACL，写入需要登录。
