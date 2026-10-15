@@ -311,6 +311,12 @@ export const NyaApi = {
 
   uploadAsset: (form: FormData) =>
     api<Asset>("/api/upload", { method: "POST", body: form, json: false }),
+  initChunkUpload: (payload: { filename: string; total_size: number; total_chunks: number; sha256: string; content_type?: string }) =>
+    api<{ upload_id: string }>("/api/upload/chunks/init", { method: "POST", body: payload }),
+  uploadChunk: (uploadId: string, index: number, chunk: Blob) =>
+    api<{ received: number[] }>(`/api/upload/chunks/${encodeURIComponent(uploadId)}/${index}`, { method: "PUT", body: chunk, json: false }),
+  completeChunkUpload: (uploadId: string, form?: FormData) =>
+    api<Asset>(`/api/upload/chunks/${encodeURIComponent(uploadId)}/complete`, { method: "POST", body: form, json: false }),
 
   uploadRemote: (payload: { url: string; title?: string; artist_name?: string; canonical_tags?: string[]; generate_cache?: boolean; storage_strategy?: string }) =>
     api<Asset>("/api/upload/url", { method: "POST", body: payload }),

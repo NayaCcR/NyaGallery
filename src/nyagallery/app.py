@@ -2193,7 +2193,21 @@ def create_app(
         return {"upload_id": upload_id, "chunk_index": chunk_index, "received": received}
 
     @app.post("/api/upload/chunks/{upload_id}/complete")
-    async def api_chunk_upload_complete(upload_id: str, background_tasks: BackgroundTasks, db: DbSession, principal: UploadPrincipal) -> dict[str, object]:
+    async def api_chunk_upload_complete(
+        upload_id: str,
+        background_tasks: BackgroundTasks,
+        db: DbSession,
+        principal: UploadPrincipal,
+        title: str = Form(""),
+        source_id: str | None = Form(None),
+        artist_name: str = Form(""),
+        canonical_tags: str = Form(""),
+        tag_aliases: str = Form(""),
+        generate_cache: bool = Form(False),
+        storage_strategy: str | None = Form(None),
+        original_url: str = Form(""),
+        last_modified_ms: str | None = Form(None),
+    ) -> dict[str, object]:
         root = storage.root / "chunked" / upload_id
         manifest_path = root / "manifest.json"
         if not manifest_path.is_file():
@@ -2219,7 +2233,7 @@ def create_app(
             raise HTTPException(status_code=422, detail="uploaded sha256 does not match manifest")
         with combined.open("rb") as stream:
             upload_file = UploadFile(filename=str(manifest["filename"]), file=stream, size=total, headers={"content-type": str(manifest.get("content_type") or "application/octet-stream")})
-            response = await api_upload(background_tasks, db, principal, upload_file, title="", source_id=None, artist_name="", canonical_tags="", tag_aliases="", generate_cache=False, storage_strategy=None, original_url="", last_modified_ms=None)
+            response = await api_upload(background_tasks, db, principal, upload_file, title=title, source_id=source_id, artist_name=artist_name, canonical_tags=canonical_tags, tag_aliases=tag_aliases, generate_cache=generate_cache, storage_strategy=storage_strategy, original_url=original_url, last_modified_ms=last_modified_ms)
         shutil.rmtree(root, ignore_errors=True)
         return response
 
