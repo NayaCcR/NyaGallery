@@ -255,6 +255,8 @@ export const NyaApi = {
     api<{ id: number; deleted: boolean }>(`/api/access/groups/${id}`, { method: "DELETE" }),
   bulkBindAssetGroup: (asset_keys: string[], group_id: number, permission: "view" | "edit" | "upload") =>
     api<{ group_id: number; permission: string; asset_keys: string[]; bound: number }>("/api/assets/acl/groups/bulk", { method: "POST", body: { asset_keys, group_id, permission } }),
+  bulkCreateShortLinks: (asset_keys: string[], expires_at?: string) =>
+    api<{ items: Array<{ id: number; asset_key: string; slug: string; expires_at: string | null; url: string }> }>("/api/short-links/bulk", { method: "POST", body: { asset_keys, expires_at } }),
   virtualFolders: () => api<VirtualFoldersResponse>("/api/virtual-folders"),
   putVirtualFolder: (name: string, query: string, group = "custom", description = "") =>
     api(`/api/virtual-folders/${encodeURIComponent(name)}`, { method: "PUT", body: { name, query, group, description } }),

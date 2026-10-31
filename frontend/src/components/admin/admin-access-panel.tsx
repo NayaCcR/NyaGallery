@@ -21,6 +21,9 @@ export function AdminAccessPanel() {
   const [assetKeys, setAssetKeys] = useState("");
   const [selectedGroup, setSelectedGroup] = useState("");
   const [aclPermission, setAclPermission] = useState<"view" | "edit" | "upload">("view");
+  const [shortAssetKeys, setShortAssetKeys] = useState("");
+  const [shortExpiry, setShortExpiry] = useState("");
+  const [shortResults, setShortResults] = useState<Array<{ asset_key: string; slug: string; url: string }>>([]);
   const [folderName, setFolderName] = useState("");
   const [folderQuery, setFolderQuery] = useState("");
   const [busy, setBusy] = useState(false);
@@ -72,6 +75,19 @@ export function AdminAccessPanel() {
     finally { setBusy(false); }
   }
 
+  async function createBulkShortLinks() {
+    const keys = [...new Set(shortAssetKeys.split(/[\\s,]+/).map((item) => item.trim()).filter(Boolean))];
+    if (!keys.length) return;
+    setBusy(true);
+    try {
+      const response = await NyaApi.bulkCreateShortLinks(keys, shortExpiry ? new Date(shortExpiry).toISOString() : undefined);
+      setShortResults(response.items);
+      setShortAssetKeys("");
+      toast.success(t("admin.access.shortLinksCreated", { count: response.items.length }));
+    } catch (error) { toast.error(error instanceof Error ? error.message : t("admin.access.saveFailed")); }
+    finally { setBusy(false); }
+  }
+
   async function createFolder() {
     if (!folderName.trim() || !folderQuery.trim()) return;
     setBusy(true);
@@ -99,6 +115,12 @@ export function AdminAccessPanel() {
           <select aria-label={t("admin.access.permission")} value={aclPermission} onChange={(event) => setAclPermission(event.target.value as "view" | "edit" | "upload")} className="h-9 rounded-md border border-input bg-background px-2 text-sm"><option value="view">{t("admin.access.viewOnly")}</option><option value="edit">{t("admin.access.edit")}</option><option value="upload">{t("admin.access.upload")}</option></select>
           <Button disabled={busy || !selectedGroup || !assetKeys.trim()} onClick={bindAssetsToGroup}>{t("admin.access.bindAssets")}</Button>
         </div>
+      </div>
+      <div className="space-y-3 border-t border-border pt-4">
+        <h3 className="text-sm font-medium">{t("admin.access.bulkShortLinks")}</h3>
+        <textarea aria-label={t("admin.access.assetKeys")} value={shortAssetKeys} onChange={(event) => setShortAssetKeys(event.target.value)} placeholder={t("admin.access.assetKeysHint")} className="min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+        <div className="grid gap-2 sm:grid-cols-[1fr_auto]"><Input type="datetime-local" value={shortExpiry} onChange={(event) => setShortExpiry(event.target.value)} aria-label={t("admin.access.shortLinkExpiry")} /><Button disabled={busy || !shortAssetKeys.trim()} onClick={createBulkShortLinks}>{t("admin.access.createShortLinks")}</Button></div>
+        {shortResults.length > 0 && <div className="divide-y divide-border rounded-md border border-border">{shortResults.map((item) => <div key={item.asset_key} className="flex flex-wrap items-center justify-between gap-2 p-2 text-xs"><code>{item.asset_key}</code><a className="break-all text-primary underline" href={item.url} target="_blank" rel="noreferrer">/{item.url.split("/s/").pop()}</a></div>)}</div>}
       </div>
     </section>
 
