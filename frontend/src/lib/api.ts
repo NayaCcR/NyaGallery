@@ -239,6 +239,9 @@ export const NyaApi = {
     api<{ id: number; token: string; asset_key: string; is_public: boolean; expires_at: string | null }>(`/api/assets/${encodeURIComponent(assetKey)}/share-links`, { method: "POST", body: payload }),
   assetShareLinks: (assetKey: string) => api<{ items: Array<{ id: number; asset_key: string; token_prefix: string; is_public: boolean; expires_at: string | null; revoked_at: string | null; access_count: number }> }>(`/api/assets/${encodeURIComponent(assetKey)}/share-links`),
   revokeShareLink: (linkId: number) => api<{ id: number; revoked: boolean }>(`/api/share-links/${linkId}`, { method: "DELETE" }),
+  createShortLink: (assetKey: string, payload: { slug?: string; expires_at?: string }) => api<{ id: number; slug: string; asset_key: string; expires_at: string | null; url: string }>(`/api/assets/${encodeURIComponent(assetKey)}/short-links`, { method: "POST", body: payload }),
+  assetShortLinks: (assetKey: string) => api<{ items: Array<{ id: number; slug: string; asset_key: string; expires_at: string | null; revoked_at: string | null }> }>(`/api/assets/${encodeURIComponent(assetKey)}/short-links`),
+  revokeShortLink: (linkId: number) => api<{ id: number; revoked: boolean }>(`/api/short-links/${linkId}`, { method: "DELETE" }),
 
   shareAccessLogs: (limit = 50, offset = 0, assetKey = "", status = "") => api<{ items: Array<{ id: number; share_link_id: number; asset_key: string; status: string; client_ip: string; user_agent: string; created_at: string | null }>; limit: number; offset: number }>(`/api/share-links/logs?limit=${limit}&offset=${offset}&asset_key=${encodeURIComponent(assetKey)}&status=${encodeURIComponent(status)}`),
 

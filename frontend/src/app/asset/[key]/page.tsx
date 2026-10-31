@@ -38,6 +38,10 @@ export default function AssetDetailPage() {
   const [shareLink, setShareLink] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
   const [shareLinks, setShareLinks] = useState<Array<{ id: number; token_prefix: string; is_public: boolean; expires_at: string | null; revoked_at: string | null; access_count: number }>>([]);
+  const [shortLinks, setShortLinks] = useState<Array<{ id: number; slug: string; expires_at: string | null; revoked_at: string | null }>>([]);
+  const [shortSlug, setShortSlug] = useState("");
+  const [shortExpiresAt, setShortExpiresAt] = useState("");
+  const [creatingShortLink, setCreatingShortLink] = useState(false);
   const [activeAssetKey, setActiveAssetKey] = useState(assetKey);
 
   const canDeleteRequest = me?.permissions.includes("delete_request") ?? false;
@@ -175,6 +179,7 @@ export default function AssetDetailPage() {
   useEffect(() => {
     if (!asset || !canTranscode) return;
     void NyaApi.assetShareLinks(asset.asset_key).then((response) => setShareLinks(response.items)).catch(() => undefined);
+    void NyaApi.assetShortLinks(asset.asset_key).then((response) => setShortLinks(response.items)).catch(() => undefined);
   }, [asset, canTranscode]);
 
   async function revokeShareLink(linkId: number) {
@@ -182,6 +187,28 @@ export default function AssetDetailPage() {
       await NyaApi.revokeShareLink(linkId);
       setShareLinks((current) => current.map((link) => link.id === linkId ? { ...link, revoked_at: new Date().toISOString() } : link));
       toast.success(t("pages.asset.shareRevoked"));
+    } catch (e: unknown) { toast.error(e instanceof Error ? e.message : String(e)); }
+  }
+
+  async function createShortLink() {
+    if (!asset) return;
+    setCreatingShortLink(true);
+    try {
+      const result = await NyaApi.createShortLink(asset.asset_key, { slug: shortSlug.trim() || undefined, expires_at: shortExpiresAt ? new Date(shortExpiresAt).toISOString() : undefined });
+      setShortLinks((current) => [{ id: result.id, slug: result.slug, expires_at: result.expires_at, revoked_at: null }, ...current]);
+      setShortSlug("");
+      setShortExpiresAt("");
+      await navigator.clipboard?.writeText(result.url);
+      toast.success(t("pages.asset.shortLinkCreated"));
+    } catch (e: unknown) { toast.error(e instanceof Error ? e.message : String(e)); }
+    finally { setCreatingShortLink(false); }
+  }
+
+  async function revokeShortLink(linkId: number) {
+    try {
+      await NyaApi.revokeShortLink(linkId);
+      setShortLinks((current) => current.map((link) => link.id === linkId ? { ...link, revoked_at: new Date().toISOString() } : link));
+      toast.success(t("pages.asset.shortLinkRevoked"));
     } catch (e: unknown) { toast.error(e instanceof Error ? e.message : String(e)); }
   }
 
@@ -425,6 +452,14 @@ export default function AssetDetailPage() {
                 </div>;
               })}
             </div>
+          </section>
+        )}
+
+        {canTranscode && (
+          <section className="space-y-2 rounded-lg border border-border bg-muted/25 p-3">
+            <h2 className="text-sm font-medium">{t("pages.asset.shortLinksTitle")}</h2>
+            <div className="grid gap-2 sm:grid-cols-[1fr_220px_auto]"><input value={shortSlug} onChange={(event) => setShortSlug(event.target.value)} placeholder={t("pages.asset.shortSlugPlaceholder")} className="h-9 rounded-md border border-input bg-background px-3 text-sm" /><input type="datetime-local" value={shortExpiresAt} onChange={(event) => setShortExpiresAt(event.target.value)} aria-label={t("pages.asset.shortExpiresAt")} className="h-9 rounded-md border border-input bg-background px-3 text-sm" /><Button variant="outline" size="sm" onClick={() => void createShortLink()} disabled={creatingShortLink}>{t("pages.asset.createShortLink")}</Button></div>
+            {shortLinks.length > 0 && <div className="divide-y divide-border rounded-md border border-border">{shortLinks.map((link) => { const expired = link.expires_at ? new Date(link.expires_at).getTime() <= Date.now() : false; const revoked = Boolean(link.revoked_at); return <div key={link.id} className="flex flex-wrap items-center justify-between gap-2 p-2 text-xs"><div><code>/s/{link.slug}</code><div className="mt-1 text-muted-foreground">{link.expires_at ? formatDateTime(link.expires_at, locale) : t("pages.asset.shareNoExpiry")}</div></div>{revoked || expired ? <Badge variant="outline">{t(revoked ? "pages.asset.shareRevokedStatus" : "pages.asset.shareExpiredStatus")}</Badge> : <Button variant="outline" size="sm" onClick={() => void revokeShortLink(link.id)}>{t("pages.asset.revokeShare")}</Button>}</div>; })}</div>}
           </section>
         )}
 
