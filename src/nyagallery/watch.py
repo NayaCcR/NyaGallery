@@ -14,6 +14,26 @@ class WatchEvent:
     fingerprint: tuple[int, int]
 
 
+class WatchImportBridge:
+    def __init__(self, handler: Callable[[WatchEvent], None], *, conflict: str = "skip", delete_handler: Callable[[WatchEvent], None] | None = None) -> None:
+        if conflict not in {"skip", "replace"}:
+            raise ValueError("conflict must be skip or replace")
+        self.handler = handler
+        self.conflict = conflict
+        self.delete_handler = delete_handler
+        self._seen: set[Path] = set()
+
+    def __call__(self, event: WatchEvent) -> None:
+        if event.kind == "deleted":
+            if self.delete_handler is not None:
+                self.delete_handler(event)
+            self._seen.discard(event.path)
+            return
+        if event.kind == "created" or self.conflict == "replace" or event.path not in self._seen:
+            self.handler(event)
+        self._seen.add(event.path)
+
+
 class PollingWatcher:
     """Portable watch mode based on stable file fingerprints and a stoppable worker."""
 
