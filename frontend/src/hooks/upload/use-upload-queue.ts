@@ -16,6 +16,7 @@ export type UploadItem = {
   sourceId: string;
   tags: string[];
   status: UploadStatus;
+  progress?: number;
   message?: string;
   assetKey?: string;
 };
@@ -190,7 +191,7 @@ export function useUploadQueue({ onSuccess, onError }: UseUploadQueueOptions) {
       form.set("storage_strategy", storageStrategy);
 
       try {
-        const asset = await uploadWithChunks(item.file, form);
+        const asset = await uploadWithChunks(item.file, form, (progress) => updateItem(item.id, { progress }));
         const effectiveTags = item.tags.length > 0 ? item.tags : defaultTags;
         if (effectiveTags.length > 0) {
           try {
@@ -250,24 +251,43 @@ export function useUploadQueue({ onSuccess, onError }: UseUploadQueueOptions) {
 
 const CHUNK_THRESHOLD = 16 * 1024 * 1024;
 const CHUNK_SIZE = 8 * 1024 * 1024;
+const CHUNK_CONCURRENCY = 3;
 
-async function uploadWithChunks(file: File, form: FormData) {
-  if (file.size <= CHUNK_THRESHOLD) return NyaApi.uploadAsset(form);
+type ChunkProgress = (progress: number) => void;
+
+async function uploadWithChunks(file: File, form: FormData, onProgress?: ChunkProgress) {
+  if (file.size <= CHUNK_THRESHOLD) {
+    onProgress?.(50);
+    const result = await NyaApi.uploadAsset(form);
+    onProgress?.(100);
+    return result;
+  }
   const bytes = await file.arrayBuffer();
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   const sha256 = Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
   const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
   const session = await NyaApi.initChunkUpload({ filename: file.name, total_size: file.size, total_chunks: totalChunks, sha256, content_type: file.type || "application/octet-stream" });
-  for (let index = 0; index < totalChunks; index += 1) {
-    await NyaApi.uploadChunk(session.upload_id, index, file.slice(index * CHUNK_SIZE, Math.min(file.size, (index + 1) * CHUNK_SIZE)));
+  let completed = 0;
+  const nextIndex = { value: 0 };
+  async function worker() {
+    while (nextIndex.value < totalChunks) {
+      const index = nextIndex.value;
+      nextIndex.value += 1;
+      await NyaApi.uploadChunk(session.upload_id, index, file.slice(index * CHUNK_SIZE, Math.min(file.size, (index + 1) * CHUNK_SIZE)));
+      completed += 1;
+      onProgress?.(Math.round((completed / totalChunks) * 90));
+    }
   }
+  await Promise.all(Array.from({ length: Math.min(CHUNK_CONCURRENCY, totalChunks) }, () => worker()));
   const complete = new FormData();
   for (const key of ["title", "source_id", "artist_name", "tag_aliases", "storage_strategy", "original_url", "last_modified_ms"]) {
     const value = form.get(key);
     if (typeof value === "string" && value) complete.set(key, value);
   }
   complete.set("generate_cache", form.get("generate_cache") === "true" ? "true" : "false");
-  return NyaApi.completeChunkUpload(session.upload_id, complete);
+  const result = await NyaApi.completeChunkUpload(session.upload_id, complete);
+  onProgress?.(100);
+  return result;
 }
 
 function makeUploadId(file: File): string {

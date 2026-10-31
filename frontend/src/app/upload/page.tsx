@@ -312,6 +312,7 @@ export default function UploadPage() {
                   </span>
                   <span className="shrink-0">{formatUploadBytes(item.file.size)}</span>
                 </div>
+                {item.status === "uploading" && typeof item.progress === "number" && <div className="h-1.5 overflow-hidden rounded-full bg-muted"><div className="h-full bg-primary transition-[width]" style={{ width: `${item.progress}%` }} /></div>}
                 {item.message && (
                   <p
                     className={cn(
