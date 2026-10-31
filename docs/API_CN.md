@@ -60,7 +60,8 @@ Content-Type: application/json
 | GET | `/api/me/api-addresses` | 需要 api 权限；返回当前请求 Host 下的资源 metadata、preview、thumb、original 和短链接创建地址模板及所需 scope |
 | GET/POST | `/api/entities` | editor；列出或创建 owner-scoped Entity，支持 type、entity_id、name、metadata 和资源集合 |
 | GET/PUT/DELETE | `/api/entities/{entity_id}` | editor；Entity 所有者/admin 查看、更新或删除 Entity |
-| POST/DELETE | `/api/entities/{entity_id}/assets[/{asset_key}]` | editor；绑定资源集合或解除单个资源关联 || GET | `/api/storage/strategies` | 当前用户可用的原图策略 |
+| POST/DELETE | `/api/entities/{entity_id}/assets[/{asset_key}]` | editor；绑定资源集合或解除单个资源关联 |
+| GET | `/api/entities/{entity_id}/timeline` | editor；按 Entity 关联资源分页返回时间线，支持 `limit`/`offset` || GET | `/api/storage/strategies` | 当前用户可用的原图策略 |
 | GET | `/api/search?q=tag&limit=50&offset=0&sort=asset_key&order=asc` | 资源搜索 |
 | GET | `/api/posts?source=misskey_io&limit=20&offset=0` | 帖子列表 |
 | GET | `/api/posts/{post_key}` | 帖子详情及附件 |

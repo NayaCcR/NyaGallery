@@ -913,6 +913,12 @@ def create_app(
         db.delete(row); db.commit()
         return {"id": entity_id, "deleted": True}
 
+    @app.get("/api/entities/{entity_id}/timeline")
+    def api_entity_timeline(entity_id: int, db: DbSession, principal: EditTagsPrincipal, limit: Annotated[int, Query(ge=1, le=200)] = 50, offset: Annotated[int, Query(ge=0)] = 0) -> dict[str, object]:
+        entity = _get_entity(db, entity_id, principal)
+        assets = db.scalars(select(AssetModel).join(EntityAssetLinkModel, EntityAssetLinkModel.asset_key == AssetModel.asset_key).where(EntityAssetLinkModel.entity_id == entity.id).order_by(AssetModel.uploaded_at.desc(), AssetModel.asset_key.desc()).offset(offset).limit(limit)).all()
+        return {"entity": {"id": entity.id, "type": entity.type, "entity_id": entity.entity_id, "name": entity.name}, "items": [_asset_response(storage, asset, catalog) for asset in assets], "limit": limit, "offset": offset, "has_more": len(assets) >= limit}
+
     @app.post("/api/entities/{entity_id}/assets")
     def api_link_entity_assets(entity_id: int, payload: EntityLinkRequest, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
         row = _get_entity(db, entity_id, principal)
