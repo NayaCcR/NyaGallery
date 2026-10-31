@@ -194,6 +194,9 @@ X：`GET /api/sync/x/config`、`GET /api/sync/x/logs`、`POST /api/sync/x/posts`
 | GET/POST | `/api/share/albums` | editor；列出当前用户相册或创建共享相册，创建时可绑定最多 500 个自有资源 |
 | GET/PUT/DELETE | `/api/share/albums/{album_id}` | editor；相册所有者/admin 查看、更新资源集合或删除相册 |
 | POST/DELETE | `/api/share/albums/{album_id}/groups[/{group_id}]` | editor；为相册绑定/解除自有分享组的 `view`/`edit`/`upload` 权限 |
+| POST/GET | `/api/share/albums/{album_id}/links` | editor；创建或列出相册公开链接，支持密码、过期和访问计数 |
+| DELETE | `/api/share/album-links/{link_id}` | editor；撤销相册公开链接 |
+| GET | `/api/share/albums/token/{token}` | 无需登录；按相册公开 token 返回游客可见资源列表，密码/过期/撤销仍受校验 |
 | GET/PUT | `/api/security/settings` | admin 安全策略和限流，含注册入口 `registration_mode`；Bot 防护可用 `bot_protection_enabled`、`bot_blocked_user_agents` 和 `bot_blocked_ips` 配置，默认关闭 |
 | GET | `/api/security/access-logs` | admin 访问日志；支持 `q`、`asset_key`、`user_id`、`access_type`、`created_after` 和 `created_before` 筛选；资源 API 请求会记录资源 ID与 metadata/preview/thumb/original/api_examples 类型 |
 | GET/POST | `/api/registration/invites` | admin；列出或生成注册邀请码，创建请求为 `{"label":"...","code":null,"max_uses":1,"expires_in_days":null}`，响应中的 `code` 仅在创建时返回一次 |

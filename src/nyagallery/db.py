@@ -603,6 +603,21 @@ class ShareAlbumAssetModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
 
+class ShareAlbumLinkModel(Base):
+    __tablename__ = "share_album_links"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    album_id: Mapped[int] = mapped_column(Integer, ForeignKey("share_albums.id", ondelete="CASCADE"), index=True)
+    owner_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token_prefix: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    password_hash: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    access_count: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class ShareAlbumGroupModel(Base):
     __tablename__ = "share_album_groups"
     __table_args__ = (UniqueConstraint("album_id", "group_id", name="uq_share_album_group"),)

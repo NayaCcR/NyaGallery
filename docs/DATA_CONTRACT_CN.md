@@ -57,7 +57,7 @@ Importer 先读取源、转换 Asset、只读校验 SHA256，再复制或硬链�
 
 分块上传会话保存在 storage 根目录的 `chunked/{upload_id}`，manifest 记录文件名、总大小、分块数、可选 SHA-256、MIME 和创建用户；分块支持乱序与重复覆盖，完成时缺块、大小或摘要不匹配会拒绝提交，成功后删除临时会话并复用普通上传元数据流程。
 
-共享相册保存所有者、名称、说明和资源集合；资源集合使用 `album_id + asset_key` 唯一关系。相册分享组 ACL 使用 `album_id + group_id` 唯一关系，并保存 `view`/`edit`/`upload` 权限。当前 API 已支持相册 CRUD、资源绑定和群组 ACL，公开相册链接联动仍待后续补齐。
+共享相册保存所有者、名称、说明和资源集合；资源集合使用 `album_id + asset_key` 唯一关系。相册分享组 ACL 使用 `album_id + group_id` 唯一关系，并保存 `view`/`edit`/`upload` 权限。相册公开链接保存 token 前缀、哈希、密码哈希、过期/撤销时间和访问计数；公开解析按 token 前缀候选后使用 `verify_secret` 校验，并沿用游客敏感内容过滤。
 
 资产评论保存 `asset_key`、作者用户 ID/用户名、正文、创建/更新时间和软删除时间。读取沿用资源 ACL 与游客敏感内容策略；创建需要登录，编辑和删除限评论作者或 admin，删除只写入 `deleted_at`，不会立即清除数据库记录。
 

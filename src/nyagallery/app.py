@@ -70,6 +70,7 @@ from nyagallery.db import (
     ShareGroupModel,
     ShareAlbumModel,
     ShareAlbumAssetModel,
+    ShareAlbumLinkModel,
     ShareAlbumGroupModel,
     ShareLinkModel,
     AssetShortLinkModel,
@@ -641,6 +642,11 @@ class ShareAlbumCreate(BaseModel):
 class ShareAlbumGroupUpdate(BaseModel):
     group_id: int = Field(ge=1)
     permission: str = Field(pattern="^(view|edit|upload)$")
+
+
+class ShareAlbumLinkCreate(BaseModel):
+    password: str | None = Field(default=None, min_length=8, max_length=512)
+    expires_at: str | None = None
 
 
 class AssetGroupAclUpdate(BaseModel):
@@ -1615,6 +1621,59 @@ def create_app(
         db.delete(album)
         db.commit()
         return {"id": album_id, "deleted": True}
+
+    @app.post("/api/share/albums/{album_id}/links")
+    def api_create_share_album_link(album_id: int, payload: ShareAlbumLinkCreate, request: Request, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        album = _get_share_album(db, album_id, principal)
+        normalized = normalize_timestamp(payload.expires_at) if payload.expires_at else None
+        if payload.expires_at and normalized is None:
+            raise HTTPException(status_code=422, detail="invalid expires_at")
+        token = secrets.token_urlsafe(32)
+        row = ShareAlbumLinkModel(album_id=album.id, owner_user_id=principal.user_id, token_prefix=token[:12], token_hash=hash_secret(token), password_hash=hash_secret(payload.password) if payload.password else None, expires_at=datetime.fromisoformat(normalized.replace("Z", "+00:00")) if normalized else None)
+        db.add(row)
+        db.commit()
+        return {"id": row.id, "token": token, "album_id": row.album_id, "expires_at": row.expires_at, "url": f"{str(request.base_url).rstrip('/')}/api/share/albums/token/{token}"}
+
+    @app.get("/api/share/albums/{album_id}/links")
+    def api_list_share_album_links(album_id: int, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        album = _get_share_album(db, album_id, principal)
+        rows = db.scalars(select(ShareAlbumLinkModel).where(ShareAlbumLinkModel.album_id == album.id).order_by(ShareAlbumLinkModel.id.desc())).all()
+        return {"items": [{"id": row.id, "token_prefix": row.token_prefix, "expires_at": row.expires_at, "revoked_at": row.revoked_at, "access_count": row.access_count} for row in rows]}
+
+    @app.delete("/api/share/album-links/{link_id}")
+    def api_revoke_share_album_link(link_id: int, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        row = db.get(ShareAlbumLinkModel, link_id)
+        if row is None or (row.owner_user_id != principal.user_id and not principal.has_permission("admin")):
+            raise HTTPException(status_code=404, detail="album link not found")
+        row.revoked_at = datetime.now(timezone.utc)
+        db.commit()
+        return {"id": row.id, "revoked": True}
+
+    @app.get("/api/share/albums/token/{token}")
+    def api_public_share_album(token: str, db: DbSession, password: str | None = None) -> dict[str, object]:
+        candidates = db.scalars(select(ShareAlbumLinkModel).where(ShareAlbumLinkModel.token_prefix == token[:12])).all()
+        row = next((candidate for candidate in candidates if verify_secret(token, candidate.token_hash)), None)
+        if row is None:
+            raise HTTPException(status_code=404, detail="album link not found")
+        if row.revoked_at is not None or (row.expires_at is not None and aware_utc(row.expires_at) <= datetime.now(timezone.utc)):
+            raise HTTPException(status_code=410, detail="album link is no longer active")
+        if row.password_hash and not verify_secret(password or "", row.password_hash):
+            raise HTTPException(status_code=401, detail="password required")
+        album = db.get(ShareAlbumModel, row.album_id)
+        if album is None:
+            raise HTTPException(status_code=404, detail="share album not found")
+        assets = list(db.scalars(select(AssetModel).join(ShareAlbumAssetModel, ShareAlbumAssetModel.asset_key == AssetModel.asset_key).where(ShareAlbumAssetModel.album_id == album.id).order_by(ShareAlbumAssetModel.id.asc())).all())
+        guest = Principal(username="guest", role="guest")
+        visible = []
+        for asset in assets:
+            try:
+                _require_sensitive_view(asset, guest)
+            except HTTPException:
+                continue
+            visible.append(asset_to_dict(asset))
+        row.access_count += 1
+        db.commit()
+        return {"album": {"id": album.id, "name": album.name, "description": album.description}, "items": visible}
 
     @app.post("/api/share/albums/{album_id}/groups")
     def api_bind_share_album_group(album_id: int, payload: ShareAlbumGroupUpdate, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
