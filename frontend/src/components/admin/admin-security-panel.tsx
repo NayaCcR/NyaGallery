@@ -1,6 +1,6 @@
 "use client";
 
-import { Network, RefreshCw, Save, Search, Shield } from "lucide-react";
+import { Download, Network, RefreshCw, Save, Search, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { LimitGrid, NumberField, SelectField, ToggleField } from "@/components/admin/admin-fields";
@@ -70,6 +70,21 @@ export function AdminSecurityPanel({
   onPatchUserLimit,
 }: AdminSecurityPanelProps) {
   const { t } = useI18n();
+
+  function downloadLogs(format: "json" | "csv") {
+    const fields = ["id", "created_at", "username", "user_id", "asset_key", "access_type", "method", "path", "status_code", "client_ip", "user_agent"] as const;
+    const rows = accessLogs.map((log) => fields.map((field) => log[field] ?? ""));
+    const content = format === "json"
+      ? JSON.stringify(accessLogs, null, 2)
+      : [fields.join(","), ...rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(","))].join("\\n");
+    const blob = new Blob([content], { type: format === "json" ? "application/json" : "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `access-logs.${format}`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <section className="space-y-4 rounded-lg border border-border bg-card p-6 shadow-sm">
@@ -185,7 +200,9 @@ export function AdminSecurityPanel({
           <h3 className="flex items-center gap-2 text-xs font-medium uppercase text-muted-foreground">
             <Network className="h-3.5 w-3.5" /> {t("admin.security.accessLogs")}
           </h3>
-          <div className="flex min-w-0 flex-1 justify-end gap-2 sm:max-w-md">
+          <div className="flex min-w-0 flex-1 flex-wrap justify-end gap-2 sm:max-w-xl">
+            <Button variant="outline" size="sm" onClick={() => downloadLogs("json")} disabled={accessLogs.length === 0}><Download className="h-4 w-4" /> JSON</Button>
+            <Button variant="outline" size="sm" onClick={() => downloadLogs("csv")} disabled={accessLogs.length === 0}><Download className="h-4 w-4" /> CSV</Button>
             <div className="relative min-w-0 flex-1">
               <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
