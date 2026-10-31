@@ -1075,6 +1075,8 @@
       "neededAuth": "Sign in required",
       "openFailed": "Open failed",
       "original": "Original",
+      "visibilityPublic": "Public",
+      "visibilityPrivate": "Private",
       "pageDirectory": "Pages",
       "pendingCleanup": "Pending cleanup",
       "purge": "Purge",

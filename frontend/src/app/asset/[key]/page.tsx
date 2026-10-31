@@ -35,6 +35,8 @@ export default function AssetDetailPage() {
   const [downloading, setDownloading] = useState(false);
   const [transcoding, setTranscoding] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [visibility, setVisibility] = useState<"public" | "private">("private");
+  const [visibilityBusy, setVisibilityBusy] = useState(false);
   const [shareLink, setShareLink] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
   const [sharePassword, setSharePassword] = useState("");
@@ -79,6 +81,11 @@ export default function AssetDetailPage() {
         : pages[0].asset_key;
     setActiveAssetKey(initialKey);
   }, [assetKey, pages]);
+
+  useEffect(() => {
+    if (!asset || !me?.user_id || asset.uploader_user_id !== me.user_id) return;
+    void NyaApi.assetVisibility(asset.asset_key).then((response) => setVisibility(response.visibility)).catch(() => undefined);
+  }, [asset, me?.user_id]);
 
   useEffect(() => {
     if (!asset || !canTranscode) return;
@@ -173,6 +180,21 @@ export default function AssetDetailPage() {
       toast.error(e instanceof Error ? e.message : t("pages.asset.saveFailed"));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function toggleVisibility() {
+    if (!asset || !me?.user_id || asset.uploader_user_id !== me.user_id) return;
+    const next = visibility === "public" ? "private" : "public";
+    setVisibilityBusy(true);
+    try {
+      const result = await NyaApi.updateAssetVisibility(asset.asset_key, next);
+      setVisibility(result.visibility);
+      toast.success(t(result.visibility === "public" ? "pages.asset.visibilityPublic" : "pages.asset.visibilityPrivate"));
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setVisibilityBusy(false);
     }
   }
 
@@ -423,6 +445,18 @@ export default function AssetDetailPage() {
             {downloading ? <Spinner className="h-4 w-4" /> : <Download className="h-4 w-4" />}
             {t("pages.asset.original")}
           </Button>
+          {me?.user_id && asset.uploader_user_id === me.user_id && (
+            <Button
+              size="sm"
+              onClick={() => void toggleVisibility()}
+              disabled={visibilityBusy}
+              className={visibility === "public" ? "border-sky-400 bg-sky-400 text-white hover:bg-sky-500" : "border-border bg-muted/50 text-muted-foreground opacity-60 hover:bg-muted"}
+              variant="outline"
+            >
+              {visibilityBusy ? <Spinner className="h-4 w-4" /> : null}
+              {visibility === "public" ? t("pages.asset.visibilityPublic") : t("pages.asset.visibilityPrivate")}
+            </Button>
+          )}
           {canTranscode && (
             <div className="flex flex-wrap items-center gap-2">
               <input type="password" autoComplete="new-password" minLength={8} value={sharePassword} onChange={(event) => setSharePassword(event.target.value)} placeholder={t("pages.asset.sharePasswordPlaceholder")} className="h-9 w-44 rounded-md border border-input bg-background px-3 text-sm" />

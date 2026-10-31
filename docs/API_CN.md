@@ -66,6 +66,7 @@ Content-Type: application/json
 | GET | `/api/posts?source=misskey_io&limit=20&offset=0` | 帖子列表 |
 | GET | `/api/posts/{post_key}` | 帖子详情及附件 |
 | GET | `/api/assets/{asset_key}` | 资源 metadata、标签和文件 URL |
+| GET/PUT | `/api/assets/{asset_key}/visibility` | 需要资源所有者/admin；读取或切换 `public` / `private`，游客只可看到 public 资产 |
 | GET | `/api/assets/{asset_key}/siblings` | 同一作品的多页资源 |
 | GET | `/api/img/random?q=tag&original=false` | 随机预览；`original=true` 返回原图 |
 | GET | `/api/img/{tag}?original=false` | 按标签随机资源 |

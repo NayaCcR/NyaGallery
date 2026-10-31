@@ -80,6 +80,7 @@ from nyagallery.db import (
     UserModel,
     TranscodeJobModel,
     UploadLogModel,
+    UserAssetModel,
     access_log_to_dict,
     any_users,
     api_token_belongs_to_user,
@@ -177,6 +178,7 @@ from nyagallery.db import (
     pixiv_token_belongs_to_user,
     pixiv_token_to_dict,
     upsert_asset,
+    upsert_user_asset,
     security_settings_to_dict,
     update_misskey_token_label,
     update_x_token_label,
@@ -691,6 +693,10 @@ class EntityCreate(BaseModel):
 
 class EntityLinkRequest(BaseModel):
     asset_keys: list[str] = Field(min_length=1, max_length=500)
+
+
+class AssetVisibilityUpdate(BaseModel):
+    visibility: str = Field(pattern="^(public|private)$")
 
 
 class NotificationReadRequest(BaseModel):
@@ -1417,6 +1423,23 @@ def create_app(
         _require_asset_access(db, asset, principal)
         _require_sensitive_view(asset, principal)
         return _asset_response(storage, asset, catalog)
+
+    @app.get("/api/assets/{asset_key}/visibility")
+    def api_asset_visibility(asset_key: str, db: DbSession, principal: ViewPrincipal) -> dict[str, str]:
+        asset = _get_asset(db, asset_key)
+        _require_asset_owner_or_admin(asset, principal)
+        row = db.scalar(select(UserAssetModel).where(UserAssetModel.user_id == asset.uploader_user_id, UserAssetModel.asset_key == asset.asset_key)) if asset.uploader_user_id is not None else None
+        return {"visibility": row.visibility if row else "private"}
+
+    @app.put("/api/assets/{asset_key}/visibility")
+    def api_update_asset_visibility(asset_key: str, payload: AssetVisibilityUpdate, db: DbSession, principal: EditTagsPrincipal) -> dict[str, str]:
+        asset = _get_asset(db, asset_key)
+        _require_asset_owner_or_admin(asset, principal)
+        if asset.uploader_user_id is None:
+            raise HTTPException(status_code=422, detail="asset has no owner")
+        row = upsert_user_asset(db, user_id=asset.uploader_user_id, asset_key=asset.asset_key, visibility=payload.visibility)
+        db.commit()
+        return {"visibility": row.visibility}
 
     @app.get("/api/assets/{asset_key}/likes")
     def api_asset_likes(asset_key: str, db: DbSession, principal: ViewPrincipal) -> dict[str, object]:

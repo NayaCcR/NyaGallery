@@ -1075,6 +1075,8 @@
       "neededAuth": "需要登录",
       "openFailed": "打开失败",
       "original": "原图",
+      "visibilityPublic": "公开",
+      "visibilityPrivate": "私有",
       "pageDirectory": "页目录",
       "pendingCleanup": "待清理",
       "purge": "彻底清理",
