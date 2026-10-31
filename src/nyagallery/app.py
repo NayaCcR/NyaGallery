@@ -1427,17 +1427,24 @@ def create_app(
     @app.get("/api/assets/{asset_key}/visibility")
     def api_asset_visibility(asset_key: str, db: DbSession, principal: ViewPrincipal) -> dict[str, str]:
         asset = _get_asset(db, asset_key)
-        _require_asset_owner_or_admin(asset, principal)
-        row = db.scalar(select(UserAssetModel).where(UserAssetModel.user_id == asset.uploader_user_id, UserAssetModel.asset_key == asset.asset_key)) if asset.uploader_user_id is not None else None
+        if not _principal_owns_asset(asset, principal):
+            raise HTTPException(status_code=404, detail="asset not found")
+        owner_id = asset.uploader_user_id or principal.user_id
+        row = db.scalar(select(UserAssetModel).where(UserAssetModel.user_id == owner_id, UserAssetModel.asset_key == asset.asset_key)) if owner_id is not None else None
         return {"visibility": row.visibility if row else "private"}
 
     @app.put("/api/assets/{asset_key}/visibility")
     def api_update_asset_visibility(asset_key: str, payload: AssetVisibilityUpdate, db: DbSession, principal: EditTagsPrincipal) -> dict[str, str]:
         asset = _get_asset(db, asset_key)
-        _require_asset_owner_or_admin(asset, principal)
-        if asset.uploader_user_id is None:
+        if not _principal_owns_asset(asset, principal):
+            raise HTTPException(status_code=404, detail="asset not found")
+        owner_id = asset.uploader_user_id or principal.user_id
+        if owner_id is None:
             raise HTTPException(status_code=422, detail="asset has no owner")
-        row = upsert_user_asset(db, user_id=asset.uploader_user_id, asset_key=asset.asset_key, visibility=payload.visibility)
+        if asset.uploader_user_id is None and principal.user_id == owner_id:
+            asset.uploader_user_id = owner_id
+            asset.uploader_username = principal.username
+        row = upsert_user_asset(db, user_id=owner_id, asset_key=asset.asset_key, visibility=payload.visibility)
         db.commit()
         return {"visibility": row.visibility}
 
@@ -6669,7 +6676,17 @@ def _replace_asset_comment_mentions(db: Session, comment_id: int, body: str, *, 
             db.add(NotificationModel(recipient_user_id=user.id, actor_user_id=actor_user_id, kind="comment_mention", asset_key=asset_key, comment_id=comment_id, message="You were mentioned in an asset comment"))
 
 
+def _principal_owns_asset(asset: AssetModel, principal: Principal) -> bool:
+    if _is_admin_principal(principal):
+        return True
+    if principal.user_id is not None and asset.uploader_user_id == principal.user_id:
+        return True
+    return asset.uploader_user_id is None and bool(asset.uploader_username) and asset.uploader_username.casefold() == principal.username.casefold()
+
+
 def _require_asset_access(db: Session, asset: AssetModel, principal: Principal) -> None:
+    if _principal_owns_asset(asset, principal):
+        return
     if not can_view_asset(db, asset, user_id=principal.user_id, is_admin=_is_admin_principal(principal)):
         raise HTTPException(status_code=404, detail="asset not found")
 
