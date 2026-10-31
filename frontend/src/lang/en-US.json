@@ -46,7 +46,10 @@
       "shareLogsHint": "Review recent share-link access status, assets and timestamps.",
       "emptyShareLogs": "No share access logs",
       "shareLogAsset": "Filter by asset ID",
-      "shareLogAllStatuses": "All access types"
+      "shareLogAllStatuses": "All access types",
+      "shareLogPage": "Page {page}",
+      "shareLogPrevious": "Previous",
+      "shareLogNext": "Next"
     },
     "migration": {
       "loadFailed": "Migration settings failed to load",

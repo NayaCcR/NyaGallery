@@ -30,10 +30,11 @@ export function AdminAccessPanel() {
   const [shareLogs, setShareLogs] = useState<Array<{ id: number; asset_key: string; status: string; client_ip: string; user_agent: string; created_at: string | null }>>([]);
   const [shareLogAsset, setShareLogAsset] = useState("");
   const [shareLogStatus, setShareLogStatus] = useState("");
+  const [shareLogOffset, setShareLogOffset] = useState(0);
 
   async function refresh() {
     const [access, roleGroups, virtualFolders, logs] = await Promise.all([
-      NyaApi.accessGroups(), NyaApi.permissionGroups(), NyaApi.virtualFolders(), NyaApi.shareAccessLogs(50, 0, shareLogAsset, shareLogStatus),
+      NyaApi.accessGroups(), NyaApi.permissionGroups(), NyaApi.virtualFolders(), NyaApi.shareAccessLogs(50, shareLogOffset, shareLogAsset, shareLogStatus),
     ]);
     setGroups(access.items);
     setShareLogs(logs.items);
@@ -43,7 +44,7 @@ export function AdminAccessPanel() {
 
   // The locale/toast helpers are stable for the lifetime of the admin page.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { void refresh().catch((error) => toast.error(error instanceof Error ? error.message : t("admin.access.loadFailed"))); }, []);
+  useEffect(() => { void refresh().catch((error) => toast.error(error instanceof Error ? error.message : t("admin.access.loadFailed"))); }, [shareLogOffset]);
 
   async function createGroup() {
     if (!name.trim()) return;
@@ -137,8 +138,9 @@ export function AdminAccessPanel() {
 
     <section className="space-y-4 rounded-lg border border-border bg-card p-6 shadow-sm">
       <div><h2 className="flex items-center gap-2 text-sm font-medium">{t("admin.access.shareLogs")}</h2><p className="mt-1 text-xs text-muted-foreground">{t("admin.access.shareLogsHint")}</p></div>
-      <div className="grid gap-2 sm:grid-cols-[1fr_160px_auto]"><Input value={shareLogAsset} onChange={(event) => setShareLogAsset(event.target.value)} placeholder={t("admin.access.shareLogAsset")} /><select value={shareLogStatus} onChange={(event) => setShareLogStatus(event.target.value)} className="h-9 rounded-md border border-input bg-background px-2 text-sm"><option value="">{t("admin.access.shareLogAllStatuses")}</option><option value="metadata">metadata</option><option value="preview">preview</option><option value="original">original</option></select><Button variant="outline" onClick={() => void refresh()} disabled={busy}>{t("common.refresh")}</Button></div>
+      <div className="grid gap-2 sm:grid-cols-[1fr_160px_auto]"><Input value={shareLogAsset} onChange={(event) => { setShareLogAsset(event.target.value); setShareLogOffset(0); }} placeholder={t("admin.access.shareLogAsset")} /><select value={shareLogStatus} onChange={(event) => { setShareLogStatus(event.target.value); setShareLogOffset(0); }} className="h-9 rounded-md border border-input bg-background px-2 text-sm"><option value="">{t("admin.access.shareLogAllStatuses")}</option><option value="metadata">metadata</option><option value="preview">preview</option><option value="original">original</option></select><Button variant="outline" onClick={() => void refresh()} disabled={busy}>{t("common.refresh")}</Button></div>
       <div className="divide-y divide-border rounded-md border border-border">{shareLogs.length === 0 ? <p className="p-3 text-xs text-muted-foreground">{t("admin.access.emptyShareLogs")}</p> : shareLogs.map((log) => <div key={log.id} className="grid gap-1 p-3 text-xs sm:grid-cols-[1fr_100px_170px]"><code>{log.asset_key}</code><span className="text-muted-foreground">{log.status}</span><span className="text-muted-foreground">{log.created_at ?? "-"}</span><span className="truncate text-muted-foreground sm:col-span-3">{log.user_agent || log.client_ip || "-"}</span></div>)}</div>
+      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground"><span>{t("admin.access.shareLogPage", { page: Math.floor(shareLogOffset / 50) + 1 })}</span><div className="flex gap-2"><Button variant="outline" size="sm" disabled={busy || shareLogOffset === 0} onClick={() => setShareLogOffset((value) => Math.max(0, value - 50))}>{t("admin.access.shareLogPrevious")}</Button><Button variant="outline" size="sm" disabled={busy || shareLogs.length < 50} onClick={() => setShareLogOffset((value) => value + 50)}>{t("admin.access.shareLogNext")}</Button></div></div>
     </section>
   </div>;
 }

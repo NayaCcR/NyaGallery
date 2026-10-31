@@ -46,7 +46,10 @@
       "shareLogsHint": "查看最近的分享链接访问状态、资源和时间。",
       "emptyShareLogs": "暂无分享访问日志",
       "shareLogAsset": "按资源 ID 筛选",
-      "shareLogAllStatuses": "全部访问类型"
+      "shareLogAllStatuses": "全部访问类型",
+      "shareLogPage": "第 {page} 页",
+      "shareLogPrevious": "上一页",
+      "shareLogNext": "下一页"
     },
     "migration": {
       "loadFailed": "迁移设置加载失败",
