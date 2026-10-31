@@ -10,6 +10,7 @@ export interface SiteConfigResponse {
   app_name?: string | null;
   logo_url?: string | null;
   layout?: string | null;
+  private_asset_image?: string | null;
 }
 
 export interface BackendConfig {
@@ -33,6 +34,7 @@ export interface BackendConfig {
     app_name: string;
     logo_url: string;
     layout: string;
+    private_asset_image: string;
   };
   media: {
     max_frame_pixels: number;

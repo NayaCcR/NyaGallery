@@ -828,6 +828,7 @@ def create_app(
             "app_name": config.site.app_name or None,
             "logo_url": config.site.logo_url or None,
             "layout": config.site.layout or None,
+            "private_asset_image": config.site.private_asset_image or "/jelly.jpg",
         }
 
     @app.get("/api/storage/strategies")

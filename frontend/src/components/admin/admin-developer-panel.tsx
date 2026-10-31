@@ -165,6 +165,7 @@ export function AdminDeveloperPanel({
               <TextField label="project_homepage" value={configDraft.site.project_homepage} onChange={(value) => patch("site", { project_homepage: value })} />
               <TextField label="repository" value={configDraft.site.repository} onChange={(value) => patch("site", { repository: value })} />
               <TextField label="icp_beian" value={configDraft.site.icp_beian} onChange={(value) => patch("site", { icp_beian: value })} />
+              <TextField label="private_asset_image" value={configDraft.site.private_asset_image} onChange={(value) => patch("site", { private_asset_image: value })} />
             </ConfigGroup>
 
             <ConfigGroup title={t("admin.developer.configGroups.pixiv")}>

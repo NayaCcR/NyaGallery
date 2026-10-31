@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Check, Copy, Download, ExternalLink, Tags as TagsIcon, Trash2, AlertTriangle, Code2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useAsset, useAssetSiblings } from "@/lib/hooks";
+import { useAsset, useAssetSiblings, useSiteConfig } from "@/lib/hooks";
 import { ApiError, downloadOriginalAsset, fileUrl, NyaApi, readToken } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -24,6 +24,7 @@ export default function AssetDetailPage() {
   const assetKey = decodeURIComponent(params?.key ?? "");
   const { data: asset, isPending, error, refetch } = useAsset(assetKey);
   const { data: siblingsData } = useAssetSiblings(assetKey);
+  const { data: siteConfig } = useSiteConfig();
   const { token, me } = useAuth();
   const toast = useToast();
   const { locale, t } = useI18n();
@@ -382,7 +383,8 @@ export default function AssetDetailPage() {
               asset={page}
               index={index}
               current={page.asset_key === activeAsset?.asset_key}
-              privateAsset={visibilityByAsset[page.asset_key] === "private" && page.uploader_user_id === me?.user_id}
+              privateAsset={visibilityByAsset[page.asset_key] === "private" && page.uploader_user_id !== me?.user_id}
+              privateAssetImage={siteConfig?.private_asset_image || "/jelly.jpg"}
             />
           ))}
         </div>
@@ -700,11 +702,13 @@ function AssetPageImage({
   index,
   current,
   privateAsset,
+  privateAssetImage,
 }: {
   asset: Asset;
   index: number;
   current: boolean;
   privateAsset: boolean;
+  privateAssetImage: string;
 }) {
   const { t } = useI18n();
   const { fitMode } = useContentPreferences();
@@ -729,7 +733,7 @@ function AssetPageImage({
         )}
       </div>
       <div className="relative bg-muted">
-        {privateAsset && <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60 p-4 text-center text-sm font-medium text-muted-foreground">{t("pages.asset.privateResource")}</div>}
+        {privateAsset ? <div className="flex min-h-[240px] flex-col items-center justify-center gap-3 bg-muted p-6 text-center"><img src={privateAssetImage} alt="" className="max-h-64 max-w-full rounded-md object-contain" /><span className="text-sm font-medium text-muted-foreground">{t("pages.asset.privateResource")}</span></div> : <>
         {!loaded && (
           <div
             className="skeleton"
@@ -773,6 +777,7 @@ function AssetPageImage({
             )}
           />
         )}
+        </>}
       </div>
     </section>
   );

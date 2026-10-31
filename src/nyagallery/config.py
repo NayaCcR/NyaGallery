@@ -48,6 +48,7 @@ class SiteConfig:
     app_name: str = ""
     logo_url: str = ""
     layout: str = ""
+    private_asset_image: str = "/jelly.jpg"
 
 
 @dataclass(frozen=True)
@@ -262,6 +263,7 @@ def config_to_dict(config: NyaGalleryConfig, *, redact_secrets: bool = False) ->
             "app_name": config.site.app_name,
             "logo_url": config.site.logo_url,
             "layout": config.site.layout,
+            "private_asset_image": config.site.private_asset_image,
         },
         "pixiv": {
             "refresh_token": pixiv_refresh_token,
@@ -397,6 +399,7 @@ def render_config(config: NyaGalleryConfig) -> str:
         f"app_name = {_toml_string(config.site.app_name)}",
         f"logo_url = {_toml_string(config.site.logo_url)}",
         f"layout = {_toml_string(config.site.layout)}",
+        f"private_asset_image = {_toml_string(config.site.private_asset_image)}",
         "",
         "[pixiv]",
         f"refresh_token = {_toml_string(encrypt_secret(config.pixiv.refresh_token or '', secret_key))}",
@@ -613,6 +616,7 @@ def _config_from_dict(data: dict[str, Any], path: Path | None) -> NyaGalleryConf
             app_name=_str(site.get("app_name"), ""),
             logo_url=_str(site.get("logo_url"), ""),
             layout=_str(site.get("layout"), "").strip().casefold(),
+            private_asset_image=_str(site.get("private_asset_image"), "/jelly.jpg"),
         ),
         pixiv=PixivConfig(
             refresh_token=_optional_secret(pixiv.get("refresh_token"), secret_key),
@@ -707,6 +711,7 @@ def _with_env_overrides(config: NyaGalleryConfig) -> NyaGalleryConfig:
         app_name=os.environ.get("NYAGALLERY_SITE_APP_NAME") or config.site.app_name,
         logo_url=os.environ.get("NYAGALLERY_SITE_LOGO_URL") or config.site.logo_url,
         layout=(os.environ.get("NYAGALLERY_SITE_LAYOUT") or config.site.layout).strip().casefold(),
+        private_asset_image=os.environ.get("NYAGALLERY_SITE_PRIVATE_ASSET_IMAGE") or config.site.private_asset_image,
     )
     pixiv = PixivConfig(
         refresh_token=os.environ.get("PIXIV_REFRESH_TOKEN") or config.pixiv.refresh_token,
