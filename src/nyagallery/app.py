@@ -649,6 +649,12 @@ class ShortLinkCreate(BaseModel):
     expires_at: str | None = None
 
 
+class BulkShortLinkCreate(BaseModel):
+    asset_keys: list[str] = Field(min_length=1, max_length=500)
+    slugs: dict[str, str] = Field(default_factory=dict, max_length=500)
+    expires_at: str | None = None
+
+
 class AssetCommentCreate(BaseModel):
     body: str = Field(min_length=1, max_length=4000)
 
@@ -1171,6 +1177,39 @@ def create_app(
         )
         db.add(row); db.commit(); db.refresh(row)
         return {"id": row.id, "token": token, "asset_key": row.asset_key, "is_public": row.is_public, "expires_at": row.expires_at, "revoked_at": None}
+
+    @app.post("/api/short-links/bulk")
+    def api_create_short_links_bulk(payload: BulkShortLinkCreate, request: Request, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        asset_keys = list(dict.fromkeys(key.strip() for key in payload.asset_keys if key.strip()))
+        if not asset_keys:
+            raise HTTPException(status_code=422, detail="asset_keys must not be empty")
+        assets = list(db.scalars(select(AssetModel).where(AssetModel.asset_key.in_(asset_keys))).all())
+        by_key = {asset.asset_key: asset for asset in assets}
+        if len(by_key) != len(asset_keys):
+            raise HTTPException(status_code=404, detail="one or more assets not found")
+        if any(asset.uploader_user_id != principal.user_id and not principal.has_permission("admin") for asset in assets):
+            raise HTTPException(status_code=403, detail="cannot share assets owned by another user")
+        expires_at = normalize_timestamp(payload.expires_at) if payload.expires_at else None
+        if payload.expires_at and expires_at is None:
+            raise HTTPException(status_code=422, detail="invalid expires_at")
+        expiry = datetime.fromisoformat(expires_at.replace("Z", "+00:00")) if expires_at else None
+        slugs: dict[str, str] = {}
+        for key in asset_keys:
+            slug = payload.slugs.get(key) if key in payload.slugs else f"asset-{secrets.token_urlsafe(8)}"
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{2,79}", slug):
+                raise HTTPException(status_code=422, detail=f"invalid slug for asset {key}")
+            if slug in slugs.values() or db.scalar(select(AssetShortLinkModel.id).where(AssetShortLinkModel.slug == slug)) is not None:
+                raise HTTPException(status_code=409, detail=f"short-link slug already exists: {slug}")
+            slugs[key] = slug
+        rows = [AssetShortLinkModel(slug=slugs[key], asset_key=key, owner_user_id=principal.user_id, expires_at=expiry) for key in asset_keys]
+        db.add_all(rows)
+        try:
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="short-link slug conflict") from exc
+        base = str(request.base_url).rstrip("/")
+        return {"items": [{"id": row.id, "asset_key": row.asset_key, "slug": row.slug, "expires_at": row.expires_at, "url": f"{base}/s/{row.slug}"} for row in rows]}
 
     @app.post("/api/assets/{asset_key}/short-links")
     def api_create_short_link(asset_key: str, payload: ShortLinkCreate, request: Request, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
