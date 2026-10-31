@@ -73,6 +73,25 @@ import type { ApiTokenSummary,
 const TOKEN_KEY = "nya.token";
 const CSRF_COOKIE = "nya_csrf";
 
+export type ShareAlbumPermission = "view" | "edit" | "upload";
+
+export interface ShareAlbumGroup {
+  group_id: number;
+  group_name: string;
+  permission: ShareAlbumPermission;
+}
+
+export interface ShareAlbum {
+  id: number;
+  owner_user_id: number;
+  name: string;
+  description: string;
+  asset_keys: string[];
+  groups: ShareAlbumGroup[];
+  created_at: string | null;
+  updated_at: string | null;
+}
+
 export class ApiError extends Error {
   constructor(public readonly status: number, message: string, public readonly body?: unknown) {
     super(message);
@@ -247,6 +266,17 @@ export const NyaApi = {
 
   accessGroups: () => api<AccessGroupsResponse>("/api/access/groups"),
   permissionGroups: () => api<PermissionGroupsResponse>("/api/access/permission-groups"),
+  shareAlbums: () => api<{ items: ShareAlbum[] }>("/api/share/albums"),
+  createShareAlbum: (payload: { name: string; description: string; asset_keys: string[] }) =>
+    api<ShareAlbum>("/api/share/albums", { method: "POST", body: payload }),
+  updateShareAlbum: (id: number, payload: { name: string; description: string; asset_keys: string[] }) =>
+    api<ShareAlbum>(`/api/share/albums/${id}`, { method: "PUT", body: payload }),
+  deleteShareAlbum: (id: number) =>
+    api<{ id: number; deleted: boolean }>(`/api/share/albums/${id}`, { method: "DELETE" }),
+  bindShareAlbumGroup: (albumId: number, group_id: number, permission: ShareAlbumPermission) =>
+    api<{ album_id: number; group_id: number; permission: string }>(`/api/share/albums/${albumId}/groups`, { method: "POST", body: { group_id, permission } }),
+  unbindShareAlbumGroup: (albumId: number, groupId: number) =>
+    api<{ album_id: number; group_id: number; deleted: boolean }>(`/api/share/albums/${albumId}/groups/${groupId}`, { method: "DELETE" }),
   createAccessGroup: (name: string, member_usernames: string[]) =>
     api<ShareGroup>("/api/access/groups", { method: "POST", body: { name, member_usernames } }),
   updateAccessGroup: (id: number, name: string, member_usernames: string[]) =>

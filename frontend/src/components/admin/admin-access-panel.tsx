@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { useI18n } from "@/components/providers/locale-provider";
 import { useToast } from "@/components/providers/toast-provider";
 import { NyaApi } from "@/lib/api";
+import type { ShareAlbum, ShareAlbumPermission } from "@/lib/api";
 import type { PermissionGroup, ShareGroup, VirtualFolderSummary } from "@/lib/types";
 
 export function AdminAccessPanel() {
@@ -16,6 +17,13 @@ export function AdminAccessPanel() {
   const [groups, setGroups] = useState<ShareGroup[]>([]);
   const [permissions, setPermissions] = useState<PermissionGroup[]>([]);
   const [folders, setFolders] = useState<VirtualFolderSummary[]>([]);
+  const [albums, setAlbums] = useState<ShareAlbum[]>([]);
+  const [albumName, setAlbumName] = useState("");
+  const [albumDescription, setAlbumDescription] = useState("");
+  const [albumAssetKeys, setAlbumAssetKeys] = useState("");
+  const [selectedAlbum, setSelectedAlbum] = useState("");
+  const [albumGroup, setAlbumGroup] = useState("");
+  const [albumPermission, setAlbumPermission] = useState<ShareAlbumPermission>("view");
   const [name, setName] = useState("");
   const [members, setMembers] = useState("");
   const [assetKeys, setAssetKeys] = useState("");
@@ -33,10 +41,11 @@ export function AdminAccessPanel() {
   const [shareLogOffset, setShareLogOffset] = useState(0);
 
   async function refresh() {
-    const [access, roleGroups, virtualFolders, logs] = await Promise.all([
-      NyaApi.accessGroups(), NyaApi.permissionGroups(), NyaApi.virtualFolders(), NyaApi.shareAccessLogs(50, shareLogOffset, shareLogAsset, shareLogStatus),
+    const [access, roleGroups, virtualFolders, logs, shareAlbums] = await Promise.all([
+      NyaApi.accessGroups(), NyaApi.permissionGroups(), NyaApi.virtualFolders(), NyaApi.shareAccessLogs(50, shareLogOffset, shareLogAsset, shareLogStatus), NyaApi.shareAlbums(),
     ]);
     setGroups(access.items);
+    setAlbums(shareAlbums.items);
     setShareLogs(logs.items);
     setPermissions(roleGroups.items);
     setFolders(virtualFolders.items);
@@ -97,6 +106,53 @@ export function AdminAccessPanel() {
     finally { setBusy(false); }
   }
 
+  function parseAlbumAssetKeys() {
+    return [...new Set(albumAssetKeys.split(/[\\s,]+/).map((item) => item.trim()).filter(Boolean))];
+  }
+
+  async function saveAlbum() {
+    if (!albumName.trim()) return;
+    setBusy(true);
+    try {
+      const payload = { name: albumName.trim(), description: albumDescription.trim(), asset_keys: parseAlbumAssetKeys() };
+      if (selectedAlbum) await NyaApi.updateShareAlbum(Number(selectedAlbum), payload);
+      else await NyaApi.createShareAlbum(payload);
+      setAlbumName(""); setAlbumDescription(""); setAlbumAssetKeys(""); setSelectedAlbum("");
+      await refresh(); toast.success(t("admin.access.albumSaved"));
+    } catch (error) { toast.error(error instanceof Error ? error.message : t("admin.access.saveFailed")); }
+    finally { setBusy(false); }
+  }
+
+  function selectAlbum(value: string) {
+    setSelectedAlbum(value);
+    const album = albums.find((item) => String(item.id) === value);
+    setAlbumName(album?.name ?? ""); setAlbumDescription(album?.description ?? ""); setAlbumAssetKeys(album?.asset_keys.join("\\n") ?? "");
+  }
+
+  async function deleteAlbum() {
+    if (!selectedAlbum) return;
+    setBusy(true);
+    try { await NyaApi.deleteShareAlbum(Number(selectedAlbum)); setSelectedAlbum(""); setAlbumName(""); setAlbumDescription(""); setAlbumAssetKeys(""); await refresh(); toast.success(t("admin.access.deleted")); }
+    catch (error) { toast.error(error instanceof Error ? error.message : t("admin.access.saveFailed")); }
+    finally { setBusy(false); }
+  }
+
+  async function bindAlbumGroup() {
+    if (!selectedAlbum || !albumGroup) return;
+    setBusy(true);
+    try { await NyaApi.bindShareAlbumGroup(Number(selectedAlbum), Number(albumGroup), albumPermission); setAlbumGroup(""); await refresh(); toast.success(t("admin.access.albumGroupBound")); }
+    catch (error) { toast.error(error instanceof Error ? error.message : t("admin.access.saveFailed")); }
+    finally { setBusy(false); }
+  }
+
+  async function unbindAlbumGroup(groupId: number) {
+    if (!selectedAlbum) return;
+    setBusy(true);
+    try { await NyaApi.unbindShareAlbumGroup(Number(selectedAlbum), groupId); await refresh(); toast.success(t("admin.access.albumGroupUnbound")); }
+    catch (error) { toast.error(error instanceof Error ? error.message : t("admin.access.saveFailed")); }
+    finally { setBusy(false); }
+  }
+
   return <div className="space-y-6">
     <section className="space-y-4 rounded-lg border border-border bg-card p-6 shadow-sm">
       <div><h2 className="flex items-center gap-2 text-sm font-medium"><UsersRound className="h-4 w-4" />{t("admin.access.shareGroups")}</h2><p className="mt-1 text-xs text-muted-foreground">{t("admin.access.shareGroupsHint")}</p></div>
@@ -123,6 +179,21 @@ export function AdminAccessPanel() {
         <div className="grid gap-2 sm:grid-cols-[1fr_auto]"><Input type="datetime-local" value={shortExpiry} onChange={(event) => setShortExpiry(event.target.value)} aria-label={t("admin.access.shortLinkExpiry")} /><Button disabled={busy || !shortAssetKeys.trim()} onClick={createBulkShortLinks}>{t("admin.access.createShortLinks")}</Button></div>
         {shortResults.length > 0 && <div className="divide-y divide-border rounded-md border border-border">{shortResults.map((item) => <div key={item.asset_key} className="flex flex-wrap items-center justify-between gap-2 p-2 text-xs"><code>{item.asset_key}</code><a className="break-all text-primary underline" href={item.url} target="_blank" rel="noreferrer">/{item.url.split("/s/").pop()}</a></div>)}</div>}
       </div>
+    </section>
+
+    <section className="space-y-4 rounded-lg border border-border bg-card p-6 shadow-sm">
+      <div><h2 className="flex items-center gap-2 text-sm font-medium">{t("admin.access.shareAlbums")}</h2><p className="mt-1 text-xs text-muted-foreground">{t("admin.access.shareAlbumsHint")}</p></div>
+      <div className="grid gap-2 md:grid-cols-[1fr_auto]">
+        <select aria-label={t("admin.access.selectAlbum")} value={selectedAlbum} onChange={(event) => selectAlbum(event.target.value)} className="h-9 rounded-md border border-input bg-background px-2 text-sm"><option value="">{t("admin.access.newAlbum")}</option>{albums.map((album) => <option key={album.id} value={album.id}>{album.name}</option>)}</select>
+        <Button variant="outline" disabled={busy || !selectedAlbum} onClick={deleteAlbum}><Trash2 className="mr-2 h-4 w-4" />{t("admin.access.deleteAlbum")}</Button>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className="space-y-1.5"><Label>{t("admin.access.albumName")}</Label><Input value={albumName} onChange={(event) => setAlbumName(event.target.value)} /></div>
+        <div className="space-y-1.5"><Label>{t("admin.access.albumDescription")}</Label><Input value={albumDescription} onChange={(event) => setAlbumDescription(event.target.value)} /></div>
+      </div>
+      <div className="space-y-1.5"><Label>{t("admin.access.albumAssetKeys")}</Label><textarea aria-label={t("admin.access.albumAssetKeys")} value={albumAssetKeys} onChange={(event) => setAlbumAssetKeys(event.target.value)} placeholder={t("admin.access.albumAssetKeysHint")} className="min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" /></div>
+      <Button disabled={busy || !albumName.trim()} onClick={saveAlbum}>{selectedAlbum ? t("admin.access.updateAlbum") : t("admin.access.createAlbum")}</Button>
+      {selectedAlbum && <div className="space-y-3 border-t border-border pt-4"><h3 className="text-sm font-medium">{t("admin.access.albumGroups")}</h3><div className="grid gap-2 sm:grid-cols-[1fr_160px_auto]"><select aria-label={t("admin.access.selectGroup")} value={albumGroup} onChange={(event) => setAlbumGroup(event.target.value)} className="h-9 rounded-md border border-input bg-background px-2 text-sm"><option value="">{t("admin.access.selectGroup")}</option>{groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select><select aria-label={t("admin.access.permission")} value={albumPermission} onChange={(event) => setAlbumPermission(event.target.value as ShareAlbumPermission)} className="h-9 rounded-md border border-input bg-background px-2 text-sm"><option value="view">{t("admin.access.viewOnly")}</option><option value="edit">{t("admin.access.edit")}</option><option value="upload">{t("admin.access.upload")}</option></select><Button disabled={busy || !albumGroup} onClick={bindAlbumGroup}>{t("admin.access.bindAlbumGroup")}</Button></div><div className="divide-y divide-border rounded-md border border-border">{(albums.find((album) => String(album.id) === selectedAlbum)?.groups ?? []).length === 0 ? <p className="p-3 text-xs text-muted-foreground">{t("admin.access.emptyAlbumGroups")}</p> : albums.find((album) => String(album.id) === selectedAlbum)?.groups.map((binding) => <div key={binding.group_id} className="flex items-center justify-between gap-3 p-3 text-xs"><span>{binding.group_name} · {binding.permission}</span><Button variant="ghost" size="sm" disabled={busy} onClick={() => unbindAlbumGroup(binding.group_id)}>{t("admin.access.unbindAlbumGroup")}</Button></div>)}</div></div>}
     </section>
 
     <section className="space-y-4 rounded-lg border border-border bg-card p-6 shadow-sm">
