@@ -37,6 +37,8 @@ export default function AssetDetailPage() {
   const [deleting, setDeleting] = useState(false);
   const [shareLink, setShareLink] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
+  const [sharePassword, setSharePassword] = useState("");
+  const [shareExpiresAt, setShareExpiresAt] = useState("");
   const [shareLinks, setShareLinks] = useState<Array<{ id: number; token_prefix: string; is_public: boolean; expires_at: string | null; revoked_at: string | null; access_count: number }>>([]);
   const [shortLinks, setShortLinks] = useState<Array<{ id: number; slug: string; expires_at: string | null; revoked_at: string | null }>>([]);
   const [shortSlug, setShortSlug] = useState("");
@@ -214,11 +216,17 @@ export default function AssetDetailPage() {
 
   async function createPublicShareLink() {
     if (!asset || !me?.user_id) return;
+    if (sharePassword && sharePassword.length < 8) {
+      toast.error(t("pages.asset.sharePasswordMinLength"));
+      return;
+    }
     setSharing(true);
     try {
-      const result = await NyaApi.createShareLink(asset.asset_key, { is_public: true });
+      const result = await NyaApi.createShareLink(asset.asset_key, { is_public: true, password: sharePassword || undefined, expires_at: shareExpiresAt ? new Date(shareExpiresAt).toISOString() : undefined });
       const url = `${window.location.origin}/share/${result.token}`;
       setShareLink(url);
+      setSharePassword("");
+      setShareExpiresAt("");
       try {
         const links = await NyaApi.assetShareLinks(asset.asset_key);
         setShareLinks(links.items);
@@ -391,9 +399,13 @@ export default function AssetDetailPage() {
             {t("pages.asset.original")}
           </Button>
           {canTranscode && (
-            <Button variant="outline" size="sm" onClick={createPublicShareLink} disabled={sharing}>
-              {sharing ? <Spinner className="h-4 w-4" /> : <ExternalLink className="h-4 w-4" />} {t("pages.asset.share")}
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <input type="password" autoComplete="new-password" minLength={8} value={sharePassword} onChange={(event) => setSharePassword(event.target.value)} placeholder={t("pages.asset.sharePasswordPlaceholder")} className="h-9 w-44 rounded-md border border-input bg-background px-3 text-sm" />
+              <input type="datetime-local" value={shareExpiresAt} onChange={(event) => setShareExpiresAt(event.target.value)} aria-label={t("pages.asset.shareExpiryInput")} className="h-9 rounded-md border border-input bg-background px-3 text-sm" />
+              <Button variant="outline" size="sm" onClick={createPublicShareLink} disabled={sharing}>
+                {sharing ? <Spinner className="h-4 w-4" /> : <ExternalLink className="h-4 w-4" />} {t("pages.asset.share")}
+              </Button>
+            </div>
           )}
           {canTranscode && (
             <Button variant="outline" size="sm" onClick={startTranscode} disabled={transcoding}>
