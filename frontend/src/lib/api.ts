@@ -257,6 +257,10 @@ export const NyaApi = {
     api<{ group_id: number; permission: string; asset_keys: string[]; bound: number }>("/api/assets/acl/groups/bulk", { method: "POST", body: { asset_keys, group_id, permission } }),
   bulkCreateShortLinks: (asset_keys: string[], expires_at?: string) =>
     api<{ items: Array<{ id: number; asset_key: string; slug: string; expires_at: string | null; url: string }> }>("/api/short-links/bulk", { method: "POST", body: { asset_keys, expires_at } }),
+  myShareGroups: () => api<{ items: Array<{ id: number; name: string }> }>("/api/access/my-groups"),
+  assetGroupBindings: (assetKey: string) => api<{ items: Array<{ group_id: string; group_name: string; permission: "view" | "edit" | "upload" }> }>(`/api/assets/${encodeURIComponent(assetKey)}/acl/groups`),
+  bindAssetGroup: (assetKey: string, group_id: number, permission: "view" | "edit" | "upload") => api<{ asset_key: string; group_id: number; permission: string }>(`/api/assets/${encodeURIComponent(assetKey)}/acl/groups`, { method: "POST", body: { group_id, permission } }),
+  unbindAssetGroup: (assetKey: string, groupId: number) => api<{ asset_key: string; group_id: number; deleted: boolean }>(`/api/assets/${encodeURIComponent(assetKey)}/acl/groups/${groupId}`, { method: "DELETE" }),
   virtualFolders: () => api<VirtualFoldersResponse>("/api/virtual-folders"),
   putVirtualFolder: (name: string, query: string, group = "custom", description = "") =>
     api(`/api/virtual-folders/${encodeURIComponent(name)}`, { method: "PUT", body: { name, query, group, description } }),

@@ -27,7 +27,7 @@ from fastapi.responses import FileResponse
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import Integer, delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -1561,6 +1561,16 @@ def create_app(
             ]
         }
 
+    @app.get("/api/access/my-groups")
+    def api_my_access_groups(db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        if principal.user_id is None:
+            raise HTTPException(status_code=401, detail="login required")
+        query = select(ShareGroupModel)
+        if not principal.has_permission("admin"):
+            query = query.where(ShareGroupModel.owner_user_id == principal.user_id)
+        groups = db.scalars(query.order_by(ShareGroupModel.name.asc(), ShareGroupModel.id.asc())).all()
+        return {"items": [{"id": group.id, "name": group.name, "owner_user_id": group.owner_user_id} for group in groups]}
+
     @app.get("/api/access/groups")
     def api_access_groups(db: DbSession, _principal: AdminPrincipal) -> dict[str, object]:
         groups = list(db.scalars(select(ShareGroupModel).order_by(ShareGroupModel.name.asc(), ShareGroupModel.id.asc())).all())
@@ -1732,6 +1742,13 @@ def create_app(
                 db.add(AssetAclModel(asset_key=key, subject_type="group", subject_id=str(group.id), permission=update.permission))
         db.commit()
         return {"group_id": group.id, "permission": update.permission, "asset_keys": asset_keys, "bound": len(asset_keys)}
+
+    @app.get("/api/assets/{asset_key}/acl/groups")
+    def api_list_asset_groups(asset_key: str, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        asset = _get_asset(db, asset_key)
+        _require_asset_owner_or_admin(asset, principal)
+        rows = db.execute(select(AssetAclModel, ShareGroupModel).join(ShareGroupModel, ShareGroupModel.id == AssetAclModel.subject_id.cast(Integer)).where(AssetAclModel.asset_key == asset.asset_key, AssetAclModel.subject_type == "group").order_by(ShareGroupModel.name.asc(), AssetAclModel.permission.asc())).all()
+        return {"items": [{"group_id": acl.subject_id, "group_name": group.name, "permission": acl.permission} for acl, group in rows]}
 
     @app.post("/api/assets/{asset_key}/acl/groups")
     def api_bind_asset_group(asset_key: str, update: AssetGroupAclUpdate, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:

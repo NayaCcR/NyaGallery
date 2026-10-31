@@ -40,6 +40,10 @@ export default function AssetDetailPage() {
   const [sharePassword, setSharePassword] = useState("");
   const [shareExpiresAt, setShareExpiresAt] = useState("");
   const [shareLinks, setShareLinks] = useState<Array<{ id: number; token_prefix: string; is_public: boolean; expires_at: string | null; revoked_at: string | null; access_count: number }>>([]);
+  const [shareGroups, setShareGroups] = useState<Array<{ id: number; name: string }>>([]);
+  const [assetGroupBindings, setAssetGroupBindings] = useState<Array<{ group_id: string; group_name: string; permission: "view" | "edit" | "upload" }>>([]);
+  const [selectedShareGroup, setSelectedShareGroup] = useState("");
+  const [shareGroupPermission, setShareGroupPermission] = useState<"view" | "edit" | "upload">("view");
   const [shortLinks, setShortLinks] = useState<Array<{ id: number; slug: string; expires_at: string | null; revoked_at: string | null }>>([]);
   const [shortSlug, setShortSlug] = useState("");
   const [shortExpiresAt, setShortExpiresAt] = useState("");
@@ -182,7 +186,28 @@ export default function AssetDetailPage() {
     if (!asset || !canTranscode) return;
     void NyaApi.assetShareLinks(asset.asset_key).then((response) => setShareLinks(response.items)).catch(() => undefined);
     void NyaApi.assetShortLinks(asset.asset_key).then((response) => setShortLinks(response.items)).catch(() => undefined);
+    void NyaApi.myShareGroups().then((response) => setShareGroups(response.items)).catch(() => undefined);
+    void NyaApi.assetGroupBindings(asset.asset_key).then((response) => setAssetGroupBindings(response.items)).catch(() => undefined);
   }, [asset, canTranscode]);
+
+  async function bindSelectedShareGroup() {
+    if (!asset || !selectedShareGroup) return;
+    try {
+      await NyaApi.bindAssetGroup(asset.asset_key, Number(selectedShareGroup), shareGroupPermission);
+      const response = await NyaApi.assetGroupBindings(asset.asset_key);
+      setAssetGroupBindings(response.items);
+      toast.success(t("pages.asset.shareGroupBound"));
+    } catch (e: unknown) { toast.error(e instanceof Error ? e.message : String(e)); }
+  }
+
+  async function unbindShareGroup(groupId: string) {
+    if (!asset) return;
+    try {
+      await NyaApi.unbindAssetGroup(asset.asset_key, Number(groupId));
+      setAssetGroupBindings((current) => current.filter((binding) => binding.group_id !== groupId));
+      toast.success(t("pages.asset.shareGroupUnbound"));
+    } catch (e: unknown) { toast.error(e instanceof Error ? e.message : String(e)); }
+  }
 
   async function revokeShareLink(linkId: number) {
     try {
@@ -450,6 +475,13 @@ export default function AssetDetailPage() {
             </Button>
           )}
         </div>
+        {canTranscode && shareGroups.length > 0 && (
+          <section className="space-y-2 rounded-lg border border-border bg-muted/25 p-3">
+            <h2 className="text-sm font-medium">{t("pages.asset.shareGroupsTitle")}</h2>
+            <div className="flex flex-wrap gap-2"><select value={selectedShareGroup} onChange={(event) => setSelectedShareGroup(event.target.value)} className="h-9 rounded-md border border-input bg-background px-2 text-sm"><option value="">{t("pages.asset.selectShareGroup")}</option>{shareGroups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select><select value={shareGroupPermission} onChange={(event) => setShareGroupPermission(event.target.value as "view" | "edit" | "upload")} className="h-9 rounded-md border border-input bg-background px-2 text-sm"><option value="view">{t("pages.asset.shareView")}</option><option value="edit">{t("pages.asset.shareEdit")}</option><option value="upload">{t("pages.asset.shareUpload")}</option></select><Button variant="outline" size="sm" disabled={!selectedShareGroup} onClick={() => void bindSelectedShareGroup()}>{t("pages.asset.bindShareGroup")}</Button></div>
+            {assetGroupBindings.length > 0 && <div className="divide-y divide-border rounded-md border border-border">{assetGroupBindings.map((binding) => <div key={`${binding.group_id}-${binding.permission}`} className="flex items-center justify-between gap-2 p-2 text-xs"><span>{binding.group_name} · {binding.permission}</span><Button variant="ghost" size="sm" onClick={() => void unbindShareGroup(binding.group_id)}>{t("pages.asset.unbindShareGroup")}</Button></div>)}</div>}
+          </section>
+        )}
         {shareLink && <div className="rounded-md border border-border bg-muted p-3 text-xs"><span className="mr-2 text-muted-foreground">{t("pages.asset.shareCreated")}</span><code className="break-all">{shareLink}</code></div>}
         {canTranscode && shareLinks.length > 0 && (
           <section className="space-y-2 rounded-lg border border-border bg-muted/25 p-3">
