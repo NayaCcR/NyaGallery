@@ -383,7 +383,7 @@ export default function AssetDetailPage() {
               asset={page}
               index={index}
               current={page.asset_key === activeAsset?.asset_key}
-              privateAsset={visibilityByAsset[page.asset_key] === "private" && page.uploader_user_id !== me?.user_id}
+              privateAsset={page.private_resource === true || (visibilityByAsset[page.asset_key] === "private" && page.uploader_user_id !== me?.user_id)}
               privateAssetImage={siteConfig?.private_asset_image || "/jelly.jpg"}
             />
           ))}

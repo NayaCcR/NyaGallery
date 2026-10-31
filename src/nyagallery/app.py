@@ -1426,9 +1426,18 @@ def create_app(
     @app.get("/api/assets/{asset_key}")
     def api_asset(asset_key: str, db: DbSession, principal: ViewPrincipal) -> dict[str, object]:
         asset = _get_asset(db, asset_key)
-        _require_asset_access(db, asset, principal)
+        owner_id = asset.uploader_user_id or principal.user_id
+        visibility_row = db.scalar(select(UserAssetModel).where(UserAssetModel.user_id == owner_id, UserAssetModel.asset_key == asset.asset_key)) if owner_id is not None else None
+        visibility = visibility_row.visibility if visibility_row else "private"
+        if not can_view_asset(db, asset, user_id=principal.user_id, is_admin=_is_admin_principal(principal)):
+            result = _asset_response(storage, asset, catalog)
+            result.update({"visibility": visibility, "private_resource": True, "preview_url": "", "thumb_url": "", "original_path": ""})
+            return result
         _require_sensitive_view(asset, principal)
-        return _asset_response(storage, asset, catalog)
+        result = _asset_response(storage, asset, catalog)
+        result["visibility"] = visibility
+        result["private_resource"] = False
+        return result
 
     @app.get("/api/assets/{asset_key}/visibility")
     def api_asset_visibility(asset_key: str, db: DbSession, principal: ViewPrincipal) -> dict[str, str]:

@@ -198,6 +198,8 @@ export interface Asset {
   deleted_by_username: string | null;
   source_file_sha256: string;
   duplicate_of: string | null;
+  visibility?: "public" | "private";
+  private_resource?: boolean;
 }
 
 export interface AssetApiExamplesResponse {
