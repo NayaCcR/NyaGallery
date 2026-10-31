@@ -1032,6 +1032,13 @@
     "upload": "Upload"
   },
   "pages": {
+    "settings": {
+      "apiAddresses": "Asset API addresses",
+      "apiAddressesHint": "Addresses use the current request Host and can be used by third-party clients.",
+      "scopeHint": "Use an API token with the scope required by each endpoint.",
+      "copyAddress": "Copy address",
+      "loading": "Loading settings..."
+    },
     "asset": {
       "addedAt": "Added {time}",
       "apiJson": "JSON Details",

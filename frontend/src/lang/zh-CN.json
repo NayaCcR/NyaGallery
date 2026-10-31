@@ -1032,6 +1032,13 @@
     "upload": "上传"
   },
   "pages": {
+    "settings": {
+      "apiAddresses": "取图 API 地址",
+      "apiAddressesHint": "地址使用当前请求 Host，可用于第三方客户端取图。",
+      "scopeHint": "调用时请使用具备对应 scope 的 API Token。",
+      "copyAddress": "复制地址",
+      "loading": "正在加载设置..."
+    },
     "asset": {
       "addedAt": "添加于 {time}",
       "apiJson": "JSON 详情",
