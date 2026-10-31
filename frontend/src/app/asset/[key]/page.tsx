@@ -81,6 +81,14 @@ export default function AssetDetailPage() {
   }, [assetKey, pages]);
 
   useEffect(() => {
+    if (!asset || !canTranscode) return;
+    void NyaApi.assetShareLinks(asset.asset_key).then((response) => setShareLinks(response.items)).catch(() => undefined);
+    void NyaApi.assetShortLinks(asset.asset_key).then((response) => setShortLinks(response.items)).catch(() => undefined);
+    void NyaApi.myShareGroups().then((response) => setShareGroups(response.items)).catch(() => undefined);
+    void NyaApi.assetGroupBindings(asset.asset_key).then((response) => setAssetGroupBindings(response.items)).catch(() => undefined);
+  }, [asset, canTranscode]);
+
+  useEffect(() => {
     if (!hasMultiplePages) return;
     const elements = pages
       .map((page) => document.getElementById(page.asset_key))
@@ -181,14 +189,6 @@ export default function AssetDetailPage() {
       setDownloading(false);
     }
   }
-
-  useEffect(() => {
-    if (!asset || !canTranscode) return;
-    void NyaApi.assetShareLinks(asset.asset_key).then((response) => setShareLinks(response.items)).catch(() => undefined);
-    void NyaApi.assetShortLinks(asset.asset_key).then((response) => setShortLinks(response.items)).catch(() => undefined);
-    void NyaApi.myShareGroups().then((response) => setShareGroups(response.items)).catch(() => undefined);
-    void NyaApi.assetGroupBindings(asset.asset_key).then((response) => setAssetGroupBindings(response.items)).catch(() => undefined);
-  }, [asset, canTranscode]);
 
   async function bindSelectedShareGroup() {
     if (!asset || !selectedShareGroup) return;
