@@ -58,6 +58,8 @@ from nyagallery.config import (
 )
 from nyagallery.db import (
     AssetModel,
+    EntityModel,
+    EntityAssetLinkModel,
     AssetCommentModel,
     AssetMentionModel,
     NotificationModel,
@@ -679,6 +681,18 @@ class AssetCommentCreate(BaseModel):
     body: str = Field(min_length=1, max_length=4000)
 
 
+class EntityCreate(BaseModel):
+    type: str = Field(min_length=1, max_length=60)
+    entity_id: str = Field(min_length=1, max_length=180)
+    name: str = Field(min_length=1, max_length=240)
+    metadata: dict[str, object] = Field(default_factory=dict)
+    asset_keys: list[str] = Field(default_factory=list, max_length=500)
+
+
+class EntityLinkRequest(BaseModel):
+    asset_keys: list[str] = Field(min_length=1, max_length=500)
+
+
 class NotificationReadRequest(BaseModel):
     notification_ids: list[int] = Field(default_factory=list, max_length=200)
 
@@ -846,6 +860,75 @@ def create_app(
         row.like_enabled = payload.like_enabled
         db.commit()
         return {"mention_enabled": row.mention_enabled, "like_enabled": row.like_enabled}
+
+    @app.get("/api/entities")
+    def api_list_entities(db: DbSession, principal: EditTagsPrincipal, entity_type: str | None = None) -> dict[str, object]:
+        query = select(EntityModel)
+        if not principal.has_permission("admin"):
+            query = query.where(EntityModel.owner_user_id == principal.user_id)
+        if entity_type:
+            query = query.where(EntityModel.type == entity_type)
+        rows = db.scalars(query.order_by(EntityModel.type.asc(), EntityModel.name.asc(), EntityModel.id.asc())).all()
+        return {"items": [_entity_to_dict(db, row) for row in rows]}
+
+    @app.post("/api/entities")
+    def api_create_entity(payload: EntityCreate, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        if principal.user_id is None:
+            raise HTTPException(status_code=401, detail="login required")
+        existing = db.scalar(select(EntityModel.id).where(EntityModel.type == payload.type, EntityModel.entity_id == payload.entity_id))
+        if existing is not None:
+            raise HTTPException(status_code=409, detail="entity already exists")
+        keys = list(dict.fromkeys(key.strip() for key in payload.asset_keys if key.strip()))
+        assets = list(db.scalars(select(AssetModel).where(AssetModel.asset_key.in_(keys))).all()) if keys else []
+        if len(assets) != len(keys) or any(asset.uploader_user_id != principal.user_id and not principal.has_permission("admin") for asset in assets):
+            raise HTTPException(status_code=403, detail="entity may only include assets owned by the current user")
+        row = EntityModel(type=payload.type.strip(), entity_id=payload.entity_id.strip(), name=payload.name.strip(), metadata_json=payload.metadata, owner_user_id=principal.user_id)
+        db.add(row)
+        db.flush()
+        db.add_all([EntityAssetLinkModel(entity_id=row.id, asset_key=key) for key in keys])
+        db.commit()
+        return _entity_to_dict(db, row)
+
+    @app.get("/api/entities/{entity_id}")
+    def api_get_entity(entity_id: int, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        row = _get_entity(db, entity_id, principal)
+        return _entity_to_dict(db, row)
+
+    @app.put("/api/entities/{entity_id}")
+    def api_update_entity(entity_id: int, payload: EntityCreate, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        row = _get_entity(db, entity_id, principal)
+        row.type = payload.type.strip(); row.entity_id = payload.entity_id.strip(); row.name = payload.name.strip(); row.metadata_json = payload.metadata
+        keys = list(dict.fromkeys(key.strip() for key in payload.asset_keys if key.strip()))
+        assets = list(db.scalars(select(AssetModel).where(AssetModel.asset_key.in_(keys))).all()) if keys else []
+        if len(assets) != len(keys) or any(asset.uploader_user_id != principal.user_id and not principal.has_permission("admin") for asset in assets):
+            raise HTTPException(status_code=403, detail="entity may only include assets owned by the current user")
+        db.execute(delete(EntityAssetLinkModel).where(EntityAssetLinkModel.entity_id == row.id))
+        db.add_all([EntityAssetLinkModel(entity_id=row.id, asset_key=key) for key in keys])
+        db.commit()
+        return _entity_to_dict(db, row)
+
+    @app.delete("/api/entities/{entity_id}")
+    def api_delete_entity(entity_id: int, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        row = _get_entity(db, entity_id, principal)
+        db.delete(row); db.commit()
+        return {"id": entity_id, "deleted": True}
+
+    @app.post("/api/entities/{entity_id}/assets")
+    def api_link_entity_assets(entity_id: int, payload: EntityLinkRequest, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        row = _get_entity(db, entity_id, principal)
+        keys = list(dict.fromkeys(key.strip() for key in payload.asset_keys if key.strip()))
+        assets = list(db.scalars(select(AssetModel).where(AssetModel.asset_key.in_(keys))).all())
+        if len(assets) != len(keys) or any(asset.uploader_user_id != principal.user_id and not principal.has_permission("admin") for asset in assets):
+            raise HTTPException(status_code=403, detail="entity may only include assets owned by the current user")
+        existing = set(db.scalars(select(EntityAssetLinkModel.asset_key).where(EntityAssetLinkModel.entity_id == row.id, EntityAssetLinkModel.asset_key.in_(keys))).all())
+        db.add_all([EntityAssetLinkModel(entity_id=row.id, asset_key=key) for key in keys if key not in existing]); db.commit()
+        return _entity_to_dict(db, row)
+
+    @app.delete("/api/entities/{entity_id}/assets/{asset_key}")
+    def api_unlink_entity_asset(entity_id: int, asset_key: str, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        row = _get_entity(db, entity_id, principal)
+        db.execute(delete(EntityAssetLinkModel).where(EntityAssetLinkModel.entity_id == row.id, EntityAssetLinkModel.asset_key == asset_key)); db.commit()
+        return {"entity_id": entity_id, "asset_key": asset_key, "deleted": True}
 
     @app.get("/api/notifications")
     def api_notifications(db: DbSession, principal: ViewPrincipal, limit: Annotated[int, Query(ge=1, le=100)] = 50, offset: Annotated[int, Query(ge=0)] = 0, unread_only: bool = False) -> dict[str, object]:
@@ -6161,6 +6244,18 @@ def _response_size(response) -> int | None:
             pass
     body = getattr(response, "body", None)
     return len(body) if isinstance(body, (bytes, bytearray)) else None
+
+
+def _get_entity(db: Session, entity_id: int, principal: Principal) -> EntityModel:
+    row = db.get(EntityModel, entity_id)
+    if row is None or (row.owner_user_id != principal.user_id and not principal.has_permission("admin")):
+        raise HTTPException(status_code=404, detail="entity not found")
+    return row
+
+
+def _entity_to_dict(db: Session, row: EntityModel) -> dict[str, object]:
+    links = db.scalars(select(EntityAssetLinkModel).where(EntityAssetLinkModel.entity_id == row.id).order_by(EntityAssetLinkModel.id.asc())).all()
+    return {"id": row.id, "type": row.type, "entity_id": row.entity_id, "name": row.name, "metadata": row.metadata_json, "owner_user_id": row.owner_user_id, "asset_keys": [link.asset_key for link in links], "created_at": row.created_at, "updated_at": row.updated_at}
 
 
 def _get_share_album(db: Session, album_id: int, principal: Principal) -> ShareAlbumModel:

@@ -139,6 +139,30 @@ class AssetModel(Base):
     )
 
 
+class EntityModel(Base):
+    __tablename__ = "entities"
+    __table_args__ = (UniqueConstraint("type", "entity_id", name="uq_entity_type_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    type: Mapped[str] = mapped_column(String(60), index=True)
+    entity_id: Mapped[str] = mapped_column(String(180), index=True)
+    name: Mapped[str] = mapped_column(String(240))
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    owner_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+
+
+class EntityAssetLinkModel(Base):
+    __tablename__ = "entity_asset_links"
+    __table_args__ = (UniqueConstraint("entity_id", "asset_key", name="uq_entity_asset_link"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    entity_id: Mapped[int] = mapped_column(Integer, ForeignKey("entities.id", ondelete="CASCADE"), index=True)
+    asset_key: Mapped[str] = mapped_column(String(160), ForeignKey("assets.asset_key", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
 class AssetCommentModel(Base):
     __tablename__ = "asset_comments"
 
