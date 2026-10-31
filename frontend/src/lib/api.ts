@@ -237,6 +237,8 @@ export const NyaApi = {
   markNotificationsRead: (notification_ids: number[] = []) => api<{ marked: number }>("/api/notifications/read", { method: "POST", body: { notification_ids } }),
   createShareLink: (assetKey: string, payload: { is_public?: boolean; password?: string; expires_at?: string }) =>
     api<{ id: number; token: string; asset_key: string; is_public: boolean; expires_at: string | null }>(`/api/assets/${encodeURIComponent(assetKey)}/share-links`, { method: "POST", body: payload }),
+  assetShareLinks: (assetKey: string) => api<{ items: Array<{ id: number; asset_key: string; token_prefix: string; is_public: boolean; expires_at: string | null; revoked_at: string | null; access_count: number }> }>(`/api/assets/${encodeURIComponent(assetKey)}/share-links`),
+  revokeShareLink: (linkId: number) => api<{ id: number; revoked: boolean }>(`/api/share-links/${linkId}`, { method: "DELETE" }),
 
   shareAccessLogs: (limit = 50, offset = 0, assetKey = "", status = "") => api<{ items: Array<{ id: number; share_link_id: number; asset_key: string; status: string; client_ip: string; user_agent: string; created_at: string | null }>; limit: number; offset: number }>(`/api/share-links/logs?limit=${limit}&offset=${offset}&asset_key=${encodeURIComponent(assetKey)}&status=${encodeURIComponent(status)}`),
 

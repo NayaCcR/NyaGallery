@@ -37,6 +37,7 @@ export default function AssetDetailPage() {
   const [deleting, setDeleting] = useState(false);
   const [shareLink, setShareLink] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
+  const [shareLinks, setShareLinks] = useState<Array<{ id: number; token_prefix: string; is_public: boolean; expires_at: string | null; revoked_at: string | null; access_count: number }>>([]);
   const [activeAssetKey, setActiveAssetKey] = useState(assetKey);
 
   const canDeleteRequest = me?.permissions.includes("delete_request") ?? false;
@@ -171,6 +172,19 @@ export default function AssetDetailPage() {
     }
   }
 
+  useEffect(() => {
+    if (!asset || !canTranscode) return;
+    void NyaApi.assetShareLinks(asset.asset_key).then((response) => setShareLinks(response.items)).catch(() => undefined);
+  }, [asset, canTranscode]);
+
+  async function revokeShareLink(linkId: number) {
+    try {
+      await NyaApi.revokeShareLink(linkId);
+      setShareLinks((current) => current.map((link) => link.id === linkId ? { ...link, revoked_at: new Date().toISOString() } : link));
+      toast.success(t("pages.asset.shareRevoked"));
+    } catch (e: unknown) { toast.error(e instanceof Error ? e.message : String(e)); }
+  }
+
   async function createPublicShareLink() {
     if (!asset || !me?.user_id) return;
     setSharing(true);
@@ -178,6 +192,12 @@ export default function AssetDetailPage() {
       const result = await NyaApi.createShareLink(asset.asset_key, { is_public: true });
       const url = `${window.location.origin}/share/${result.token}`;
       setShareLink(url);
+      try {
+        const links = await NyaApi.assetShareLinks(asset.asset_key);
+        setShareLinks(links.items);
+      } catch {
+        // The link was created successfully even if the management list cannot refresh.
+      }
       await navigator.clipboard?.writeText(url);
       toast.success(t("pages.asset.shareCreated"));
     } catch (e: unknown) { toast.error(e instanceof Error ? e.message : String(e)); }
@@ -392,6 +412,21 @@ export default function AssetDetailPage() {
           )}
         </div>
         {shareLink && <div className="rounded-md border border-border bg-muted p-3 text-xs"><span className="mr-2 text-muted-foreground">{t("pages.asset.shareCreated")}</span><code className="break-all">{shareLink}</code></div>}
+        {canTranscode && shareLinks.length > 0 && (
+          <section className="space-y-2 rounded-lg border border-border bg-muted/25 p-3">
+            <h2 className="text-sm font-medium">{t("pages.asset.shareLinksTitle")}</h2>
+            <div className="divide-y divide-border rounded-md border border-border">
+              {shareLinks.map((link) => {
+                const expired = link.expires_at ? new Date(link.expires_at).getTime() <= Date.now() : false;
+                const revoked = Boolean(link.revoked_at);
+                return <div key={link.id} className="flex flex-wrap items-center justify-between gap-2 p-2 text-xs">
+                  <div className="min-w-0"><code>{link.token_prefix}…</code><span className="ml-2 text-muted-foreground">{link.is_public ? t("pages.asset.sharePublic") : t("pages.asset.sharePrivate")} · {t("pages.asset.shareAccessCount", { count: link.access_count })}</span><div className="mt-1 text-muted-foreground">{link.expires_at ? t("pages.asset.shareExpires", { time: formatDateTime(link.expires_at, locale) }) : t("pages.asset.shareNoExpiry")}</div></div>
+                  {revoked || expired ? <Badge variant="outline">{t(revoked ? "pages.asset.shareRevokedStatus" : "pages.asset.shareExpiredStatus")}</Badge> : <Button variant="outline" size="sm" onClick={() => void revokeShareLink(link.id)}>{t("pages.asset.revokeShare")}</Button>}
+                </div>;
+              })}
+            </div>
+          </section>
+        )}
 
         {asset.description && (
           <section className="space-y-2 rounded-lg border border-border bg-muted/25 p-3">

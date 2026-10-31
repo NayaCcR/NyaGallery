@@ -90,7 +90,7 @@ GET /api/assets/{asset_key}/thumb      # 公开可见资源
 | PUT | `/api/tags/{tag_name}/aliases` | admin；`{"aliases":["旧名"]}` |
 | PUT | `/api/tags/{tag_name}/relations` | admin；`{"implications":["上位标签"],"suggestions":["相关标签"]}`；循环关系返回 400 并保留原状态 |
 | POST | `/api/assets/{asset_key}/share-links` | owner/admin 创建资源分享链接，可选公开、密码、过期时间；secret 只在创建响应返回 |
-| GET | `/api/assets/{asset_key}/share-links` | owner/admin 列出分享链接元数据，不返回 secret/hash |
+| GET | `/api/assets/{asset_key}/share-links` | owner/admin 列出分享链接元数据，不返回 secret/hash；详情页可查看状态、过期时间、访问计数并撤销 |
 | DELETE | `/api/share-links/{link_id}` | owner/admin 撤销分享链接 |
 | POST | `/api/assets/{asset_key}/short-links` | owner/admin 创建取图短链接，可选 3-80 位自定义 slug 和过期时间；slug 只能含字母、数字、下划线和连字符 |
 | GET | `/api/assets/{asset_key}/short-links` | owner/admin 列出短链接及过期/撤销状态 |
