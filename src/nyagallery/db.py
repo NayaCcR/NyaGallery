@@ -582,6 +582,38 @@ class AssetAclModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
 
+class ShareAlbumModel(Base):
+    __tablename__ = "share_albums"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    owner_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    description: Mapped[str] = mapped_column(String(1000), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+
+
+class ShareAlbumAssetModel(Base):
+    __tablename__ = "share_album_assets"
+    __table_args__ = (UniqueConstraint("album_id", "asset_key", name="uq_share_album_asset"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    album_id: Mapped[int] = mapped_column(Integer, ForeignKey("share_albums.id", ondelete="CASCADE"), index=True)
+    asset_key: Mapped[str] = mapped_column(String(160), ForeignKey("assets.asset_key", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class ShareAlbumGroupModel(Base):
+    __tablename__ = "share_album_groups"
+    __table_args__ = (UniqueConstraint("album_id", "group_id", name="uq_share_album_group"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    album_id: Mapped[int] = mapped_column(Integer, ForeignKey("share_albums.id", ondelete="CASCADE"), index=True)
+    group_id: Mapped[int] = mapped_column(Integer, ForeignKey("share_groups.id", ondelete="CASCADE"), index=True)
+    permission: Mapped[str] = mapped_column(String(20), default="view")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
 class ShareGroupModel(Base):
     __tablename__ = "share_groups"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

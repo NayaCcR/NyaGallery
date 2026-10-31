@@ -68,6 +68,9 @@ from nyagallery.db import (
     PostModel,
     ShareGroupMemberModel,
     ShareGroupModel,
+    ShareAlbumModel,
+    ShareAlbumAssetModel,
+    ShareAlbumGroupModel,
     ShareLinkModel,
     AssetShortLinkModel,
     ShareAccessLogModel,
@@ -627,6 +630,17 @@ class VirtualFolderUpdate(BaseModel):
 class ShareGroupUpdate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     member_usernames: list[str] = Field(default_factory=list)
+
+
+class ShareAlbumCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    description: str = Field(default="", max_length=1000)
+    asset_keys: list[str] = Field(default_factory=list, max_length=500)
+
+
+class ShareAlbumGroupUpdate(BaseModel):
+    group_id: int = Field(ge=1)
+    permission: str = Field(pattern="^(view|edit|upload)$")
 
 
 class AssetGroupAclUpdate(BaseModel):
@@ -1551,6 +1565,78 @@ def create_app(
             raise HTTPException(status_code=404, detail="virtual folder not found")
         virtual_folders.save()
         return {"name": folder_name, "deleted": True}
+
+    @app.get("/api/share/albums")
+    def api_list_share_albums(db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        query = select(ShareAlbumModel)
+        if not principal.has_permission("admin"):
+            query = query.where(ShareAlbumModel.owner_user_id == principal.user_id)
+        albums = db.scalars(query.order_by(ShareAlbumModel.updated_at.desc(), ShareAlbumModel.id.desc())).all()
+        return {"items": [_share_album_to_dict(db, album) for album in albums]}
+
+    @app.post("/api/share/albums")
+    def api_create_share_album(payload: ShareAlbumCreate, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        if principal.user_id is None:
+            raise HTTPException(status_code=401, detail="login required")
+        asset_keys = list(dict.fromkeys(key.strip() for key in payload.asset_keys if key.strip()))
+        assets = list(db.scalars(select(AssetModel).where(AssetModel.asset_key.in_(asset_keys))).all()) if asset_keys else []
+        if len(assets) != len(asset_keys) or any(asset.uploader_user_id != principal.user_id and not principal.has_permission("admin") for asset in assets):
+            raise HTTPException(status_code=403, detail="album may only include assets owned by the current user")
+        album = ShareAlbumModel(owner_user_id=principal.user_id, name=payload.name.strip(), description=payload.description.strip())
+        db.add(album)
+        db.flush()
+        db.add_all([ShareAlbumAssetModel(album_id=album.id, asset_key=key) for key in asset_keys])
+        db.commit()
+        db.refresh(album)
+        return _share_album_to_dict(db, album)
+
+    @app.get("/api/share/albums/{album_id}")
+    def api_get_share_album(album_id: int, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        album = _get_share_album(db, album_id, principal)
+        return _share_album_to_dict(db, album)
+
+    @app.put("/api/share/albums/{album_id}")
+    def api_update_share_album(album_id: int, payload: ShareAlbumCreate, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        album = _get_share_album(db, album_id, principal)
+        asset_keys = list(dict.fromkeys(key.strip() for key in payload.asset_keys if key.strip()))
+        assets = list(db.scalars(select(AssetModel).where(AssetModel.asset_key.in_(asset_keys))).all()) if asset_keys else []
+        if len(assets) != len(asset_keys) or any(asset.uploader_user_id != principal.user_id and not principal.has_permission("admin") for asset in assets):
+            raise HTTPException(status_code=403, detail="album may only include assets owned by the current user")
+        album.name = payload.name.strip()
+        album.description = payload.description.strip()
+        db.execute(delete(ShareAlbumAssetModel).where(ShareAlbumAssetModel.album_id == album.id))
+        db.add_all([ShareAlbumAssetModel(album_id=album.id, asset_key=key) for key in asset_keys])
+        db.commit()
+        return _share_album_to_dict(db, album)
+
+    @app.delete("/api/share/albums/{album_id}")
+    def api_delete_share_album(album_id: int, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        album = _get_share_album(db, album_id, principal)
+        db.delete(album)
+        db.commit()
+        return {"id": album_id, "deleted": True}
+
+    @app.post("/api/share/albums/{album_id}/groups")
+    def api_bind_share_album_group(album_id: int, payload: ShareAlbumGroupUpdate, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        album = _get_share_album(db, album_id, principal)
+        group = db.get(ShareGroupModel, payload.group_id)
+        if group is None or (group.owner_user_id != principal.user_id and not principal.has_permission("admin")):
+            raise HTTPException(status_code=404, detail="share group not found")
+        row = db.scalar(select(ShareAlbumGroupModel).where(ShareAlbumGroupModel.album_id == album.id, ShareAlbumGroupModel.group_id == group.id))
+        if row is None:
+            row = ShareAlbumGroupModel(album_id=album.id, group_id=group.id, permission=payload.permission)
+            db.add(row)
+        else:
+            row.permission = payload.permission
+        db.commit()
+        return {"album_id": album.id, "group_id": group.id, "permission": row.permission}
+
+    @app.delete("/api/share/albums/{album_id}/groups/{group_id}")
+    def api_unbind_share_album_group(album_id: int, group_id: int, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        album = _get_share_album(db, album_id, principal)
+        db.execute(delete(ShareAlbumGroupModel).where(ShareAlbumGroupModel.album_id == album.id, ShareAlbumGroupModel.group_id == group_id))
+        db.commit()
+        return {"album_id": album.id, "group_id": group_id, "deleted": True}
 
     @app.get("/api/access/permission-groups")
     def api_permission_groups(_principal: AdminPrincipal) -> dict[str, object]:
@@ -6016,6 +6102,19 @@ def _response_size(response) -> int | None:
             pass
     body = getattr(response, "body", None)
     return len(body) if isinstance(body, (bytes, bytearray)) else None
+
+
+def _get_share_album(db: Session, album_id: int, principal: Principal) -> ShareAlbumModel:
+    album = db.get(ShareAlbumModel, album_id)
+    if album is None or (album.owner_user_id != principal.user_id and not principal.has_permission("admin")):
+        raise HTTPException(status_code=404, detail="share album not found")
+    return album
+
+
+def _share_album_to_dict(db: Session, album: ShareAlbumModel) -> dict[str, object]:
+    assets = db.scalars(select(ShareAlbumAssetModel).where(ShareAlbumAssetModel.album_id == album.id).order_by(ShareAlbumAssetModel.id.asc())).all()
+    groups = db.execute(select(ShareAlbumGroupModel, ShareGroupModel).join(ShareGroupModel, ShareGroupModel.id == ShareAlbumGroupModel.group_id).where(ShareAlbumGroupModel.album_id == album.id).order_by(ShareGroupModel.name.asc())).all()
+    return {"id": album.id, "owner_user_id": album.owner_user_id, "name": album.name, "description": album.description, "asset_keys": [row.asset_key for row in assets], "groups": [{"group_id": row.group_id, "group_name": group.name, "permission": row.permission} for row, group in groups], "created_at": album.created_at, "updated_at": album.updated_at}
 
 
 def _access_log_asset_context(path: str) -> tuple[str | None, str | None]:
