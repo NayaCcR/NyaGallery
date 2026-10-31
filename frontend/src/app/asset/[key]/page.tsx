@@ -36,6 +36,7 @@ export default function AssetDetailPage() {
   const [transcoding, setTranscoding] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [visibility, setVisibility] = useState<"public" | "private">("private");
+  const [visibilityByAsset, setVisibilityByAsset] = useState<Record<string, "public" | "private">>({});
   const [visibilityBusy, setVisibilityBusy] = useState(false);
   const [shareLink, setShareLink] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
@@ -83,9 +84,18 @@ export default function AssetDetailPage() {
   }, [assetKey, pages]);
 
   useEffect(() => {
-    if (!asset || !me?.user_id || asset.uploader_user_id !== me.user_id) return;
-    void NyaApi.assetVisibility(asset.asset_key).then((response) => setVisibility(response.visibility)).catch(() => undefined);
-  }, [asset, me?.user_id]);
+    if (!pages.length || !me?.user_id) return;
+    const ownedPages = pages.filter((page) => page.uploader_user_id === me.user_id);
+    if (!ownedPages.length) return;
+    void Promise.all(ownedPages.map(async (page) => [page.asset_key, (await NyaApi.assetVisibility(page.asset_key)).visibility] as const))
+      .then((entries) => {
+        const next = Object.fromEntries(entries);
+        setVisibilityByAsset(next);
+        const current = activeAsset ? next[activeAsset.asset_key] : undefined;
+        if (current) setVisibility(current);
+      })
+      .catch(() => undefined);
+  }, [pages, me?.user_id, activeAsset?.asset_key]);
 
   useEffect(() => {
     if (!asset || !canTranscode) return;
@@ -183,19 +193,31 @@ export default function AssetDetailPage() {
     }
   }
 
-  async function toggleVisibility() {
-    if (!asset || !me?.user_id || asset.uploader_user_id !== me.user_id) return;
-    const next = visibility === "public" ? "private" : "public";
+  async function setVisibilityForPages(target: "public" | "private", targets: Asset[]) {
+    if (!me?.user_id || targets.some((page) => page.uploader_user_id !== me.user_id)) return;
     setVisibilityBusy(true);
     try {
-      const result = await NyaApi.updateAssetVisibility(asset.asset_key, next);
-      setVisibility(result.visibility);
-      toast.success(t(result.visibility === "public" ? "pages.asset.visibilityPublic" : "pages.asset.visibilityPrivate"));
+      await Promise.all(targets.map((page) => NyaApi.updateAssetVisibility(page.asset_key, target)));
+      setVisibilityByAsset((current) => ({ ...current, ...Object.fromEntries(targets.map((page) => [page.asset_key, target])) }));
+      setVisibility(target);
+      toast.success(t(target === "public" ? "pages.asset.visibilityPublic" : "pages.asset.visibilityPrivate"));
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
       setVisibilityBusy(false);
     }
+  }
+
+  async function toggleVisibility() {
+    if (!activeAsset) return;
+    await setVisibilityForPages(visibility === "public" ? "private" : "public", [activeAsset]);
+  }
+
+  async function toggleAllPagesVisibility() {
+    const ownedPages = pages.filter((page) => page.uploader_user_id === me?.user_id);
+    if (!ownedPages.length) return;
+    const shouldMakePublic = ownedPages.some((page) => visibilityByAsset[page.asset_key] !== "public");
+    await setVisibilityForPages(shouldMakePublic ? "public" : "private", ownedPages);
   }
 
   async function downloadOriginal() {
@@ -360,6 +382,7 @@ export default function AssetDetailPage() {
               asset={page}
               index={index}
               current={page.asset_key === activeAsset?.asset_key}
+              privateAsset={visibilityByAsset[page.asset_key] === "private" && page.uploader_user_id === me?.user_id}
             />
           ))}
         </div>
@@ -445,17 +468,20 @@ export default function AssetDetailPage() {
             {downloading ? <Spinner className="h-4 w-4" /> : <Download className="h-4 w-4" />}
             {t("pages.asset.original")}
           </Button>
-          {me?.user_id && asset.uploader_user_id === me.user_id && (
-            <Button
-              size="sm"
-              onClick={() => void toggleVisibility()}
-              disabled={visibilityBusy}
-              className={visibility === "public" ? "border-sky-400 bg-sky-400 text-white hover:bg-sky-500" : "border-border bg-muted/50 text-muted-foreground opacity-60 hover:bg-muted"}
-              variant="outline"
-            >
-              {visibilityBusy ? <Spinner className="h-4 w-4" /> : null}
-              {visibility === "public" ? t("pages.asset.visibilityPublic") : t("pages.asset.visibilityPrivate")}
-            </Button>
+          {me?.user_id && activeAsset?.uploader_user_id === me.user_id && (
+            <>
+              <Button
+                size="sm"
+                onClick={() => void toggleVisibility()}
+                disabled={visibilityBusy}
+                className={visibility === "public" ? "border-sky-400 bg-sky-400 text-white hover:bg-sky-500" : "border-border bg-muted/50 text-muted-foreground opacity-60 hover:bg-muted"}
+                variant="outline"
+              >
+                {visibilityBusy ? <Spinner className="h-4 w-4" /> : null}
+                {visibility === "public" ? t("pages.asset.visibilityPublic") : t("pages.asset.visibilityPrivate")}
+              </Button>
+              {hasMultiplePages && <Button size="sm" variant="outline" onClick={() => void toggleAllPagesVisibility()} disabled={visibilityBusy}>{t("pages.asset.visibilityAllPages")}</Button>}
+            </>
           )}
           {canTranscode && (
             <div className="flex flex-wrap items-center gap-2">
@@ -673,10 +699,12 @@ function AssetPageImage({
   asset,
   index,
   current,
+  privateAsset,
 }: {
   asset: Asset;
   index: number;
   current: boolean;
+  privateAsset: boolean;
 }) {
   const { t } = useI18n();
   const { fitMode } = useContentPreferences();
@@ -701,6 +729,7 @@ function AssetPageImage({
         )}
       </div>
       <div className="relative bg-muted">
+        {privateAsset && <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60 p-4 text-center text-sm font-medium text-muted-foreground">{t("pages.asset.privateResource")}</div>}
         {!loaded && (
           <div
             className="skeleton"

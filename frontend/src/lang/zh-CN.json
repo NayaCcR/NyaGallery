@@ -1077,6 +1077,8 @@
       "original": "原图",
       "visibilityPublic": "公开",
       "visibilityPrivate": "私有",
+      "visibilityAllPages": "全部页面切换",
+      "privateResource": "该资源私有",
       "pageDirectory": "页目录",
       "pendingCleanup": "待清理",
       "purge": "彻底清理",

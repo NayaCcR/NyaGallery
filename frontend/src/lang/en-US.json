@@ -1077,6 +1077,8 @@
       "original": "Original",
       "visibilityPublic": "Public",
       "visibilityPrivate": "Private",
+      "visibilityAllPages": "Toggle all pages",
+      "privateResource": "This resource is private",
       "pageDirectory": "Pages",
       "pendingCleanup": "Pending cleanup",
       "purge": "Purge",
