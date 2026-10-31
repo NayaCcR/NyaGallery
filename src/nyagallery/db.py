@@ -933,6 +933,18 @@ def normalize_post_sort(sort: str | None) -> str:
     return "posted_at"
 
 
+def post_asset_visibility_clause(*, user_id: int | None, is_admin: bool = False):
+    if is_admin:
+        return True
+    hidden_asset = ~or_(
+        AssetModel.uploader_user_id.is_(None),
+        AssetModel.uploader_user_id == user_id if user_id is not None else False,
+        exists(select(1).where(UserAssetModel.asset_key == AssetModel.asset_key, UserAssetModel.visibility == "public")),
+    )
+    private_attachment = exists(select(1).select_from(PostAttachmentModel).join(AssetModel, AssetModel.asset_key == PostAttachmentModel.asset_key).where(PostAttachmentModel.post_key == PostModel.post_key, PostAttachmentModel.asset_key.is_not(None), hidden_asset))
+    return ~private_attachment
+
+
 def list_posts(
     session: Session,
     *,
@@ -943,8 +955,10 @@ def list_posts(
     sort: str = "posted_at",
     order: str = "desc",
     exclude_ratings: Iterable[str] = (),
+    user_id: int | None = None,
+    is_admin: bool = False,
 ) -> list[PostModel]:
-    statement = _apply_post_filters(select(PostModel), source=source, q=q, exclude_ratings=exclude_ratings)
+    statement = _apply_post_filters(select(PostModel), source=source, q=q, exclude_ratings=exclude_ratings).where(post_asset_visibility_clause(user_id=user_id, is_admin=is_admin))
     descending = normalize_sort_order(order) == "desc"
     # crawl_time survives a rebuild because it lives in the post JSON; created_at is reset by it.
     column = PostModel.crawl_time if normalize_post_sort(sort) == "added" else PostModel.posted_at
@@ -961,13 +975,15 @@ def count_posts(
     source: str = "",
     q: str = "",
     exclude_ratings: Iterable[str] = (),
+    user_id: int | None = None,
+    is_admin: bool = False,
 ) -> int:
     statement = _apply_post_filters(
         select(func.count()).select_from(PostModel),
         source=source,
         q=q,
         exclude_ratings=exclude_ratings,
-    )
+    ).where(post_asset_visibility_clause(user_id=user_id, is_admin=is_admin))
     return int(session.scalar(statement) or 0)
 
 

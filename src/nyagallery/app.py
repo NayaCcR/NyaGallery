@@ -94,6 +94,7 @@ from nyagallery.db import (
     change_user_password,
     claim_registration_invite,
     count_posts,
+    post_asset_visibility_clause,
     create_access_log,
     create_engine_for_url,
     create_login_session,
@@ -1221,9 +1222,11 @@ def create_app(
             sort=sort_key,
             order=sort_order,
             exclude_ratings=excluded,
+            user_id=principal.user_id,
+            is_admin=_is_admin_principal(principal),
         )
         assets = posts_attachment_asset_map(db, posts)
-        total = count_posts(db, source=source, q=q, exclude_ratings=excluded)
+        total = count_posts(db, source=source, q=q, exclude_ratings=excluded, user_id=principal.user_id, is_admin=_is_admin_principal(principal))
         return {
             "items": [post_to_dict(post, assets=assets) for post in posts],
             "limit": limit,
@@ -1243,6 +1246,8 @@ def create_app(
         if post is None:
             raise HTTPException(status_code=404, detail="post not found")
         _require_sensitive_post_view(post, principal)
+        if not db.scalar(select(1).where(post_asset_visibility_clause(user_id=principal.user_id, is_admin=_is_admin_principal(principal))).where(PostModel.post_key == post.post_key)):
+            raise HTTPException(status_code=404, detail="post not found")
         return post_to_dict(post, assets=posts_attachment_asset_map(db, [post]))
 
     @app.get("/api/img/random")
