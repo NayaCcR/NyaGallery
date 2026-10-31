@@ -39,6 +39,10 @@ class ImportJob:
         if self.status in {ImportJobStatus.QUEUED, ImportJobStatus.PAUSED, ImportJobStatus.FAILED}:
             self.status = ImportJobStatus.RUNNING
 
+    def run_source(self, source: object, handler: Callable[[object], None], *, retry_failed: bool = False) -> dict[str, object]:
+        items = source.iter_items()
+        return self.run(items, handler, retry_failed=retry_failed)
+
     def run(self, items: Iterable[object], handler: Callable[[object], None], *, retry_failed: bool = False) -> dict[str, object]:
         values = list(items)
         if self.total == 0:
