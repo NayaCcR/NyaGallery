@@ -69,6 +69,7 @@ from nyagallery.db import (
     aware_utc,
     PostModel,
     ShareGroupMemberModel,
+    ShareGroupInviteModel,
     ShareGroupModel,
     ShareAlbumModel,
     ShareAlbumAssetModel,
@@ -636,6 +637,14 @@ class VirtualFolderUpdate(BaseModel):
 class ShareGroupUpdate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     member_usernames: list[str] = Field(default_factory=list)
+
+
+class ShareGroupInviteCreate(BaseModel):
+    username: str = Field(min_length=1, max_length=80)
+
+
+class ShareGroupMemberRoleUpdate(BaseModel):
+    role: str = Field(pattern="^(admin|member)$")
 
 
 class ShareAlbumCreate(BaseModel):
@@ -1831,6 +1840,74 @@ def create_app(
         db.commit()
         return {"album_id": album.id, "group_id": group_id, "deleted": True}
 
+    @app.get("/api/access/invitations")
+    def api_my_share_group_invitations(db: DbSession, principal: ViewPrincipal) -> dict[str, object]:
+        if principal.user_id is None:
+            raise HTTPException(status_code=401, detail="login required")
+        rows = db.execute(
+            select(ShareGroupInviteModel, ShareGroupModel)
+            .join(ShareGroupModel, ShareGroupModel.id == ShareGroupInviteModel.group_id)
+            .where(ShareGroupInviteModel.user_id == principal.user_id, ShareGroupInviteModel.status == "pending")
+            .order_by(ShareGroupInviteModel.created_at.desc(), ShareGroupInviteModel.id.desc())
+        ).all()
+        return {"items": [{"id": invite.id, "group_id": group.id, "group_name": group.name, "invited_by_user_id": invite.invited_by_user_id, "created_at": invite.created_at} for invite, group in rows]}
+
+    @app.post("/api/access/invitations/{invite_id}/{decision}")
+    def api_respond_share_group_invitation(invite_id: int, decision: str, db: DbSession, principal: ViewPrincipal) -> dict[str, object]:
+        if principal.user_id is None:
+            raise HTTPException(status_code=401, detail="login required")
+        if decision not in {"accept", "decline"}:
+            raise HTTPException(status_code=404, detail="invitation action not found")
+        invite = db.get(ShareGroupInviteModel, invite_id)
+        if invite is None or invite.user_id != principal.user_id or invite.status != "pending":
+            raise HTTPException(status_code=404, detail="invitation not found")
+        invite.status = "accepted" if decision == "accept" else "declined"
+        invite.responded_at = datetime.now(timezone.utc)
+        if decision == "accept":
+            member = db.scalar(select(ShareGroupMemberModel).where(ShareGroupMemberModel.group_id == invite.group_id, ShareGroupMemberModel.user_id == principal.user_id))
+            if member is None:
+                db.add(ShareGroupMemberModel(group_id=invite.group_id, user_id=principal.user_id, role="member"))
+        db.commit()
+        return {"id": invite.id, "status": invite.status}
+
+    @app.post("/api/access/groups/{group_id}/invites")
+    def api_invite_share_group_member(group_id: int, payload: ShareGroupInviteCreate, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        group = db.get(ShareGroupModel, group_id)
+        if group is None or principal.user_id is None or not _can_manage_share_group(db, group, principal):
+            raise HTTPException(status_code=404, detail="share group not found")
+        user = db.scalar(select(UserModel).where(UserModel.username == payload.username.strip(), UserModel.is_active.is_(True)))
+        if user is None:
+            raise HTTPException(status_code=404, detail="active user not found")
+        if user.id == group.owner_user_id or db.scalar(select(ShareGroupMemberModel.id).where(ShareGroupMemberModel.group_id == group.id, ShareGroupMemberModel.user_id == user.id)) is not None:
+            raise HTTPException(status_code=409, detail="user is already a group member")
+        invite = db.scalar(select(ShareGroupInviteModel).where(ShareGroupInviteModel.group_id == group.id, ShareGroupInviteModel.user_id == user.id))
+        if invite is not None and invite.status == "pending":
+            raise HTTPException(status_code=409, detail="invitation is already pending")
+        if invite is None:
+            invite = ShareGroupInviteModel(group_id=group.id, user_id=user.id, invited_by_user_id=principal.user_id)
+            db.add(invite)
+        else:
+            invite.invited_by_user_id = principal.user_id
+            invite.status = "pending"
+            invite.created_at = datetime.now(timezone.utc)
+            invite.responded_at = None
+        db.commit()
+        return {"id": invite.id, "group_id": group.id, "username": user.username, "status": invite.status}
+
+    @app.put("/api/access/groups/{group_id}/members/{user_id}/role")
+    def api_set_share_group_member_role(group_id: int, user_id: int, payload: ShareGroupMemberRoleUpdate, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        group = db.get(ShareGroupModel, group_id)
+        if group is None or not _can_manage_share_group(db, group, principal):
+            raise HTTPException(status_code=404, detail="share group not found")
+        member = db.scalar(select(ShareGroupMemberModel).where(ShareGroupMemberModel.group_id == group.id, ShareGroupMemberModel.user_id == user_id))
+        if member is None:
+            raise HTTPException(status_code=404, detail="group member not found")
+        if member.user_id == group.owner_user_id:
+            raise HTTPException(status_code=400, detail="group owner role cannot be changed")
+        member.role = payload.role
+        db.commit()
+        return {"group_id": group.id, "user_id": user_id, "role": member.role}
+
     @app.get("/api/access/permission-groups")
     def api_permission_groups(_principal: AdminPrincipal) -> dict[str, object]:
         return {
@@ -1846,9 +1923,11 @@ def create_app(
             raise HTTPException(status_code=401, detail="login required")
         query = select(ShareGroupModel)
         if not principal.has_permission("admin"):
-            query = query.where(ShareGroupModel.owner_user_id == principal.user_id)
+            query = query.where((ShareGroupModel.owner_user_id == principal.user_id) | ShareGroupModel.id.in_(
+                select(ShareGroupMemberModel.group_id).where(ShareGroupMemberModel.user_id == principal.user_id)
+            ))
         groups = db.scalars(query.order_by(ShareGroupModel.name.asc(), ShareGroupModel.id.asc())).all()
-        return {"items": [{"id": group.id, "name": group.name, "owner_user_id": group.owner_user_id} for group in groups]}
+        return {"items": [{"id": group.id, "name": group.name, "owner_user_id": group.owner_user_id, "role": _share_group_role(db, group, principal.user_id)} for group in groups]}
 
     @app.get("/api/access/groups")
     def api_access_groups(db: DbSession, _principal: AdminPrincipal) -> dict[str, object]:
@@ -1859,7 +1938,7 @@ def create_app(
         for member in members:
             user = users.get(member.user_id)
             if user is not None and member.group_id in by_group:
-                by_group[member.group_id].append({"id": user.id, "username": user.username})
+                by_group[member.group_id].append({"id": user.id, "username": user.username, "role": member.role})
         return {
             "items": [
                 {
@@ -1873,7 +1952,9 @@ def create_app(
         }
 
     @app.post("/api/access/groups")
-    def api_create_access_group(update: ShareGroupUpdate, db: DbSession, principal: AdminPrincipal) -> dict[str, object]:
+    def api_create_access_group(update: ShareGroupUpdate, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        if principal.user_id is None:
+            raise HTTPException(status_code=401, detail="login required")
         name = update.name.strip()
         if db.scalar(select(ShareGroupModel.id).where(ShareGroupModel.owner_user_id == principal.user_id, ShareGroupModel.name == name)) is not None:
             raise HTTPException(status_code=409, detail="share group already exists")
@@ -1885,9 +1966,9 @@ def create_app(
         return _access_group_to_dict(db, group)
 
     @app.put("/api/access/groups/{group_id}")
-    def api_update_access_group(group_id: int, update: ShareGroupUpdate, db: DbSession, principal: AdminPrincipal) -> dict[str, object]:
+    def api_update_access_group(group_id: int, update: ShareGroupUpdate, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
         group = db.get(ShareGroupModel, group_id)
-        if group is None or group.owner_user_id != principal.user_id:
+        if group is None or not _can_manage_share_group(db, group, principal):
             raise HTTPException(status_code=404, detail="share group not found")
         group.name = update.name.strip()
         _replace_share_group_members(db, group.id, update.member_usernames)
@@ -1895,9 +1976,9 @@ def create_app(
         return _access_group_to_dict(db, group)
 
     @app.delete("/api/access/groups/{group_id}")
-    def api_delete_access_group(group_id: int, db: DbSession, principal: AdminPrincipal) -> dict[str, object]:
+    def api_delete_access_group(group_id: int, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
         group = db.get(ShareGroupModel, group_id)
-        if group is None or group.owner_user_id != principal.user_id:
+        if group is None or not _can_manage_share_group(db, group, principal):
             raise HTTPException(status_code=404, detail="share group not found")
         db.delete(group)
         db.commit()
@@ -6658,8 +6739,8 @@ def _replace_share_group_members(db: Session, group_id: int, usernames: list[str
 
 
 def _access_group_to_dict(db: Session, group: ShareGroupModel) -> dict[str, object]:
-    users = db.scalars(
-        select(UserModel)
+    members = db.execute(
+        select(UserModel, ShareGroupMemberModel.role)
         .join(ShareGroupMemberModel, ShareGroupMemberModel.user_id == UserModel.id)
         .where(ShareGroupMemberModel.group_id == group.id)
         .order_by(UserModel.username.asc())
@@ -6668,8 +6749,26 @@ def _access_group_to_dict(db: Session, group: ShareGroupModel) -> dict[str, obje
         "id": group.id,
         "name": group.name,
         "owner_user_id": group.owner_user_id,
-        "members": [{"id": user.id, "username": user.username} for user in users],
+        "members": [{"id": user.id, "username": user.username, "role": role} for user, role in members],
     }
+
+
+def _share_group_role(db: Session, group: ShareGroupModel, user_id: int | None) -> str | None:
+    if user_id is None:
+        return None
+    if group.owner_user_id == user_id:
+        return "owner"
+    return db.scalar(select(ShareGroupMemberModel.role).where(ShareGroupMemberModel.group_id == group.id, ShareGroupMemberModel.user_id == user_id))
+
+
+def _can_manage_share_group(db: Session, group: ShareGroupModel, principal: Principal) -> bool:
+    if principal.has_permission("admin") or group.owner_user_id == principal.user_id:
+        return True
+    return db.scalar(select(ShareGroupMemberModel.id).where(
+        ShareGroupMemberModel.group_id == group.id,
+        ShareGroupMemberModel.user_id == principal.user_id,
+        ShareGroupMemberModel.role == "admin",
+    )) is not None
 
 
 def _asset_comment_to_dict(db: Session, row: AssetCommentModel) -> dict[str, object]:

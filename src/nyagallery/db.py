@@ -667,7 +667,20 @@ class ShareGroupMemberModel(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     group_id: Mapped[int] = mapped_column(Integer, ForeignKey("share_groups.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    role: Mapped[str] = mapped_column(String(20), default="member")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class ShareGroupInviteModel(Base):
+    __tablename__ = "share_group_invites"
+    __table_args__ = (UniqueConstraint("group_id", "user_id", name="uq_share_group_invite"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    group_id: Mapped[int] = mapped_column(Integer, ForeignKey("share_groups.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    invited_by_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class SecuritySettingsModel(Base):
@@ -770,6 +783,7 @@ def init_database(engine: Engine) -> None:
     _ensure_column(engine, "user_tokens", "last_used_at", "DATETIME")
     _ensure_column(engine, "user_tokens", "last_used_ip", "VARCHAR(120)")
     _ensure_column(engine, "user_tokens", "scopes", "JSON")
+    _ensure_column(engine, "share_group_members", "role", "VARCHAR(20) NOT NULL DEFAULT 'member'")
     _ensure_column(engine, "upload_logs", "asset_key", "VARCHAR(160)")
     _ensure_column(engine, "upload_logs", "uploader_user_id", "INTEGER")
     _ensure_column(engine, "upload_logs", "uploader_username", "VARCHAR(80)")

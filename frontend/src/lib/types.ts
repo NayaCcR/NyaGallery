@@ -947,6 +947,7 @@ export interface UserSummary {
 export interface ShareGroupMember {
   id: number;
   username: string;
+  role: "admin" | "member";
 }
 
 export interface ShareGroup {

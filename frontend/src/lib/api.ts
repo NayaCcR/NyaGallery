@@ -267,6 +267,8 @@ export const NyaApi = {
   shareAccessLogs: (limit = 50, offset = 0, assetKey = "", status = "") => api<{ items: Array<{ id: number; share_link_id: number; asset_key: string; status: string; client_ip: string; user_agent: string; created_at: string | null }>; limit: number; offset: number }>(`/api/share-links/logs?limit=${limit}&offset=${offset}&asset_key=${encodeURIComponent(assetKey)}&status=${encodeURIComponent(status)}`),
 
   accessGroups: () => api<AccessGroupsResponse>("/api/access/groups"),
+  myShareGroupInvitations: () => api<{ items: Array<{ id: number; group_id: number; group_name: string; created_at: string | null }> }>("/api/access/invitations"),
+  respondShareGroupInvitation: (inviteId: number, decision: "accept" | "decline") => api<{ id: number; status: string }>(`/api/access/invitations/${inviteId}/${decision}`, { method: "POST" }),
   permissionGroups: () => api<PermissionGroupsResponse>("/api/access/permission-groups"),
   shareAlbums: () => api<{ items: ShareAlbum[] }>("/api/share/albums"),
   createShareAlbum: (payload: { name: string; description: string; asset_keys: string[] }) =>
@@ -281,6 +283,10 @@ export const NyaApi = {
     api<{ album_id: number; group_id: number; deleted: boolean }>(`/api/share/albums/${albumId}/groups/${groupId}`, { method: "DELETE" }),
   createAccessGroup: (name: string, member_usernames: string[]) =>
     api<ShareGroup>("/api/access/groups", { method: "POST", body: { name, member_usernames } }),
+  inviteShareGroupMember: (groupId: number, username: string) =>
+    api<{ id: number; group_id: number; username: string; status: string }>(`/api/access/groups/${groupId}/invites`, { method: "POST", body: { username } }),
+  setShareGroupMemberRole: (groupId: number, userId: number, role: "admin" | "member") =>
+    api<{ group_id: number; user_id: number; role: string }>(`/api/access/groups/${groupId}/members/${userId}/role`, { method: "PUT", body: { role } }),
   updateAccessGroup: (id: number, name: string, member_usernames: string[]) =>
     api<ShareGroup>(`/api/access/groups/${id}`, { method: "PUT", body: { name, member_usernames } }),
   deleteAccessGroup: (id: number) =>

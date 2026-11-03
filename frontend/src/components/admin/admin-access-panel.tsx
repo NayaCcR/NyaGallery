@@ -25,7 +25,7 @@ export function AdminAccessPanel() {
   const [albumGroup, setAlbumGroup] = useState("");
   const [albumPermission, setAlbumPermission] = useState<ShareAlbumPermission>("view");
   const [name, setName] = useState("");
-  const [members, setMembers] = useState("");
+  const [inviteUsernames, setInviteUsernames] = useState<Record<number, string>>({});
   const [assetKeys, setAssetKeys] = useState("");
   const [selectedGroup, setSelectedGroup] = useState("");
   const [aclPermission, setAclPermission] = useState<"view" | "edit" | "upload">("view");
@@ -59,9 +59,28 @@ export function AdminAccessPanel() {
     if (!name.trim()) return;
     setBusy(true);
     try {
-      await NyaApi.createAccessGroup(name.trim(), members.split(",").map((item) => item.trim()).filter(Boolean));
-      setName(""); setMembers(""); await refresh(); toast.success(t("admin.access.saved"));
+      await NyaApi.createAccessGroup(name.trim(), []);
+      setName(""); await refresh(); toast.success(t("admin.access.saved"));
     } catch (error) { toast.error(error instanceof Error ? error.message : t("admin.access.saveFailed")); }
+    finally { setBusy(false); }
+  }
+
+  async function inviteGroupMember(groupId: number) {
+    const username = (inviteUsernames[groupId] ?? "").trim();
+    if (!username) return;
+    setBusy(true);
+    try {
+      await NyaApi.inviteShareGroupMember(groupId, username);
+      setInviteUsernames((current) => ({ ...current, [groupId]: "" }));
+      toast.success(t("admin.access.inviteSent"));
+    } catch (error) { toast.error(error instanceof Error ? error.message : t("admin.access.saveFailed")); }
+    finally { setBusy(false); }
+  }
+
+  async function updateGroupMemberRole(groupId: number, userId: number, role: "admin" | "member") {
+    setBusy(true);
+    try { await NyaApi.setShareGroupMemberRole(groupId, userId, role); await refresh(); }
+    catch (error) { toast.error(error instanceof Error ? error.message : t("admin.access.saveFailed")); }
     finally { setBusy(false); }
   }
 
@@ -156,13 +175,12 @@ export function AdminAccessPanel() {
   return <div className="space-y-6">
     <section className="space-y-4 rounded-lg border border-border bg-card p-6 shadow-sm">
       <div><h2 className="flex items-center gap-2 text-sm font-medium"><UsersRound className="h-4 w-4" />{t("admin.access.shareGroups")}</h2><p className="mt-1 text-xs text-muted-foreground">{t("admin.access.shareGroupsHint")}</p></div>
-      <div className="grid gap-3 md:grid-cols-[1fr_2fr_auto] md:items-end">
+      <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
         <div className="space-y-1.5"><Label>{t("admin.access.groupName")}</Label><Input value={name} onChange={(event) => setName(event.target.value)} /></div>
-        <div className="space-y-1.5"><Label>{t("admin.access.members")}</Label><Input value={members} onChange={(event) => setMembers(event.target.value)} placeholder={t("admin.access.membersPlaceholder")} /></div>
         <Button disabled={busy || !name.trim()} onClick={createGroup}>{t("admin.access.createGroup")}</Button>
       </div>
       <div className="divide-y divide-border rounded-md border border-border">
-        {groups.length === 0 ? <p className="p-3 text-xs text-muted-foreground">{t("admin.access.emptyGroups")}</p> : groups.map((group) => <div key={group.id} className="flex items-center justify-between gap-3 p-3 text-xs"><div><div className="font-medium">{group.name}</div><div className="text-muted-foreground">{group.members.map((member) => member.username).join(", ") || t("admin.access.noMembers")}</div></div><Button variant="ghost" size="icon" title={t("admin.access.deleteGroup")} disabled={busy} onClick={() => deleteGroup(group.id)}><Trash2 className="h-4 w-4" /></Button></div>)}
+        {groups.length === 0 ? <p className="p-3 text-xs text-muted-foreground">{t("admin.access.emptyGroups")}</p> : groups.map((group) => <div key={group.id} className="space-y-2 p-3 text-xs"><div className="flex items-center justify-between gap-3"><div className="font-medium">{group.name}</div><Button variant="ghost" size="icon" title={t("admin.access.deleteGroup")} disabled={busy} onClick={() => deleteGroup(group.id)}><Trash2 className="h-4 w-4" /></Button></div><div className="space-y-1">{group.members.map((member) => <div key={member.id} className="flex items-center justify-between gap-2"><span>{member.username}</span><select aria-label={t("admin.access.memberRole", { username: member.username })} value={member.role} disabled={busy} onChange={(event) => void updateGroupMemberRole(group.id, member.id, event.target.value as "admin" | "member")} className="h-8 rounded-md border border-input bg-background px-2"><option value="member">{t("admin.access.member")}</option><option value="admin">{t("admin.access.groupAdmin")}</option></select></div>)}</div><div className="flex gap-2"><Input aria-label={t("admin.access.inviteUsername")} value={inviteUsernames[group.id] ?? ""} onChange={(event) => setInviteUsernames((current) => ({ ...current, [group.id]: event.target.value }))} placeholder={t("admin.access.inviteUsername")} /><Button variant="outline" disabled={busy || !(inviteUsernames[group.id] ?? "").trim()} onClick={() => void inviteGroupMember(group.id)}>{t("admin.access.invite")}</Button></div></div>)}
       </div>
       <div className="space-y-3 border-t border-border pt-4">
         <h3 className="text-sm font-medium">{t("admin.access.bulkShare")}</h3>
