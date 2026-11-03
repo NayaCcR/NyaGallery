@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone, tzinfo
+from io import BytesIO
 import math
 from pathlib import Path
 import re
@@ -80,17 +81,33 @@ def _coordinate(gps: dict, tag: int, ref_tag: int, positive: str, negative: str,
 
 
 def extract_photo_metadata(path: Path, *, default_timezone: str = "UTC", fallback_time: str | None = None, fallback_source: str = "file_mtime") -> dict[str, object]:
-    extra: dict[str, object] = {}
     try:
         from PIL import Image
         with Image.open(path) as image:
-            raw = image.getexif()
-            root = dict(raw)
-            exif = {**root, **_ifd(raw, 34665)}
-            gps = _ifd(raw, 34853)
+            return _extract_photo_metadata_from_image(image, default_timezone=default_timezone, fallback_time=fallback_time, fallback_source=fallback_source)
     except Exception:
-        root, exif, gps = {}, {}, {}
+        return _extract_photo_metadata_values({}, {}, {}, default_timezone=default_timezone, fallback_time=fallback_time, fallback_source=fallback_source)
 
+
+def extract_photo_metadata_bytes(content: bytes, *, default_timezone: str = "UTC", fallback_time: str | None = None, fallback_source: str = "file_mtime") -> dict[str, object]:
+    try:
+        from PIL import Image
+        with Image.open(BytesIO(content)) as image:
+            return _extract_photo_metadata_from_image(image, default_timezone=default_timezone, fallback_time=fallback_time, fallback_source=fallback_source)
+    except Exception:
+        return _extract_photo_metadata_values({}, {}, {}, default_timezone=default_timezone, fallback_time=fallback_time, fallback_source=fallback_source)
+
+
+def _extract_photo_metadata_from_image(image: object, *, default_timezone: str, fallback_time: str | None, fallback_source: str) -> dict[str, object]:
+    raw = image.getexif()
+    root = dict(raw)
+    exif = {**root, **_ifd(raw, 34665)}
+    gps = _ifd(raw, 34853)
+    return _extract_photo_metadata_values(root, exif, gps, default_timezone=default_timezone, fallback_time=fallback_time, fallback_source=fallback_source)
+
+
+def _extract_photo_metadata_values(root: dict[object, object], exif: dict[object, object], gps: dict[object, object], *, default_timezone: str, fallback_time: str | None, fallback_source: str) -> dict[str, object]:
+    extra: dict[str, object] = {}
     make, model = _text(root.get(271)), _text(root.get(272))
     if make or model:
         extra["camera"] = {"make": make, "model": model}

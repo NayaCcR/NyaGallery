@@ -9,6 +9,14 @@ export type PersistedUpload = {
   sourceId: string;
   tags: string[];
   uploadId?: string;
+  rotation?: 0 | 90 | 180 | 270;
+  cropLeft?: number;
+  cropTop?: number;
+  cropRight?: number;
+  cropBottom?: number;
+  flipHorizontal?: boolean;
+  flipVertical?: boolean;
+  exifPolicy?: "keep" | "strip";
 };
 
 function openDatabase(): Promise<IDBDatabase> {

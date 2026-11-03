@@ -34,6 +34,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from nyagallery.remote_upload import RemoteImageError, fetch_remote_image
 from nyagallery.exif import browser_mtime, extract_photo_metadata
+from nyagallery.image_edit import ImageEditError, edit_uploaded_image
 from nyagallery.auth import (
     MAX_USERNAME_LENGTH,
     MIN_PASSWORD_LENGTH,
@@ -2639,6 +2640,14 @@ def create_app(
         storage_strategy: str | None = Form(None),
         original_url: str = Form(""),
         last_modified_ms: str | None = Form(None),
+        rotation: int = Form(0),
+        crop_left: float = Form(0),
+        crop_top: float = Form(0),
+        crop_right: float = Form(0),
+        crop_bottom: float = Form(0),
+        flip_horizontal: bool = Form(False),
+        flip_vertical: bool = Form(False),
+        exif_policy: str = Form("keep"),
     ) -> dict[str, object]:
         root = storage.root / "chunked" / upload_id
         manifest_path = root / "manifest.json"
@@ -2665,7 +2674,7 @@ def create_app(
             raise HTTPException(status_code=422, detail="uploaded sha256 does not match manifest")
         with combined.open("rb") as stream:
             upload_file = UploadFile(filename=str(manifest["filename"]), file=stream, size=total, headers={"content-type": str(manifest.get("content_type") or "application/octet-stream")})
-            response = await api_upload(background_tasks, db, principal, upload_file, title=title, source_id=source_id, artist_name=artist_name, canonical_tags=canonical_tags, tag_aliases=tag_aliases, generate_cache=generate_cache, storage_strategy=storage_strategy, original_url=original_url, last_modified_ms=last_modified_ms)
+            response = await api_upload(background_tasks, db, principal, upload_file, title=title, source_id=source_id, artist_name=artist_name, canonical_tags=canonical_tags, tag_aliases=tag_aliases, generate_cache=generate_cache, storage_strategy=storage_strategy, original_url=original_url, last_modified_ms=last_modified_ms, rotation=rotation, crop_left=crop_left, crop_top=crop_top, crop_right=crop_right, crop_bottom=crop_bottom, flip_horizontal=flip_horizontal, flip_vertical=flip_vertical, exif_policy=exif_policy)
         shutil.rmtree(root, ignore_errors=True)
         return response
 
@@ -2684,6 +2693,14 @@ def create_app(
         storage_strategy: str | None = Form(None),
         original_url: str = Form(""),
         last_modified_ms: str | None = Form(None),
+        rotation: int = Form(0),
+        crop_left: float = Form(0),
+        crop_top: float = Form(0),
+        crop_right: float = Form(0),
+        crop_bottom: float = Form(0),
+        flip_horizontal: bool = Form(False),
+        flip_vertical: bool = Form(False),
+        exif_policy: str = Form("keep"),
     ) -> dict[str, object]:
         try:
             original_mtime = browser_mtime(last_modified_ms)
@@ -2694,6 +2711,23 @@ def create_app(
         max_upload_bytes = int(security_settings.get("max_upload_bytes") or 0)
         if security_settings.get("enabled", True) and max_upload_bytes > 0 and len(content) > max_upload_bytes:
             raise HTTPException(status_code=413, detail="request body too large")
+        edited_photo_extra: dict[str, object] | None = None
+        if rotation or crop_left or crop_top or crop_right or crop_bottom or flip_horizontal or flip_vertical or exif_policy == "strip":
+            try:
+                content, edited_photo_extra = edit_uploaded_image(
+                    content, mime_type=file.content_type, rotation=rotation,
+                    crop_left=crop_left, crop_top=crop_top, crop_right=crop_right, crop_bottom=crop_bottom,
+                    flip_horizontal=flip_horizontal, flip_vertical=flip_vertical, exif_policy=exif_policy,
+                    default_timezone=app.state.nyagallery.config.media.exif_timezone,
+                    fallback_time=original_mtime, fallback_source="browser_last_modified",
+                    max_pixels=app.state.nyagallery.config.media.max_image_pixels,
+                )
+            except RuntimeError as exc:
+                raise HTTPException(status_code=501, detail=str(exc)) from exc
+            except ImageEditError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            if security_settings.get("enabled", True) and max_upload_bytes > 0 and len(content) > max_upload_bytes:
+                raise HTTPException(status_code=413, detail="edited image exceeds upload size limit")
         digest = sha256_bytes(content)
         upload_id = source_id or digest[:16]
         asset_key = make_asset_key("upload", upload_id)
@@ -2719,7 +2753,7 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         width, height = probe_media_size(stored.path, mime_type=file.content_type)
         is_animated = _is_animated_upload(stored.path, file.content_type)
-        extra.update(extract_photo_metadata(
+        extra.update(edited_photo_extra if edited_photo_extra is not None else extract_photo_metadata(
             stored.path, default_timezone=app.state.nyagallery.config.media.exif_timezone,
             fallback_time=original_mtime, fallback_source="browser_last_modified",
         ))

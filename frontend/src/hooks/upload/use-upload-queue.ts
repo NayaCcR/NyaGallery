@@ -21,6 +21,14 @@ export type UploadItem = {
   message?: string;
   assetKey?: string;
   resumeUploadId?: string;
+  rotation: 0 | 90 | 180 | 270;
+  cropLeft: number;
+  cropTop: number;
+  cropRight: number;
+  cropBottom: number;
+  flipHorizontal: boolean;
+  flipVertical: boolean;
+  exifPolicy: "keep" | "strip";
 };
 
 type UseUploadQueueOptions = {
@@ -79,6 +87,14 @@ export function useUploadQueue({ onSuccess, onError }: UseUploadQueueOptions) {
           sourceId: entry.sourceId,
           tags: entry.tags,
           resumeUploadId: entry.uploadId,
+          rotation: entry.rotation ?? 0,
+          cropLeft: entry.cropLeft ?? 0,
+          cropTop: entry.cropTop ?? 0,
+          cropRight: entry.cropRight ?? 0,
+          cropBottom: entry.cropBottom ?? 0,
+          flipHorizontal: entry.flipHorizontal ?? false,
+          flipVertical: entry.flipVertical ?? false,
+          exifPolicy: entry.exifPolicy ?? "keep",
           preview: entry.file.type.startsWith("image/") ? URL.createObjectURL(entry.file) : null,
           status: "pending" as const,
           message: t("pages.upload.resumeAvailable"),
@@ -92,13 +108,13 @@ export function useUploadQueue({ onSuccess, onError }: UseUploadQueueOptions) {
     });
   }, [onError, t]);
 
-  const resumeSignature = items.map((item) => `${item.id}:${item.status}:${item.resumeUploadId ?? ""}:${item.title}:${item.artist}:${item.sourceId}:${item.tags.join("|")}`).join(";");
+  const resumeSignature = items.map((item) => `${item.id}:${item.status}:${item.resumeUploadId ?? ""}:${item.title}:${item.artist}:${item.sourceId}:${item.tags.join("|")}:${item.rotation}:${item.cropLeft}:${item.cropTop}:${item.cropRight}:${item.cropBottom}:${item.flipHorizontal}:${item.flipVertical}:${item.exifPolicy}`).join(";");
 
   useEffect(() => {
     if (!resumeLoaded) return;
     const resumable = items.filter((item) => item.status !== "done");
     void Promise.all(resumable.map((item) => uploadResumeStore.put({
-      id: item.id, file: item.file, title: item.title, artist: item.artist, sourceId: item.sourceId, tags: item.tags, uploadId: item.resumeUploadId,
+      id: item.id, file: item.file, title: item.title, artist: item.artist, sourceId: item.sourceId, tags: item.tags, uploadId: item.resumeUploadId, rotation: item.rotation, cropLeft: item.cropLeft, cropTop: item.cropTop, cropRight: item.cropRight, cropBottom: item.cropBottom, flipHorizontal: item.flipHorizontal, flipVertical: item.flipVertical, exifPolicy: item.exifPolicy,
     }))).catch(() => onError(t("pages.upload.resumeStorageFailed")));
     const keep = new Set(resumable.map((item) => item.id));
     void uploadResumeStore.list().then((saved) => Promise.all(saved.filter((entry) => !keep.has(entry.id)).map((entry) => uploadResumeStore.remove(entry.id)))).catch(() => undefined);
@@ -143,6 +159,14 @@ export function useUploadQueue({ onSuccess, onError }: UseUploadQueueOptions) {
             artist: "",
             sourceId: "",
             tags: [],
+            rotation: 0,
+            cropLeft: 0,
+            cropTop: 0,
+            cropRight: 0,
+            cropBottom: 0,
+            flipHorizontal: false,
+            flipVertical: false,
+            exifPolicy: "keep",
             status: "pending",
           });
           added++;
@@ -237,6 +261,14 @@ export function useUploadQueue({ onSuccess, onError }: UseUploadQueueOptions) {
       const form = new FormData();
       form.set("file", item.file, item.file.name);
       form.set("last_modified_ms", String(item.file.lastModified));
+      form.set("rotation", String(item.rotation));
+      form.set("crop_left", String(item.cropLeft));
+      form.set("crop_top", String(item.cropTop));
+      form.set("crop_right", String(item.cropRight));
+      form.set("crop_bottom", String(item.cropBottom));
+      form.set("flip_horizontal", String(item.flipHorizontal));
+      form.set("flip_vertical", String(item.flipVertical));
+      form.set("exif_policy", item.exifPolicy);
       form.set("title", item.title);
       const effectiveArtist = (item.artist || defaultArtist).trim();
       const effectiveTags = item.tags.length > 0 ? item.tags : defaultTags;
@@ -249,7 +281,7 @@ export function useUploadQueue({ onSuccess, onError }: UseUploadQueueOptions) {
 
       try {
         if (item.file.size > CHUNK_THRESHOLD) {
-          await uploadResumeStore.put({ id: item.id, file: item.file, title: item.title, artist: effectiveArtist, sourceId: item.sourceId, tags: effectiveTags, uploadId: item.resumeUploadId });
+          await uploadResumeStore.put({ id: item.id, file: item.file, title: item.title, artist: effectiveArtist, sourceId: item.sourceId, tags: effectiveTags, uploadId: item.resumeUploadId, rotation: item.rotation, cropLeft: item.cropLeft, cropTop: item.cropTop, cropRight: item.cropRight, cropBottom: item.cropBottom, flipHorizontal: item.flipHorizontal, flipVertical: item.flipVertical, exifPolicy: item.exifPolicy });
         }
         const asset = await uploadWithChunks(item.file, form, item.resumeUploadId, chunkSizeMiB * 1024 * 1024, (uploadId) => updateItem(item.id, { resumeUploadId: uploadId }), (progress) => updateItem(item.id, { progress }));
         if (effectiveTags.length > 0) {
@@ -370,7 +402,7 @@ async function uploadWithChunks(
   onProgress?.(Math.round((completed / totalChunks) * 90));
   await Promise.all(Array.from({ length: Math.min(CHUNK_CONCURRENCY, totalChunks) }, () => worker()));
   const complete = new FormData();
-  for (const key of ["title", "source_id", "artist_name", "tag_aliases", "storage_strategy", "original_url", "last_modified_ms"]) {
+  for (const key of ["title", "source_id", "artist_name", "tag_aliases", "storage_strategy", "original_url", "last_modified_ms", "rotation", "crop_left", "crop_top", "crop_right", "crop_bottom", "flip_horizontal", "flip_vertical", "exif_policy"]) {
     const value = form.get(key);
     if (typeof value === "string" && value) complete.set(key, value);
   }
