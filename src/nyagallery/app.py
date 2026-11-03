@@ -722,6 +722,7 @@ class ChunkUploadInit(BaseModel):
     filename: str = Field(min_length=1, max_length=500)
     total_size: int = Field(gt=0)
     total_chunks: int = Field(gt=0, le=100000)
+    chunk_size: int = Field(default=8 * 1024 * 1024, ge=1024 * 1024, le=32 * 1024 * 1024)
     sha256: str | None = Field(default=None, min_length=64, max_length=64, pattern=r"^[0-9a-fA-F]{64}$")
     content_type: str | None = Field(default=None, max_length=120)
 
@@ -2579,11 +2580,26 @@ def create_app(
         max_upload_bytes = int(security_settings.get("max_upload_bytes") or 0)
         if max_upload_bytes > 0 and payload.total_size > max_upload_bytes:
             raise HTTPException(status_code=413, detail="request body too large")
+        if payload.total_chunks != (payload.total_size + payload.chunk_size - 1) // payload.chunk_size:
+            raise HTTPException(status_code=422, detail="total_chunks does not match chunk_size")
         upload_id = secrets.token_urlsafe(18)
         root = storage.root / "chunked" / upload_id
         root.mkdir(parents=True, exist_ok=False)
-        (root / "manifest.json").write_text(json.dumps({"filename": payload.filename, "total_size": payload.total_size, "total_chunks": payload.total_chunks, "sha256": payload.sha256, "content_type": payload.content_type, "user_id": principal.user_id}, ensure_ascii=True), encoding="utf-8")
+        (root / "manifest.json").write_text(json.dumps({"filename": payload.filename, "total_size": payload.total_size, "total_chunks": payload.total_chunks, "chunk_size": payload.chunk_size, "sha256": payload.sha256, "content_type": payload.content_type, "user_id": principal.user_id}, ensure_ascii=True), encoding="utf-8")
         return {"upload_id": upload_id, "total_chunks": payload.total_chunks, "received": []}
+
+    @app.get("/api/upload/chunks/{upload_id}")
+    def api_chunk_upload_status(upload_id: str, principal: UploadPrincipal) -> dict[str, object]:
+        root = storage.root / "chunked" / upload_id
+        manifest_path = root / "manifest.json"
+        if not manifest_path.is_file():
+            raise HTTPException(status_code=404, detail="upload session not found")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest.get("user_id") != principal.user_id:
+            raise HTTPException(status_code=404, detail="upload session not found")
+        received = sorted(int(path.stem) for path in root.glob("*.part"))
+        chunk_size = int(manifest.get("chunk_size") or 8 * 1024 * 1024)
+        return {"upload_id": upload_id, "total_chunks": int(manifest["total_chunks"]), "chunk_size": chunk_size, "received": received}
 
     @app.put("/api/upload/chunks/{upload_id}/{chunk_index}")
     async def api_chunk_upload_part(upload_id: str, chunk_index: int, request: Request, db: DbSession, principal: UploadPrincipal) -> dict[str, object]:

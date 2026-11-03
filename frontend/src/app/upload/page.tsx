@@ -49,6 +49,8 @@ export default function UploadPage() {
     storageStrategy,
     setStorageStrategy,
     storageStrategies,
+    chunkSizeMiB,
+    setChunkSizeMiB,
     loadStorageStrategies,
     submitting,
     dragActive,
@@ -217,6 +219,10 @@ export default function UploadPage() {
       </div>
 
       <div className="mt-5 grid gap-4 rounded-2xl border border-border bg-card p-4 sm:grid-cols-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="chunk_size">{t("pages.upload.chunkSize", { size: chunkSizeMiB })}</Label>
+          <input id="chunk_size" type="range" min={1} max={32} step={1} value={chunkSizeMiB} onChange={(event) => setChunkSizeMiB(Number(event.target.value))} className="h-9 w-full accent-[hsl(var(--primary))]" />
+        </div>
         <div className="space-y-1.5">
           <Label htmlFor="storage_strategy">{t("pages.upload.storageStrategy")}</Label>
           <select

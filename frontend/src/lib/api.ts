@@ -360,8 +360,10 @@ export const NyaApi = {
 
   uploadAsset: (form: FormData) =>
     api<Asset>("/api/upload", { method: "POST", body: form, json: false }),
-  initChunkUpload: (payload: { filename: string; total_size: number; total_chunks: number; sha256: string; content_type?: string }) =>
+  initChunkUpload: (payload: { filename: string; total_size: number; total_chunks: number; chunk_size: number; sha256: string; content_type?: string }) =>
     api<{ upload_id: string }>("/api/upload/chunks/init", { method: "POST", body: payload }),
+  chunkUploadStatus: (uploadId: string) =>
+    api<{ upload_id: string; total_chunks: number; chunk_size: number; received: number[] }>(`/api/upload/chunks/${encodeURIComponent(uploadId)}`),
   uploadChunk: (uploadId: string, index: number, chunk: Blob) =>
     api<{ received: number[] }>(`/api/upload/chunks/${encodeURIComponent(uploadId)}/${index}`, { method: "PUT", body: chunk, json: false }),
   completeChunkUpload: (uploadId: string, form?: FormData) =>

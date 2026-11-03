@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/components/providers/locale-provider";
 import { ApiError, NyaApi } from "@/lib/api";
 import type { StorageStrategySummary } from "@/lib/types";
+import { uploadResumeStore } from "@/lib/upload-resume";
 
 export type UploadStatus = "pending" | "uploading" | "done" | "error";
 
@@ -19,6 +20,7 @@ export type UploadItem = {
   progress?: number;
   message?: string;
   assetKey?: string;
+  resumeUploadId?: string;
 };
 
 type UseUploadQueueOptions = {
@@ -50,12 +52,59 @@ export function useUploadQueue({ onSuccess, onError }: UseUploadQueueOptions) {
   const [storageStrategy, setStorageStrategy] = useState("local");
   const [storageStrategies, setStorageStrategies] = useState<StorageStrategySummary[]>([LOCAL_STORAGE_STRATEGY]);
   const [submitting, setSubmitting] = useState(false);
+  const [chunkSizeMiB, setChunkSizeMiBState] = useState(8);
+  const [resumeLoaded, setResumeLoaded] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const itemsRef = useRef<UploadItem[]>([]);
 
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
+
+  useEffect(() => {
+    const savedSize = Number(localStorage.getItem("nya.upload.chunk-size-mib"));
+    if (Number.isInteger(savedSize) && savedSize >= 1 && savedSize <= 32) setChunkSizeMiBState(savedSize);
+    void uploadResumeStore.list().then((saved) => {
+      if (saved.length === 0) {
+        setResumeLoaded(true);
+        return;
+      }
+      setItems((current) => {
+        const existing = new Set(current.map((item) => item.id));
+        const restored = saved.filter((entry) => !existing.has(entry.id)).map((entry) => ({
+          id: entry.id,
+          file: entry.file,
+          title: entry.title,
+          artist: entry.artist,
+          sourceId: entry.sourceId,
+          tags: entry.tags,
+          resumeUploadId: entry.uploadId,
+          preview: entry.file.type.startsWith("image/") ? URL.createObjectURL(entry.file) : null,
+          status: "pending" as const,
+          message: t("pages.upload.resumeAvailable"),
+        }));
+        return [...current, ...restored];
+      });
+      setResumeLoaded(true);
+    }).catch((error: unknown) => {
+      setResumeLoaded(true);
+      onError(error instanceof Error ? error.message : String(error));
+    });
+  }, [onError, t]);
+
+  const resumeSignature = items.map((item) => `${item.id}:${item.status}:${item.resumeUploadId ?? ""}:${item.title}:${item.artist}:${item.sourceId}:${item.tags.join("|")}`).join(";");
+
+  useEffect(() => {
+    if (!resumeLoaded) return;
+    const resumable = items.filter((item) => item.status !== "done");
+    void Promise.all(resumable.map((item) => uploadResumeStore.put({
+      id: item.id, file: item.file, title: item.title, artist: item.artist, sourceId: item.sourceId, tags: item.tags, uploadId: item.resumeUploadId,
+    }))).catch(() => onError(t("pages.upload.resumeStorageFailed")));
+    const keep = new Set(resumable.map((item) => item.id));
+    void uploadResumeStore.list().then((saved) => Promise.all(saved.filter((entry) => !keep.has(entry.id)).map((entry) => uploadResumeStore.remove(entry.id)))).catch(() => undefined);
+  // Persist only queue mutations, not per-chunk progress updates.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resumeLoaded, resumeSignature, onError, t]);
 
   useEffect(() => {
     return () => {
@@ -107,6 +156,12 @@ export function useUploadQueue({ onSuccess, onError }: UseUploadQueueOptions) {
 
   const updateItem = useCallback((id: string, patch: Partial<UploadItem>) => {
     setItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  }, []);
+
+  const setChunkSizeMiB = useCallback((value: number) => {
+    const next = Math.min(32, Math.max(1, Math.round(value)));
+    setChunkSizeMiBState(next);
+    localStorage.setItem("nya.upload.chunk-size-mib", String(next));
   }, []);
 
   const removeItem = useCallback((id: string) => {
@@ -184,6 +239,8 @@ export function useUploadQueue({ onSuccess, onError }: UseUploadQueueOptions) {
       form.set("last_modified_ms", String(item.file.lastModified));
       form.set("title", item.title);
       const effectiveArtist = (item.artist || defaultArtist).trim();
+      const effectiveTags = item.tags.length > 0 ? item.tags : defaultTags;
+      updateItem(item.id, { artist: effectiveArtist, tags: effectiveTags });
       if (effectiveArtist) form.set("artist_name", effectiveArtist);
       if (item.sourceId) form.set("source_id", item.sourceId);
       if (tagAliasesPayload) form.set("tag_aliases", tagAliasesPayload);
@@ -191,8 +248,10 @@ export function useUploadQueue({ onSuccess, onError }: UseUploadQueueOptions) {
       form.set("storage_strategy", storageStrategy);
 
       try {
-        const asset = await uploadWithChunks(item.file, form, (progress) => updateItem(item.id, { progress }));
-        const effectiveTags = item.tags.length > 0 ? item.tags : defaultTags;
+        if (item.file.size > CHUNK_THRESHOLD) {
+          await uploadResumeStore.put({ id: item.id, file: item.file, title: item.title, artist: effectiveArtist, sourceId: item.sourceId, tags: effectiveTags, uploadId: item.resumeUploadId });
+        }
+        const asset = await uploadWithChunks(item.file, form, item.resumeUploadId, chunkSizeMiB * 1024 * 1024, (uploadId) => updateItem(item.id, { resumeUploadId: uploadId }), (progress) => updateItem(item.id, { progress }));
         if (effectiveTags.length > 0) {
           try {
             await NyaApi.updateAssetTags(asset.asset_key, effectiveTags);
@@ -202,6 +261,7 @@ export function useUploadQueue({ onSuccess, onError }: UseUploadQueueOptions) {
         }
         updateItem(item.id, {
           status: "done",
+          resumeUploadId: undefined,
           assetKey: asset.asset_key,
           message: asset.duplicate_of ? t("pages.upload.duplicateOf", { assetKey: asset.duplicate_of }) : t("pages.upload.success"),
         });
@@ -221,7 +281,7 @@ export function useUploadQueue({ onSuccess, onError }: UseUploadQueueOptions) {
     } else {
       onError(t("pages.upload.allFailed", { count: failCount }));
     }
-  }, [defaultArtist, defaultTags, generateCache, items, onError, onSuccess, storageStrategy, tagAliasesText, t, updateItem]);
+  }, [chunkSizeMiB, defaultArtist, defaultTags, generateCache, items, onError, onSuccess, storageStrategy, tagAliasesText, t, updateItem]);
 
   return {
     items,
@@ -236,6 +296,8 @@ export function useUploadQueue({ onSuccess, onError }: UseUploadQueueOptions) {
     storageStrategy,
     setStorageStrategy,
     storageStrategies,
+    chunkSizeMiB,
+    setChunkSizeMiB,
     loadStorageStrategies,
     submitting,
     dragActive,
@@ -250,12 +312,18 @@ export function useUploadQueue({ onSuccess, onError }: UseUploadQueueOptions) {
 }
 
 const CHUNK_THRESHOLD = 16 * 1024 * 1024;
-const CHUNK_SIZE = 8 * 1024 * 1024;
 const CHUNK_CONCURRENCY = 3;
 
 type ChunkProgress = (progress: number) => void;
 
-async function uploadWithChunks(file: File, form: FormData, onProgress?: ChunkProgress) {
+async function uploadWithChunks(
+  file: File,
+  form: FormData,
+  resumeUploadId: string | undefined,
+  chunkSize: number,
+  onUploadId: (uploadId: string) => void,
+  onProgress?: ChunkProgress,
+) {
   if (file.size <= CHUNK_THRESHOLD) {
     onProgress?.(50);
     const result = await NyaApi.uploadAsset(form);
@@ -265,19 +333,41 @@ async function uploadWithChunks(file: File, form: FormData, onProgress?: ChunkPr
   const bytes = await file.arrayBuffer();
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   const sha256 = Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
-  const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-  const session = await NyaApi.initChunkUpload({ filename: file.name, total_size: file.size, total_chunks: totalChunks, sha256, content_type: file.type || "application/octet-stream" });
-  let completed = 0;
+  let chunkSizeForSession = chunkSize;
+  let totalChunks = Math.ceil(file.size / chunkSizeForSession);
+  let uploadId = resumeUploadId;
+  let received: number[] = [];
+  if (uploadId) {
+    try {
+      const status = await NyaApi.chunkUploadStatus(uploadId);
+      chunkSizeForSession = status.chunk_size;
+      totalChunks = Math.ceil(file.size / chunkSizeForSession);
+      if (status.total_chunks !== totalChunks) throw new Error("Upload session does not match the selected file");
+      received = status.received;
+    } catch (error) {
+      if (!(error instanceof ApiError && error.status === 404)) throw error;
+      uploadId = undefined;
+    }
+  }
+  if (!uploadId) {
+    const session = await NyaApi.initChunkUpload({ filename: file.name, total_size: file.size, total_chunks: totalChunks, chunk_size: chunkSizeForSession, sha256, content_type: file.type || "application/octet-stream" });
+    uploadId = session.upload_id;
+    onUploadId(uploadId);
+  }
+  const completedIndices = new Set(received.filter((index) => Number.isInteger(index) && index >= 0 && index < totalChunks));
+  let completed = completedIndices.size;
   const nextIndex = { value: 0 };
   async function worker() {
     while (nextIndex.value < totalChunks) {
       const index = nextIndex.value;
       nextIndex.value += 1;
-      await NyaApi.uploadChunk(session.upload_id, index, file.slice(index * CHUNK_SIZE, Math.min(file.size, (index + 1) * CHUNK_SIZE)));
-      completed += 1;
+      if (completedIndices.has(index)) continue;
+      await NyaApi.uploadChunk(uploadId!, index, file.slice(index * chunkSizeForSession, Math.min(file.size, (index + 1) * chunkSizeForSession)));
+      completed++;
       onProgress?.(Math.round((completed / totalChunks) * 90));
     }
   }
+  onProgress?.(Math.round((completed / totalChunks) * 90));
   await Promise.all(Array.from({ length: Math.min(CHUNK_CONCURRENCY, totalChunks) }, () => worker()));
   const complete = new FormData();
   for (const key of ["title", "source_id", "artist_name", "tag_aliases", "storage_strategy", "original_url", "last_modified_ms"]) {
@@ -285,7 +375,7 @@ async function uploadWithChunks(file: File, form: FormData, onProgress?: ChunkPr
     if (typeof value === "string" && value) complete.set(key, value);
   }
   complete.set("generate_cache", form.get("generate_cache") === "true" ? "true" : "false");
-  const result = await NyaApi.completeChunkUpload(session.upload_id, complete);
+  const result = await NyaApi.completeChunkUpload(uploadId!, complete);
   onProgress?.(100);
   return result;
 }
