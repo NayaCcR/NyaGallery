@@ -22,6 +22,7 @@ import zipfile
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.concurrency import run_in_threadpool
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from fastapi.responses import FileResponse
 from fastapi.responses import StreamingResponse
@@ -824,8 +825,37 @@ def create_app(
             await close_redis_client(redis_client)
             engine.dispose()
 
-    app = FastAPI(title="NyaGallery API", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(
+        title="NyaGallery Headless API",
+        version="0.2.0",
+        description=(
+            "Stable JSON and media API for gallery clients. "
+            "Use the generated OpenAPI document at /openapi.json; interactive clients are available at /docs and /redoc."
+        ),
+        openapi_tags=[
+            {"name": "auth", "description": "Session and token authentication"},
+            {"name": "assets", "description": "Asset metadata, media, search, and timeline operations"},
+            {"name": "upload", "description": "Multipart, remote, and resumable uploads"},
+            {"name": "transcode", "description": "Asynchronous media cache generation"},
+            {"name": "sharing", "description": "Groups, albums, share links, and short links"},
+        ],
+        lifespan=lifespan,
+    )
     app.state.nyagallery = state
+    def custom_openapi() -> dict[str, object]:
+        if app.openapi_schema:
+            return app.openapi_schema
+        schema = get_openapi(title=app.title, version=app.version, description=app.description or "", routes=app.routes, tags=app.openapi_tags)
+        components = schema.setdefault("components", {})
+        schemes = components.setdefault("securitySchemes", {})
+        schemes.update({
+            "bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "API token or session token"},
+            "apiKeyAuth": {"type": "apiKey", "in": "header", "name": "Authorization", "description": "Use `Bearer <token>`; scopes are enforced by each endpoint."},
+        })
+        app.openapi_schema = schema
+        return schema
+
+    app.openapi = custom_openapi
 
     @app.middleware("http")
     async def security_middleware(request: Request, call_next):
