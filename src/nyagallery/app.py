@@ -86,6 +86,7 @@ from nyagallery.db import (
     UserModel,
     TranscodeJobModel,
     UploadLogModel,
+    ImportJobModel,
     UserAssetModel,
     access_log_to_dict,
     any_users,
@@ -646,6 +647,15 @@ class ShareGroupUpdate(BaseModel):
 
 class TranscodeRequest(BaseModel):
     target_format: str = Field(default="auto", pattern="^(auto|avif|webp)$")
+
+
+class ImportJobCreate(BaseModel):
+    source_type: str = Field(default="url_list", min_length=1, max_length=40)
+    source_config: dict[str, object] = Field(default_factory=dict)
+
+
+class ImportJobAction(BaseModel):
+    action: str = Field(pattern="^(pause|resume|retry_failed)$")
 
 
 class ShareGroupInviteCreate(BaseModel):
@@ -2476,6 +2486,28 @@ def create_app(
         db.commit()
         background_tasks.add_task(_generate_cache_and_refresh_asset, storage, session_factory, catalog, asset.asset_key, job.job_id)
         return {"job": transcode_job_to_dict(job), "status": "queued"}
+
+    @app.get("/api/import/jobs")
+    def api_import_jobs(db: DbSession, _principal: AdminPrincipal) -> dict[str, object]:
+        rows = db.scalars(select(ImportJobModel).order_by(ImportJobModel.id.desc()).limit(100)).all()
+        return {"items": [_import_job_to_dict(row) for row in rows]}
+
+    @app.post("/api/import/jobs")
+    def api_create_import_job(payload: ImportJobCreate, db: DbSession, principal: AdminPrincipal) -> dict[str, object]:
+        row = ImportJobModel(job_id=f"import-{secrets.token_urlsafe(10)}", source_type=payload.source_type, source_config=payload.source_config, owner_user_id=principal.user_id)
+        db.add(row); db.commit(); db.refresh(row)
+        return _import_job_to_dict(row)
+
+    @app.post("/api/import/jobs/{job_id}/actions")
+    def api_import_job_action(job_id: str, payload: ImportJobAction, db: DbSession, _principal: AdminPrincipal) -> dict[str, object]:
+        row = db.scalar(select(ImportJobModel).where(ImportJobModel.job_id == job_id))
+        if row is None:
+            raise HTTPException(status_code=404, detail="import job not found")
+        if payload.action == "pause" and row.status == "running": row.status = "paused"
+        elif payload.action in {"resume", "retry_failed"} and row.status in {"queued", "paused", "failed"}: row.status = "running"
+        else: raise HTTPException(status_code=409, detail=f"cannot {payload.action} import job in {row.status} state")
+        row.updated_at = now_utc(); db.commit()
+        return _import_job_to_dict(row)
 
     @app.get("/api/security/settings")
     def api_security_settings(db: DbSession, _principal: AdminPrincipal) -> dict[str, object]:
@@ -7088,6 +7120,12 @@ def _can_view_asset(asset: AssetModel, principal: Principal) -> bool:
         str(asset.age_rating or "").casefold() in SENSITIVE_RATINGS
         or any(tag.tag in SENSITIVE_RATING_TAGS for tag in asset.tags)
     )
+
+
+def _import_job_to_dict(row: ImportJobModel) -> dict[str, object]:
+    total = int(row.total or 0)
+    cursor = int(row.cursor or 0)
+    return {"job_id": row.job_id, "source_type": row.source_type, "status": row.status, "total": total, "cursor": cursor, "succeeded": row.succeeded, "failed": row.failed, "errors": row.errors or [], "failed_indices": row.failed_indices or [], "progress": 100.0 if total == 0 and row.status == "succeeded" else (cursor / total * 100.0 if total else 0.0), "created_at": _datetime_to_iso(row.created_at), "updated_at": _datetime_to_iso(row.updated_at)}
 
 
 def _asset_original_size(storage: GalleryStorage, asset: AssetModel) -> int | None:

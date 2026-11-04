@@ -483,6 +483,25 @@ class TranscodeJobModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
 
+class ImportJobModel(Base):
+    __tablename__ = "import_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    job_id: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    source_type: Mapped[str] = mapped_column(String(40), default="unknown")
+    source_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="queued", index=True)
+    total: Mapped[int] = mapped_column(Integer, default=0)
+    cursor: Mapped[int] = mapped_column(Integer, default=0)
+    succeeded: Mapped[int] = mapped_column(Integer, default=0)
+    failed: Mapped[int] = mapped_column(Integer, default=0)
+    errors: Mapped[list] = mapped_column(JSON, default=list)
+    failed_indices: Mapped[list] = mapped_column(JSON, default=list)
+    owner_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
 class UploadLogModel(Base):
     __tablename__ = "upload_logs"
 
