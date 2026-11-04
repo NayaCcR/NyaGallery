@@ -1058,6 +1058,11 @@
       "invalidId": "无效的 Entity ID"
     },
     "settings": {
+      "shortLinks": "我的短链接",
+      "noShortLinks": "没有短链接。",
+      "shortSlug": "短链接 slug",
+      "saveShortLink": "保存 slug",
+      "shortLinkSaved": "短链接已更新",
       "groupInvites": "群组邀请",
       "noGroupInvites": "没有待处理的群组邀请。",
       "acceptInvite": "接受",

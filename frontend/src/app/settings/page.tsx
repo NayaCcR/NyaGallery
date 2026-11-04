@@ -13,6 +13,8 @@ export default function SettingsPage() {
   const toast = useToast();
   const [addresses, setAddresses] = useState<ApiAddressesResponse | null>(null);
   const [invitations, setInvitations] = useState<Array<{ id: number; group_id: number; group_name: string; created_at: string | null }>>([]);
+  const [shortLinks, setShortLinks] = useState<Array<{ id: number; slug: string; asset_key: string; expires_at: string | null; revoked_at: string | null }>>([]);
+  const [shortLinkDrafts, setShortLinkDrafts] = useState<Record<number, string>>({});
   const [error, setError] = useState("");
 
   async function refreshInvitations() {
@@ -23,7 +25,16 @@ export default function SettingsPage() {
   useEffect(() => {
     void NyaApi.apiAddresses().then(setAddresses).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason)));
     void refreshInvitations();
+    void NyaApi.myShortLinks().then((response) => { setShortLinks(response.items); setShortLinkDrafts(Object.fromEntries(response.items.map((item) => [item.id, item.slug]))); }).catch(() => undefined);
   }, []);
+
+  async function saveShortLink(id: number) {
+    try {
+      const updated = await NyaApi.updateShortLink(id, (shortLinkDrafts[id] ?? "").trim());
+      setShortLinks((current) => current.map((item) => item.id === id ? updated : item));
+      toast.success(t("pages.settings.shortLinkSaved"));
+    } catch (reason) { toast.error(reason instanceof Error ? reason.message : String(reason)); }
+  }
 
   async function respondToInvitation(inviteId: number, decision: "accept" | "decline") {
     try {
@@ -39,6 +50,7 @@ export default function SettingsPage() {
       <h2 className="text-base font-semibold">{t("pages.settings.groupInvites")}</h2>
       {invitations.length === 0 ? <p className="text-sm text-muted-foreground">{t("pages.settings.noGroupInvites")}</p> : <div className="divide-y divide-border">{invitations.map((invite) => <div key={invite.id} className="flex flex-wrap items-center justify-between gap-3 py-3"><span className="text-sm">{invite.group_name}</span><div className="flex gap-2"><Button variant="outline" onClick={() => void respondToInvitation(invite.id, "decline")}>{t("pages.settings.declineInvite")}</Button><Button onClick={() => void respondToInvitation(invite.id, "accept")}>{t("pages.settings.acceptInvite")}</Button></div></div>)}</div>}
     </section>
+    <section className="space-y-4 rounded-lg border border-border bg-card p-6 shadow-sm"><h2 className="text-base font-semibold">{t("pages.settings.shortLinks")}</h2>{shortLinks.length === 0 ? <p className="text-sm text-muted-foreground">{t("pages.settings.noShortLinks")}</p> : <div className="divide-y divide-border">{shortLinks.map((link) => <div key={link.id} className="grid gap-2 py-3 sm:grid-cols-[1fr_1fr_auto] sm:items-center"><span className="truncate text-xs text-muted-foreground">{link.asset_key}</span><input value={shortLinkDrafts[link.id] ?? ""} onChange={(event) => setShortLinkDrafts((current) => ({ ...current, [link.id]: event.target.value }))} aria-label={t("pages.settings.shortSlug")} className="h-9 rounded-md border border-input bg-background px-3 text-sm" /><Button variant="outline" size="sm" onClick={() => void saveShortLink(link.id)}>{t("pages.settings.saveShortLink")}</Button></div>)}</div>}</section>
     <section className="space-y-4 rounded-lg border border-border bg-card p-6 shadow-sm">
       <h1 className="flex items-center gap-2 text-lg font-semibold"><KeyRound className="h-5 w-5" />{t("pages.settings.apiAddresses")}</h1>
       <p className="text-sm text-muted-foreground">{t("pages.settings.apiAddressesHint")}</p>

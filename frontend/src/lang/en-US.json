@@ -1058,6 +1058,11 @@
       "invalidId": "Invalid entity ID"
     },
     "settings": {
+      "shortLinks": "My short links",
+      "noShortLinks": "There are no short links.",
+      "shortSlug": "Short-link slug",
+      "saveShortLink": "Save slug",
+      "shortLinkSaved": "Short link updated",
       "groupInvites": "Group invitations",
       "noGroupInvites": "There are no pending group invitations.",
       "acceptInvite": "Accept",

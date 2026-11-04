@@ -1437,6 +1437,32 @@ def create_app(
         rows = db.scalars(select(AssetShortLinkModel).where(AssetShortLinkModel.asset_key == asset.asset_key).order_by(AssetShortLinkModel.id.desc())).all()
         return {"items": [{"id": row.id, "slug": row.slug, "asset_key": row.asset_key, "expires_at": row.expires_at, "revoked_at": row.revoked_at} for row in rows]}
 
+    @app.get("/api/me/short-links")
+    def api_my_short_links(db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        if principal.user_id is None:
+            raise HTTPException(status_code=401, detail="login required")
+        rows = db.scalars(select(AssetShortLinkModel).where(AssetShortLinkModel.owner_user_id == principal.user_id).order_by(AssetShortLinkModel.id.desc())).all()
+        return {"items": [{"id": row.id, "slug": row.slug, "asset_key": row.asset_key, "expires_at": row.expires_at, "revoked_at": row.revoked_at} for row in rows]}
+
+    @app.put("/api/short-links/{link_id}")
+    def api_update_short_link(link_id: int, payload: ShortLinkCreate, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        row = db.get(AssetShortLinkModel, link_id)
+        if row is None or (row.owner_user_id != principal.user_id and not principal.has_permission("admin")):
+            raise HTTPException(status_code=404, detail="short link not found")
+        slug = payload.slug or row.slug
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{2,79}", slug):
+            raise HTTPException(status_code=422, detail="invalid slug")
+        conflict = db.scalar(select(AssetShortLinkModel.id).where(AssetShortLinkModel.slug == slug, AssetShortLinkModel.id != row.id))
+        if conflict is not None:
+            raise HTTPException(status_code=409, detail="short-link slug already exists")
+        normalized_expiry = normalize_timestamp(payload.expires_at) if payload.expires_at else None
+        if payload.expires_at and normalized_expiry is None:
+            raise HTTPException(status_code=422, detail="invalid expires_at")
+        row.slug = slug
+        row.expires_at = datetime.fromisoformat(normalized_expiry.replace("Z", "+00:00")) if normalized_expiry else None
+        db.commit()
+        return {"id": row.id, "slug": row.slug, "asset_key": row.asset_key, "expires_at": row.expires_at, "revoked_at": row.revoked_at}
+
     @app.delete("/api/short-links/{link_id}")
     def api_revoke_short_link(link_id: int, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
         row = db.get(AssetShortLinkModel, link_id)
