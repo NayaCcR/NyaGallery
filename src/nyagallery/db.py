@@ -2833,6 +2833,13 @@ def create_upload_log(
     message: str = "",
     extra: dict | None = None,
 ) -> UploadLogModel:
+    normalized_extra = dict(extra or {})
+    if asset_key:
+        asset = session.get(AssetModel, asset_key)
+        if asset is not None:
+            normalized_extra.setdefault("source_url", asset.original_url or None)
+            normalized_extra.setdefault("file_sha256", asset.file_sha256 or None)
+            normalized_extra.setdefault("deletion_status", asset.deletion_status or None)
     log = UploadLogModel(
         asset_key=asset_key,
         uploader_user_id=uploader_user_id,
@@ -2843,7 +2850,7 @@ def create_upload_log(
         event=event,
         status=status,
         message=message,
-        extra=extra or None,
+        extra=normalized_extra or None,
     )
     session.add(log)
     session.flush()
@@ -3126,6 +3133,10 @@ def upload_log_to_dict(
         "status": log.status or "success",
         "message": log.message or "",
         "extra": log.extra or {},
+        "source_url": (asset.original_url if asset else (log.extra or {}).get("source_url")),
+        "file_sha256": (asset.file_sha256 if asset else (log.extra or {}).get("file_sha256")),
+        "deletion_status": asset.deletion_status if asset else None,
+        "dmca_linked": bool(asset and asset.deletion_status),
         "is_hidden": _asset_has_tag(asset, HIDDEN_TAG),
         "created_at": _datetime_to_iso(log.created_at),
     }
