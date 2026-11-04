@@ -10,12 +10,13 @@ import os
 from pathlib import Path
 import tempfile
 import time
-from typing import Any
+from typing import Any, BinaryIO
 from urllib.error import HTTPError
 from urllib.parse import quote, unquote, urlparse
 from urllib.request import Request, urlopen
 
 from nyagallery.metadata import GalleryMetadata, make_asset_key
+from nyagallery.storage_interface import StorageInterface, StoredObject
 
 
 class StorageError(RuntimeError):
@@ -86,6 +87,32 @@ def archival_suffix(source_filename: str) -> str:
     return suffixes[-1]
 
 
+class StorageBackendAdapter(StorageInterface):
+    """Adapt the existing original backend strategy to the public storage protocol."""
+
+    def __init__(self, backend: "OriginalStorageBackend") -> None:
+        self.backend = backend
+        self.name = backend.name
+
+    def put(self, key: str, data: bytes | BinaryIO) -> StoredObject:
+        content = data if isinstance(data, bytes) else data.read()
+        self.backend.put_bytes(key, content)
+        size = len(content)
+        return StoredObject(key=key, size=size, delivery_url=self.delivery_url(key))
+
+    def open(self, key: str) -> BinaryIO:
+        handle = tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b")
+        handle.write(self.backend.get_bytes(key))
+        handle.seek(0)
+        return handle
+
+    def delete(self, key: str) -> None:
+        self.backend.delete(key)
+
+    def delivery_url(self, key: str) -> str:
+        return f"/media/{quote(key.lstrip('/'))}"
+
+
 class OriginalStorageBackend:
     is_remote = True
 
@@ -129,6 +156,32 @@ class LocalOriginalStorageBackend(OriginalStorageBackend):
     def __init__(self, name: str = LOCAL_STORAGE_STRATEGY, root_path: str = "") -> None:
         super().__init__(name, "local", prefix="original")
         self.root_path = Path(root_path).expanduser().resolve() if root_path.strip() else None
+
+    def _path(self, object_key: str) -> Path:
+        if self.root_path is None:
+            raise StorageError("local storage backend root is not configured")
+        path = (self.root_path / object_key).resolve()
+        if not path.is_relative_to(self.root_path):
+            raise StorageError("storage key escapes local backend root")
+        return path
+
+    def exists(self, object_key: str) -> bool:
+        return self._path(object_key).is_file()
+
+    def get_bytes(self, object_key: str) -> bytes:
+        return self._path(object_key).read_bytes()
+
+    def put_bytes(self, object_key: str, content: bytes, *, content_type: str | None = None) -> None:
+        path = self._path(object_key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+
+    def delete(self, object_key: str) -> None:
+        self._path(object_key).unlink(missing_ok=True)
+
+    def stat_size(self, object_key: str) -> int | None:
+        path = self._path(object_key)
+        return path.stat().st_size if path.is_file() else None
 
     def to_config(self) -> dict[str, object]:
         return {**super().to_config(), "root_path": str(self.root_path) if self.root_path else ""}
@@ -758,6 +811,13 @@ class GalleryStorage:
         if self.default_strategy_name not in self._original_backends:
             available = ", ".join(sorted(self._original_backends))
             raise StorageError(f"unknown default storage strategy {self.default_strategy_name!r}; available: {available}")
+        local_backend = self._original_backends.get(LOCAL_STORAGE_STRATEGY)
+        if isinstance(local_backend, LocalOriginalStorageBackend) and local_backend.root_path is None:
+            local_backend.root_path = self.original_dir
+        self._storage_interfaces = {name: StorageBackendAdapter(backend) for name, backend in self._original_backends.items()}
+
+    def storage_interface(self, strategy_name: str | None = None) -> StorageInterface:
+        return self._storage_interfaces[self.validate_storage_strategy(strategy_name)]
 
     def ensure(self) -> None:
         for directory in (
