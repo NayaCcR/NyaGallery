@@ -6536,6 +6536,8 @@ def user_to_dict(user) -> dict[str, object]:
 
 def _add_security_headers(response):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    if os.environ.get("NYAGALLERY_HSTS_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}:
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "same-origin")
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")

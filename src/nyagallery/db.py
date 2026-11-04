@@ -19,6 +19,7 @@ from nyagallery.auth import (
     hash_invite_code,
     hash_opaque_token,
     hash_password,
+    password_hash_needs_upgrade,
     hash_secret,
     permissions_for_role,
     token_prefix,
@@ -1448,6 +1449,10 @@ def get_user_by_username(session: Session, username: str) -> UserModel | None:
 def authenticate_user(session: Session, username: str, password: str) -> UserModel | None:
     user = session.scalar(select(UserModel).where(UserModel.username == username.strip(), UserModel.is_active.is_(True)))
     if user and verify_password(password, user.password_hash):
+        if password_hash_needs_upgrade(user.password_hash):
+            user.password_hash = hash_password(password)
+            user.updated_at = now_utc()
+            session.commit()
         return user
     return None
 

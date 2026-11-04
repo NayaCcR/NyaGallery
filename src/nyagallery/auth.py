@@ -31,6 +31,9 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
 
 PASSWORD_ALGORITHM = "pbkdf2_sha256"
 PASSWORD_ITERATIONS = 260_000
+ARGON2_MEMORY_COST = 64 * 1024
+ARGON2_TIME_COST = 3
+ARGON2_PARALLELISM = 4
 TOKEN_PREFIX = "nya_"
 SESSION_PREFIX = "nys_"
 CSRF_PREFIX = "nyc_"
@@ -136,11 +139,30 @@ def verify_opaque_token(token: str, token_hash: str) -> bool:
 
 
 def hash_password(password: str) -> str:
-    return hash_secret(password)
+    validate_password_strength(password)
+    from argon2 import PasswordHasher
+    from argon2.low_level import Type
+    return PasswordHasher(
+        time_cost=ARGON2_TIME_COST,
+        memory_cost=ARGON2_MEMORY_COST,
+        parallelism=ARGON2_PARALLELISM,
+        type=Type.ID,
+    ).hash(password)
 
 
 def verify_password(password: str, password_hash: str) -> bool:
+    if password_hash.startswith("$argon2id$"):
+        from argon2 import PasswordHasher
+        from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
+        try:
+            return PasswordHasher().verify(password_hash, password)
+        except (InvalidHashError, VerificationError, VerifyMismatchError):
+            return False
     return verify_secret(password, password_hash)
+
+
+def password_hash_needs_upgrade(password_hash: str) -> bool:
+    return not password_hash.startswith("$argon2id$")
 
 
 def generate_api_token() -> str:
