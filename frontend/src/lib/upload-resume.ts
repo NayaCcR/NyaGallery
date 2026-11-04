@@ -17,6 +17,7 @@ export type PersistedUpload = {
   flipHorizontal?: boolean;
   flipVertical?: boolean;
   exifPolicy?: "keep" | "strip";
+  duplicateStrategy?: "skip" | "overwrite" | "keep";
 };
 
 function openDatabase(): Promise<IDBDatabase> {

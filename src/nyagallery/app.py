@@ -2648,6 +2648,7 @@ def create_app(
         flip_horizontal: bool = Form(False),
         flip_vertical: bool = Form(False),
         exif_policy: str = Form("keep"),
+        duplicate_strategy: str = Form("keep"),
     ) -> dict[str, object]:
         root = storage.root / "chunked" / upload_id
         manifest_path = root / "manifest.json"
@@ -2674,7 +2675,7 @@ def create_app(
             raise HTTPException(status_code=422, detail="uploaded sha256 does not match manifest")
         with combined.open("rb") as stream:
             upload_file = UploadFile(filename=str(manifest["filename"]), file=stream, size=total, headers={"content-type": str(manifest.get("content_type") or "application/octet-stream")})
-            response = await api_upload(background_tasks, db, principal, upload_file, title=title, source_id=source_id, artist_name=artist_name, canonical_tags=canonical_tags, tag_aliases=tag_aliases, generate_cache=generate_cache, storage_strategy=storage_strategy, original_url=original_url, last_modified_ms=last_modified_ms, rotation=rotation, crop_left=crop_left, crop_top=crop_top, crop_right=crop_right, crop_bottom=crop_bottom, flip_horizontal=flip_horizontal, flip_vertical=flip_vertical, exif_policy=exif_policy)
+            response = await api_upload(background_tasks, db, principal, upload_file, title=title, source_id=source_id, artist_name=artist_name, canonical_tags=canonical_tags, tag_aliases=tag_aliases, generate_cache=generate_cache, storage_strategy=storage_strategy, original_url=original_url, last_modified_ms=last_modified_ms, rotation=rotation, crop_left=crop_left, crop_top=crop_top, crop_right=crop_right, crop_bottom=crop_bottom, flip_horizontal=flip_horizontal, flip_vertical=flip_vertical, exif_policy=exif_policy, duplicate_strategy=duplicate_strategy)
         shutil.rmtree(root, ignore_errors=True)
         return response
 
@@ -2701,7 +2702,10 @@ def create_app(
         flip_horizontal: bool = Form(False),
         flip_vertical: bool = Form(False),
         exif_policy: str = Form("keep"),
+        duplicate_strategy: str = Form("keep"),
     ) -> dict[str, object]:
+        if duplicate_strategy not in {"skip", "overwrite", "keep"}:
+            raise HTTPException(status_code=422, detail="duplicate_strategy must be skip, overwrite, or keep")
         try:
             original_mtime = browser_mtime(last_modified_ms)
         except ValueError as exc:
@@ -2817,10 +2821,35 @@ def create_app(
                 AssetModel.asset_key != metadata.asset_key,
             )
         )
-        asset = upsert_asset(db, storage, metadata, tags, duplicate_of=duplicate_of)
+        if duplicate_of:
+            existing_asset = db.get(AssetModel, duplicate_of)
+            if existing_asset is not None and duplicate_strategy in {"skip", "overwrite"}:
+                storage.delete_asset_files(metadata)
+                if duplicate_strategy == "skip":
+                    db.commit()
+                    return _asset_response(storage, existing_asset, catalog) | {"duplicate_of": duplicate_of, "duplicate_strategy": "skip"}
+                metadata = replace(
+                    metadata,
+                    asset_key=existing_asset.asset_key,
+                    file_sha256=existing_asset.file_sha256,
+                    original_filename=existing_asset.original_filename,
+                    original_path=existing_asset.original_path,
+                    width=existing_asset.width,
+                    height=existing_asset.height,
+                    mime_type=existing_asset.mime_type,
+                    is_animated=existing_asset.is_animated,
+                )
+                storage.write_metadata(metadata, replace=True)
+                asset = upsert_asset(db, storage, metadata, tags, duplicate_of=existing_asset.duplicate_of)
+                duplicate_of = None
+            else:
+                asset = upsert_asset(db, storage, metadata, tags, duplicate_of=duplicate_of)
+        else:
+            asset = upsert_asset(db, storage, metadata, tags, duplicate_of=None)
+        effective_file_size = _file_size_for_kind(storage, asset, "original") or stored.size
         job_id: str | None = None
         if generate_cache:
-            job = create_transcode_job(db, asset, source="upload", file_size=stored.size)
+            job = create_transcode_job(db, asset, source="upload", file_size=effective_file_size)
             job_id = job.job_id
         create_upload_log(
             db,
