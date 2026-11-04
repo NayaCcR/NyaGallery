@@ -62,6 +62,9 @@ import type { ApiTokenSummary,
   TagSuggestion,
   TagSummaryResponse,
   TimelineResponse,
+  EntityListResponse,
+  EntitySummary,
+  EntityTimelineResponse,
   TranscodeJobResponse,
   TranscodeJob,
   UploadHistoryResponse,
@@ -231,6 +234,13 @@ export const NyaApi = {
     if (params.q) search.set("q", params.q);
     return api<TimelineResponse>(`/api/timeline?${search.toString()}`);
   },
+  entities: () => api<EntityListResponse>("/api/entities"),
+  createEntity: (payload: { type: string; entity_id: string; name: string; metadata?: Record<string, unknown>; asset_keys?: string[] }) => api<EntitySummary>("/api/entities", { method: "POST", body: payload }),
+  updateEntity: (id: number, payload: { type: string; entity_id: string; name: string; metadata?: Record<string, unknown>; asset_keys?: string[] }) => api<EntitySummary>(`/api/entities/${id}`, { method: "PUT", body: payload }),
+  deleteEntity: (id: number) => api<{ id: number; deleted: boolean }>(`/api/entities/${id}`, { method: "DELETE" }),
+  linkEntityAssets: (id: number, asset_keys: string[]) => api<EntitySummary>(`/api/entities/${id}/assets`, { method: "POST", body: { asset_keys } }),
+  unlinkEntityAsset: (id: number, assetKey: string) => api<{ entity_id: number; asset_key: string; deleted: boolean }>(`/api/entities/${id}/assets/${encodeURIComponent(assetKey)}`, { method: "DELETE" }),
+  entityTimeline: (id: number, params: { limit?: number; offset?: number } = {}) => api<EntityTimelineResponse>(`/api/entities/${id}/timeline?limit=${params.limit ?? 40}&offset=${params.offset ?? 0}`),
 
   posts: (
     params: { limit?: number; offset?: number; source?: string; q?: string; sort?: PostSort; order?: SearchOrder } = {}

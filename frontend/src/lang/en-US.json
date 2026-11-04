@@ -1030,12 +1030,33 @@
     "faq": "FAQ",
     "files": "Files",
     "timeline": "Timeline",
+    "entities": "Entities",
     "home": "Home",
     "posts": "Posts",
     "search": "Search",
     "upload": "Upload"
   },
   "pages": {
+    "entities": {
+      "title": "Entity management",
+      "description": "Manage aggregatable artists, characters, series, places, and other entities, then link assets manually.",
+      "create": "Create entity",
+      "edit": "Edit entity",
+      "list": "Entity list",
+      "empty": "There are no entities yet.",
+      "type": "Type",
+      "entityId": "Entity ID",
+      "name": "Name",
+      "metadata": "Metadata JSON",
+      "assetKeys": "Asset keys",
+      "assetKeysPlaceholder": "One asset key per line or separated by spaces",
+      "timeline": "View timeline",
+      "unlink": "Unlink",
+      "confirmDelete": "Delete entity “{name}”?",
+      "back": "Back to entities",
+      "emptyTimeline": "This entity has no linked assets yet.",
+      "invalidId": "Invalid entity ID"
+    },
     "settings": {
       "groupInvites": "Group invitations",
       "noGroupInvites": "There are no pending group invitations.",

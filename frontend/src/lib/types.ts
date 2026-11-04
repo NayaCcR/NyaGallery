@@ -359,6 +359,24 @@ export interface TimelineResponse {
   has_more: boolean;
 }
 
+export interface EntitySummary {
+  id: number;
+  type: string;
+  entity_id: string;
+  name: string;
+  metadata: Record<string, unknown>;
+  asset_keys: string[];
+}
+
+export interface EntityListResponse { items: EntitySummary[]; }
+export interface EntityTimelineResponse {
+  entity: Pick<EntitySummary, "id" | "type" | "entity_id" | "name">;
+  items: Asset[];
+  limit: number;
+  offset: number;
+  has_more: boolean;
+}
+
 export interface AssetSiblingResponse {
   items: Asset[];
   current_asset_key: string;

@@ -57,6 +57,7 @@ const PRIMARY_NAV: NavDef[] = [
   { href: "/", labelKey: "nav.home", icon: Sparkles },
   { href: "/files", labelKey: "nav.files", icon: Images },
   { href: "/timeline", labelKey: "nav.timeline", icon: CalendarDays },
+  { href: "/entities", labelKey: "nav.entities", icon: UsersRound },
   { href: "/posts", labelKey: "nav.posts", icon: MessageSquareText },
   { href: "/search", labelKey: "nav.search", icon: Search },
 ];

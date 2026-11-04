@@ -1030,12 +1030,33 @@
     "faq": "FAQ",
     "files": "所有文件",
     "timeline": "时间线",
+    "entities": "Entity",
     "home": "首页",
     "posts": "帖子",
     "search": "搜索",
     "upload": "上传"
   },
   "pages": {
+    "entities": {
+      "title": "Entity 管理",
+      "description": "管理可聚合的画师、角色、系列、地点等实体，并手动关联资源。",
+      "create": "创建 Entity",
+      "edit": "编辑 Entity",
+      "list": "Entity 列表",
+      "empty": "还没有 Entity。",
+      "type": "类型",
+      "entityId": "Entity ID",
+      "name": "名称",
+      "metadata": "元数据 JSON",
+      "assetKeys": "资源 key",
+      "assetKeysPlaceholder": "每行或空格分隔资源 key",
+      "timeline": "查看时间线",
+      "unlink": "解除关联",
+      "confirmDelete": "确定删除 Entity“{name}”吗？",
+      "back": "返回 Entity 列表",
+      "emptyTimeline": "该 Entity 还没有关联资源。",
+      "invalidId": "无效的 Entity ID"
+    },
     "settings": {
       "groupInvites": "群组邀请",
       "noGroupInvites": "没有待处理的群组邀请。",
