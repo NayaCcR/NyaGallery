@@ -77,8 +77,8 @@ export function useSearchTags() {
     return query ? query.split(/\s+/).filter(Boolean) : [];
   }, [applyContentFilters, selectedQueryParts]);
 
-  const submit = useCallback(() => {
-    const parts = selectedQueryParts();
+  const submit = useCallback((overrideParts?: string[]) => {
+    const parts = overrideParts ?? selectedQueryParts();
     if (parts.length === 0) {
       router.push("/");
       return;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, ChevronDown, Shuffle, X } from "lucide-react";
 import { ContentFilterToggles } from "@/components/content/content-filter-toggles";
@@ -11,9 +11,12 @@ import { TagChipInput } from "@/components/ui/tag-chip-input";
 import { useRandomPreview } from "@/hooks/search/use-random-preview";
 import { useSearchTags } from "@/hooks/search/use-search-tags";
 import { categoryColor, cn, tagCategory, tagLabel } from "@/lib/utils";
+import { NyaApi } from "@/lib/api";
 
 export default function SearchPage() {
   const { locale, t } = useI18n();
+  const [naturalQuery, setNaturalQuery] = useState("");
+  const [naturalPlan, setNaturalPlan] = useState<{ query: string; after: string | null; before: string | null } | null>(null);
   const {
     selected,
     setSelected,
@@ -53,6 +56,15 @@ export default function SearchPage() {
     (name: string) => tagLabel(name, tagDetails.get(name)?.labels, locale),
     [locale, tagDetails]
   );
+  const parseNatural = async () => {
+    const plan = await NyaApi.parseSearchQuery(naturalQuery);
+    setNaturalPlan(plan);
+  };
+  const applyNatural = () => {
+    if (!naturalPlan) return;
+    setSelected(naturalPlan.query ? naturalPlan.query.split(/\s+/).filter(Boolean) : []);
+    submit(naturalPlan.query ? naturalPlan.query.split(/\s+/).filter(Boolean) : []);
+  };
 
   return (
     <div className="container max-w-5xl py-8">
@@ -61,6 +73,10 @@ export default function SearchPage() {
         <p className="text-sm text-muted-foreground">{t("pages.search.description")}</p>
       </div>
 
+      <div className="mb-4 space-y-2 rounded-lg border border-border bg-card p-3">
+        <div className="flex gap-2"><input value={naturalQuery} onChange={(event) => setNaturalQuery(event.target.value)} placeholder={t("pages.search.naturalPlaceholder")} className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm" /><Button variant="outline" onClick={() => void parseNatural()} disabled={!naturalQuery.trim()}>{t("pages.search.parseNatural")}</Button></div>
+        {naturalPlan && <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground"><span>{naturalPlan.query || t("pages.search.noTagsParsed")} {naturalPlan.after && ` · ${naturalPlan.after} → ${naturalPlan.before}`}</span><Button size="sm" onClick={applyNatural}>{t("pages.search.applyNatural")}</Button></div>}
+      </div>
       <div className="flex items-stretch gap-2">
         <div className="min-w-0 flex-1">
           <TagChipInput
@@ -71,7 +87,7 @@ export default function SearchPage() {
           />
         </div>
         <div className="flex shrink-0 flex-col gap-1.5">
-          <Button onClick={submit} className="h-9 gap-1">
+          <Button onClick={() => submit()} className="h-9 gap-1">
             <ArrowRight className="h-4 w-4" />
             {t("pages.search.title")}
           </Button>

@@ -35,6 +35,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from nyagallery.remote_upload import RemoteImageError, fetch_remote_image
 from nyagallery.exif import browser_mtime, extract_photo_metadata
 from nyagallery.image_edit import ImageEditError, edit_uploaded_image
+from nyagallery.natural_query import parse_natural_query
 from nyagallery.auth import (
     MAX_USERNAME_LENGTH,
     MIN_PASSWORD_LENGTH,
@@ -1181,6 +1182,10 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return {"ok": True, "username": user.username}
+
+    @app.get("/api/search/parse")
+    def api_parse_search_query(_principal: ViewPrincipal, q: str = "") -> dict[str, object]:
+        return parse_natural_query(q, catalog).to_dict()
 
     @app.get("/api/search")
     def api_search(

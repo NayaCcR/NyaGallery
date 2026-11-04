@@ -218,6 +218,7 @@ export const NyaApi = {
       body: { old_password: oldPassword, new_password: newPassword },
     }),
 
+  parseSearchQuery: (q: string) => api<{ query: string; after: string | null; before: string | null; terms: string[]; excluded_terms: string[] }>(`/api/search/parse?q=${encodeURIComponent(q)}`),
   search: (params: { q?: string; limit?: number; offset?: number; sort?: SearchSort; order?: SearchOrder }) => {
     const search = new URLSearchParams();
     if (params.q) search.set("q", params.q);
