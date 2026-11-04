@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Protocol
+from typing import Callable, Iterable, Protocol
 from urllib.parse import urlparse
 
 
@@ -40,6 +40,38 @@ class LocalDirectorySource:
                 continue
             relative = path.relative_to(self.root).as_posix()
             yield SourceItem(key=relative, location=str(path), kind="file", size=path.stat().st_size)
+
+
+class NasMountedSource(LocalDirectorySource):
+    name = "nas"
+
+
+class RemoteObjectSource:
+    name = "remote"
+
+    def __init__(self, *, endpoint: str, prefix: str = "", list_objects: Callable[[], Iterable[tuple[str, int | None]]] | None = None) -> None:
+        if not endpoint.strip():
+            raise ValueError("remote source endpoint is required")
+        self.endpoint = endpoint.rstrip("/")
+        self.prefix = prefix.strip("/")
+        self._list_objects = list_objects
+
+    def iter_items(self) -> Iterable[SourceItem]:
+        if self._list_objects is None:
+            raise RuntimeError(f"{self.name} source requires a configured object-list client")
+        for key, size in self._list_objects():
+            normalized = str(key).strip("/")
+            if not normalized or (self.prefix and not normalized.startswith(self.prefix + "/")):
+                continue
+            yield SourceItem(key=normalized, location=f"{self.endpoint}/{normalized}", kind="remote_object", size=size)
+
+
+class S3Source(RemoteObjectSource):
+    name = "s3"
+
+
+class WebDAVSource(RemoteObjectSource):
+    name = "webdav"
 
 
 class UrlListSource:
