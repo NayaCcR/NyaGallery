@@ -44,6 +44,32 @@ class PluginRegistry:
             raise ValueError("plugin module must export start() and stop()")
         self.register(RegisteredPlugin(manifest=manifest, start=start, stop=stop))
 
+    def hot_reload_module(self, name: str, manifest: PluginManifest, module_path: str | Path) -> None:
+        """Replace a running module atomically; failed start leaves the old plugin active."""
+        current = self._plugins[name]
+        manifest.validate(core_version=self.core_version, granted_permissions=self.permissions)
+        path = Path(module_path).resolve()
+        spec = importlib.util.spec_from_file_location(f"nyagallery_plugin_reload_{manifest.name}", path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"could not load plugin module: {path}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        replacement = RegisteredPlugin(manifest=manifest, start=getattr(module, "start"), stop=getattr(module, "stop"), enabled=False)
+        if not callable(replacement.start) or not callable(replacement.stop):
+            raise ValueError("plugin module must export start() and stop()")
+        if current.enabled:
+            replacement.start()
+        try:
+            if current.enabled:
+                current.stop()
+        except Exception:
+            if current.enabled:
+                replacement.stop()
+            raise
+        replacement.enabled = current.enabled
+        self._plugins[name] = replacement
+        self.persist()
+
     def enable(self, name: str) -> None:
         plugin = self._plugins[name]
         if plugin.enabled:
