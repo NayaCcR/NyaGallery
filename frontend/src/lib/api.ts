@@ -254,6 +254,8 @@ export const NyaApi = {
   assetVisibility: (assetKey: string) => api<{ visibility: "public" | "private" }>(`/api/assets/${encodeURIComponent(assetKey)}/visibility`),
   updateAssetVisibility: (assetKey: string, visibility: "public" | "private") => api<{ visibility: "public" | "private" }>(`/api/assets/${encodeURIComponent(assetKey)}/visibility`, { method: "PUT", body: { visibility } }),
   apiAddresses: () => api<ApiAddressesResponse>("/api/me/api-addresses"),
+  userPreferences: () => api<{ fit_mode: "fit" | "fill"; show_sensitive: boolean; show_ai: boolean }>("/api/user-preferences"),
+  updateUserPreferences: (payload: { fit_mode: "fit" | "fill"; show_sensitive: boolean; show_ai: boolean }) => api<{ fit_mode: "fit" | "fill"; show_sensitive: boolean; show_ai: boolean }>("/api/user-preferences", { method: "PUT", body: payload }),
   notifications: (unreadOnly = false) => api<NotificationsResponse>(`/api/notifications?unread_only=${unreadOnly}`),
   markNotificationsRead: (notification_ids: number[] = []) => api<{ marked: number }>("/api/notifications/read", { method: "POST", body: { notification_ids } }),
   createShareLink: (assetKey: string, payload: { is_public?: boolean; password?: string; expires_at?: string }) =>

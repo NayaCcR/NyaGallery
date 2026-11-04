@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "./auth-provider";
+import { NyaApi } from "@/lib/api";
 
 const STORAGE_PREFIX = "nya.content_filters";
 const SENSITIVE_TAGS = ["rating:r18", "rating:r18g"] as const;
@@ -45,11 +46,13 @@ export function ContentPreferencesProvider({ children }: { children: React.React
   const canViewSensitiveContent = Boolean(me && me.role !== "guest");
   const [preferences, setPreferences] = useState<ContentPreferences>(DEFAULT_PREFERENCES);
   const [ready, setReady] = useState(false);
+  const [remoteLoaded, setRemoteLoaded] = useState(false);
   const previousIdentityRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!authReady) return;
     setReady(false);
+    setRemoteLoaded(false);
     const saved = readPreferences(storageKey);
     const previousIdentity = previousIdentityRef.current;
     const identityChanged = previousIdentity !== null && previousIdentity !== identityKey;
@@ -60,7 +63,14 @@ export function ContentPreferencesProvider({ children }: { children: React.React
       fitMode: saved.fitMode,
     });
     setReady(true);
-  }, [authReady, identityKey, storageKey]);
+    if (me) {
+      void NyaApi.userPreferences().then((remote) => {
+        setPreferences((current) => ({ ...current, fitMode: remote.fit_mode, showSensitive: remote.show_sensitive, showAi: remote.show_ai }));
+      }).catch(() => undefined).finally(() => setRemoteLoaded(true));
+    } else {
+      setRemoteLoaded(true);
+    }
+  }, [authReady, identityKey, me, storageKey]);
 
   useEffect(() => {
     if (!ready) return;
@@ -70,6 +80,11 @@ export function ContentPreferencesProvider({ children }: { children: React.React
       /* ignore */
     }
   }, [preferences, ready, storageKey]);
+
+  useEffect(() => {
+    if (!ready || !remoteLoaded || !me) return;
+    void NyaApi.updateUserPreferences({ fit_mode: preferences.fitMode, show_sensitive: preferences.showSensitive, show_ai: preferences.showAi }).catch(() => undefined);
+  }, [me, preferences.fitMode, preferences.showAi, preferences.showSensitive, ready, remoteLoaded]);
 
   const setShowSensitive = useCallback((enabled: boolean) => {
     setPreferences((current) => ({ ...current, showSensitive: canViewSensitiveContent ? enabled : false }));

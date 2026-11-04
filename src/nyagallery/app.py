@@ -65,6 +65,7 @@ from nyagallery.db import (
     AssetMentionModel,
     NotificationModel,
     NotificationPreferenceModel,
+    UserPreferenceModel,
     AssetLikeModel,
     AssetAclModel,
     aware_utc,
@@ -719,6 +720,12 @@ class NotificationPreferenceUpdate(BaseModel):
     like_enabled: bool = True
 
 
+class UserPreferenceUpdate(BaseModel):
+    fit_mode: str = Field(pattern="^(fit|fill)$")
+    show_sensitive: bool = False
+    show_ai: bool = False
+
+
 class ChunkUploadInit(BaseModel):
     filename: str = Field(min_length=1, max_length=500)
     total_size: int = Field(gt=0)
@@ -859,6 +866,26 @@ def create_app(
             "short_link_create": f"{base}/api/assets/{asset}/short-links",
             "required_scopes": {"metadata": "view", "preview": "view", "thumb": "view", "original": "download", "short_link_create": "edit_tags"},
         }
+
+    @app.get("/api/user-preferences")
+    def api_user_preferences(db: DbSession, principal: ViewPrincipal) -> dict[str, object]:
+        if principal.user_id is None:
+            raise HTTPException(status_code=401, detail="login required")
+        row = db.get(UserPreferenceModel, principal.user_id)
+        preferences = row.preferences if row and isinstance(row.preferences, dict) else {}
+        return {"fit_mode": preferences.get("fit_mode", "fill"), "show_sensitive": bool(preferences.get("show_sensitive", False)), "show_ai": bool(preferences.get("show_ai", False))}
+
+    @app.put("/api/user-preferences")
+    def api_update_user_preferences(payload: UserPreferenceUpdate, db: DbSession, principal: ViewPrincipal) -> dict[str, object]:
+        if principal.user_id is None:
+            raise HTTPException(status_code=401, detail="login required")
+        row = db.get(UserPreferenceModel, principal.user_id)
+        if row is None:
+            row = UserPreferenceModel(user_id=principal.user_id, preferences={})
+            db.add(row)
+        row.preferences = {"fit_mode": payload.fit_mode, "show_sensitive": payload.show_sensitive, "show_ai": payload.show_ai}
+        db.commit()
+        return row.preferences
 
     @app.get("/api/notification-preferences")
     def api_notification_preferences(db: DbSession, principal: ViewPrincipal) -> dict[str, bool]:
