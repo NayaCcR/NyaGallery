@@ -99,6 +99,7 @@ class MediaConfig:
     max_animation_memory_bytes: int = 512 * MiB
     max_zip_uncompressed_bytes: int = 512 * MiB
     max_zip_frame_bytes: int = 64 * MiB
+    keep_ugoira_zip: bool = True
     max_video_bytes: int = 128 * MiB
     generation_timeout_seconds: int = 300
     task_timeout_seconds: int = 300
@@ -303,6 +304,7 @@ def config_to_dict(config: NyaGalleryConfig, *, redact_secrets: bool = False) ->
             "max_animation_memory_bytes": config.media.max_animation_memory_bytes,
             "max_zip_uncompressed_bytes": config.media.max_zip_uncompressed_bytes,
             "max_zip_frame_bytes": config.media.max_zip_frame_bytes,
+            "keep_ugoira_zip": config.media.keep_ugoira_zip,
             "max_video_bytes": config.media.max_video_bytes,
             "generation_timeout_seconds": config.media.generation_timeout_seconds,
             "task_timeout_seconds": config.media.task_timeout_seconds,
@@ -439,6 +441,7 @@ def render_config(config: NyaGalleryConfig) -> str:
         f"max_animation_memory_bytes = {int(config.media.max_animation_memory_bytes)}",
         f"max_zip_uncompressed_bytes = {int(config.media.max_zip_uncompressed_bytes)}",
         f"max_zip_frame_bytes = {int(config.media.max_zip_frame_bytes)}",
+        f"keep_ugoira_zip = {str(bool(config.media.keep_ugoira_zip)).lower()}",
         f"max_video_bytes = {int(config.media.max_video_bytes)}",
         f"generation_timeout_seconds = {int(config.media.generation_timeout_seconds)}",
         f"task_timeout_seconds = {int(config.media.task_timeout_seconds)}",
@@ -659,6 +662,7 @@ def _config_from_dict(data: dict[str, Any], path: Path | None) -> NyaGalleryConf
             max_animation_memory_bytes=_positive_int(media.get("max_animation_memory_bytes"), 512 * MiB),
             max_zip_uncompressed_bytes=_positive_int(media.get("max_zip_uncompressed_bytes"), 512 * MiB),
             max_zip_frame_bytes=_positive_int(media.get("max_zip_frame_bytes"), 64 * MiB),
+            keep_ugoira_zip=_bool(media.get("keep_ugoira_zip"), True),
             max_video_bytes=_positive_int(media.get("max_video_bytes"), 128 * MiB),
             generation_timeout_seconds=_positive_int(media.get("generation_timeout_seconds"), 300),
             task_timeout_seconds=_positive_int(media.get("task_timeout_seconds"), 300),
@@ -794,6 +798,7 @@ def _with_env_overrides(config: NyaGalleryConfig) -> NyaGalleryConfig:
             config.media.max_zip_uncompressed_bytes,
         ),
         max_zip_frame_bytes=_positive_int(os.environ.get("NYAGALLERY_MEDIA_MAX_ZIP_FRAME_BYTES"), config.media.max_zip_frame_bytes),
+        keep_ugoira_zip=_bool(os.environ.get("NYAGALLERY_MEDIA_KEEP_UGOIRA_ZIP"), config.media.keep_ugoira_zip),
         max_video_bytes=_positive_int(os.environ.get("NYAGALLERY_MEDIA_MAX_VIDEO_BYTES"), config.media.max_video_bytes),
         generation_timeout_seconds=_positive_int(
             os.environ.get("NYAGALLERY_MEDIA_GENERATION_TIMEOUT_SECONDS"),

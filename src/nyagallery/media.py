@@ -63,6 +63,7 @@ class MediaLimits:
     max_animation_memory_bytes: int = MAX_ANIMATION_MEMORY_BYTES
     max_zip_uncompressed_bytes: int = MAX_ZIP_UNCOMPRESSED_BYTES
     max_zip_frame_bytes: int = MAX_ZIP_FRAME_BYTES
+    keep_ugoira_zip: bool = True
     max_video_bytes: int = MAX_VIDEO_BYTES
     generation_timeout_seconds: int = DEFAULT_MEDIA_GENERATION_TIMEOUT_SECONDS
     preview_max_edge: int = 1800
@@ -85,6 +86,7 @@ def media_limits_from_config(config: MediaConfig | None = None) -> MediaLimits:
         ),
         max_zip_uncompressed_bytes=_positive_int(config.max_zip_uncompressed_bytes, MAX_ZIP_UNCOMPRESSED_BYTES),
         max_zip_frame_bytes=_positive_int(config.max_zip_frame_bytes, MAX_ZIP_FRAME_BYTES),
+        keep_ugoira_zip=bool(getattr(config, "keep_ugoira_zip", True)),
         max_video_bytes=_positive_int(config.max_video_bytes, MAX_VIDEO_BYTES),
         generation_timeout_seconds=_positive_int(config.generation_timeout_seconds, DEFAULT_MEDIA_GENERATION_TIMEOUT_SECONDS),
         preview_max_edge=_positive_int(config.preview_max_edge, 1800),
@@ -491,8 +493,10 @@ class MediaGenerator:
             with self._metadata_lock:
                 _write_media_metadata_if_changed(self.storage, metadata, first_frame_size, is_animated=True)
 
+        apng_path = self.storage.preview_path(metadata.asset_key, ".apng")
         preview_path = self.storage.preview_path(metadata.asset_key, ".webp")
         _remove_if_exists(self.storage.preview_path(metadata.asset_key, ".avif"))
+        _remove_if_exists(apng_path)
         _check_deadline(deadline)
         _emit_progress(
             progress,
@@ -501,6 +505,15 @@ class MediaGenerator:
             message="encoding ugoira preview",
             frames_done=len(frames),
             frames_total=len(frames),
+        )
+        frames[0].save(
+            apng_path,
+            format="PNG",
+            save_all=True,
+            append_images=frames[1:],
+            duration=durations,
+            loop=0,
+            disposal=2,
         )
         frames[0].save(
             preview_path,
@@ -517,6 +530,11 @@ class MediaGenerator:
         _emit_progress(progress, stage="encoding_thumb", progress=96.0, message="encoding thumbnail")
         _check_deadline(deadline)
         _save_avif(thumb, thumb_path, self.avif_quality)
+        if not self.limits.keep_ugoira_zip:
+            try:
+                original_path.unlink()
+            except OSError:
+                pass
         return GeneratedMedia(
             asset_key=metadata.asset_key,
             preview_path=self.storage.cache_relative_path(preview_path),
