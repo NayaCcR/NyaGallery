@@ -84,6 +84,8 @@
       "resume": "恢复",
       "importCreated": "导入任务已创建",
       "importFailed": "导入任务操作失败",
+      "sourceConfigPlaceholder": "URL 每行一个，或填写目录/远端 endpoint",
+      "failedCount": "失败 {count}",
       "primaryTitle": "元数据主真相源",
       "primaryHint": "只能选择一个真相源。转换命令会先备份，并在切换前校验 SHA256。",
       "primaryMode": "主模式",

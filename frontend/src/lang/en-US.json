@@ -84,6 +84,8 @@
       "resume": "Resume",
       "importCreated": "Import job created",
       "importFailed": "Import job action failed",
+      "sourceConfigPlaceholder": "One URL per line, or a directory/remote endpoint",
+      "failedCount": "failed {count}",
       "primaryTitle": "Metadata primary",
       "primaryHint": "Choose exactly one source of truth. Conversion commands create backups and verify SHA256 before switching.",
       "primaryMode": "Primary mode",
