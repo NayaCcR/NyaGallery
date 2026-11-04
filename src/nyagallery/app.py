@@ -25,6 +25,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from fastapi.responses import FileResponse
+from fastapi.responses import PlainTextResponse
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
@@ -2110,6 +2111,45 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         request.app.state.nyagallery = replace(state, config=reloaded)
         return {"metadata_mode": reloaded.core.metadata_mode, "config_path": str(saved.path or config_path), "backup_path": str(backup_path) if backup_path.exists() else None, "restart_required": True}
+
+    @app.get("/api/analytics/tags")
+    def api_tag_analytics(
+        db: DbSession,
+        principal: ViewPrincipal,
+        format: str = Query("json", pattern="^(json|csv)$"),
+        limit: int = Query(100, ge=1, le=1000),
+        scope: str = Query("visible", pattern="^(visible|owned|all)$"),
+        after: str | None = None,
+        before: str | None = None,
+    ) -> Response:
+        if scope == "all" and not _is_admin_principal(principal):
+            raise HTTPException(status_code=403, detail="admin required for all analytics")
+        counts: dict[str, int] = {}; first_seen: dict[str, str] = {}; trend: dict[str, dict[str, int]] = {}; cooccurrence: dict[tuple[str, str], int] = {}; grouped: dict[str, set[str]] = {}
+        rows = db.execute(select(AssetTagModel.tag, AssetModel).join(AssetModel, AssetModel.asset_key == AssetTagModel.asset_key)).all()
+        for tag, asset in rows:
+            if asset.deletion_status or (scope == "owned" and asset.uploader_user_id != principal.user_id) or (scope == "visible" and not _is_admin_principal(principal) and not can_view_asset(db, asset, user_id=principal.user_id, is_admin=False)):
+                continue
+            stamp = asset.created_at.isoformat() if asset.created_at else ""
+            if after and stamp < after: continue
+            if before and stamp >= before: continue
+            counts[tag] = counts.get(tag, 0) + 1
+            first_seen[tag] = min(first_seen.get(tag, stamp) or stamp, stamp)
+            bucket = stamp[:7] if stamp else "unknown"
+            trend.setdefault(bucket, {})[tag] = trend.setdefault(bucket, {}).get(tag, 0) + 1
+            grouped.setdefault(asset.asset_key, set()).add(tag)
+        for tags in grouped.values():
+            for left in sorted(tags):
+                for right in sorted(tags):
+                    if left < right: cooccurrence[(left, right)] = cooccurrence.get((left, right), 0) + 1
+        items = [{"tag": tag, "category": tag.split(":", 1)[0] if ":" in tag else "general", "count": count, "first_seen": first_seen.get(tag)} for tag, count in counts.items()]
+        items.sort(key=lambda item: (-int(item["count"]), str(item["tag"])))
+        items = items[:limit]
+        trend_items = [{"period": period, "items": sorted(values.items(), key=lambda pair: (-pair[1], pair[0]))[:limit]} for period, values in sorted(trend.items())]
+        cooccurrence_items = [{"left": pair[0], "right": pair[1], "count": count} for pair, count in sorted(cooccurrence.items(), key=lambda item: (-item[1], item[0]))[:limit]]
+        if format == "csv":
+            lines = ["tag,category,count"] + [f'{json.dumps(item["tag"], ensure_ascii=False)},{json.dumps(item["category"], ensure_ascii=False)},{item["count"]}' for item in items]
+            return PlainTextResponse("\n".join(lines) + "\n", media_type="text/csv", headers={"Content-Disposition": "attachment; filename=tag-analytics.csv"})
+        return JSONResponse({"items": items, "total": len(items), "scope": scope, "trend": trend_items, "cooccurrence": cooccurrence_items, "filters": {"after": after, "before": before}})
 
     @app.post("/api/tags/summary/export")
     def api_export_tag_summary(db: DbSession, _principal: AdminPrincipal) -> dict[str, object]:
