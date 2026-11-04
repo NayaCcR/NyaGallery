@@ -471,6 +471,7 @@ class TranscodeJobModel(Base):
     frames_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
     frames_per_second: Mapped[float | None] = mapped_column(Float, nullable=True)
     file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    target_format: Mapped[str | None] = mapped_column(String(20), nullable=True)
     kind: Mapped[str | None] = mapped_column(String(40), nullable=True)
     source: Mapped[str] = mapped_column(String(40), default="upload")
     error: Mapped[str | None] = mapped_column(String(1000), nullable=True)
@@ -763,6 +764,7 @@ def make_session_factory(engine: Engine) -> sessionmaker[Session]:
 
 def init_database(engine: Engine) -> None:
     Base.metadata.create_all(engine)
+    _ensure_column(engine, "transcode_jobs", "target_format", "VARCHAR(20)")
     _ensure_column(engine, "assets", "uploader_user_id", "INTEGER")
     _ensure_column(engine, "assets", "uploader_username", "VARCHAR(80)")
     _ensure_column(engine, "assets", "deletion_status", "VARCHAR(40)")
@@ -2854,6 +2856,7 @@ def create_transcode_job(
     *,
     source: str = "upload",
     file_size: int | None = None,
+    target_format: str | None = None,
 ) -> TranscodeJobModel:
     job = TranscodeJobModel(
         job_id=f"{asset.asset_key}-{uuid.uuid4().hex[:12]}",
@@ -2865,6 +2868,7 @@ def create_transcode_job(
         message="waiting for media cache generation",
         progress=0.0,
         file_size=file_size,
+        target_format=target_format,
         source=source,
     )
     session.add(job)
@@ -3091,6 +3095,7 @@ def transcode_job_to_dict(job: TranscodeJobModel | None) -> dict[str, object] | 
         "frames_total": job.frames_total,
         "frames_per_second": round(float(job.frames_per_second), 2) if job.frames_per_second is not None else None,
         "file_size": job.file_size,
+        "target_format": job.target_format or "auto",
         "kind": job.kind,
         "source": job.source or "upload",
         "error": job.error,

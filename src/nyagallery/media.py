@@ -218,16 +218,21 @@ class MediaGenerator:
         self,
         asset_key: str,
         *,
+        target_format: str | None = None,
         progress: ProgressCallback | None = None,
     ) -> GeneratedMedia:
-        return self.generate_for_metadata(self.storage.read_metadata(asset_key), progress=progress)
+        return self.generate_for_metadata(self.storage.read_metadata(asset_key), target_format=target_format, progress=progress)
 
     def generate_for_metadata(
         self,
         metadata: GalleryMetadata,
         *,
+        target_format: str | None = None,
         progress: ProgressCallback | None = None,
     ) -> GeneratedMedia:
+        target_format = target_format or "auto"
+        if target_format not in {"auto", "avif", "webp"}:
+            raise MediaGenerationError("target_format must be auto, avif, or webp")
         deadline = time.monotonic() + self.timeout_seconds
         self.storage.ensure()
         if is_cover_only_original(metadata):
@@ -240,10 +245,14 @@ class MediaGenerator:
         _check_deadline(deadline)
         _emit_progress(progress, stage="starting", progress=0.0, message="starting media cache generation")
         if original_path.suffix.lower() == ".zip" or metadata.mime_type == "application/zip":
+            if target_format == "avif":
+                raise MediaGenerationError("animated Ugoira output supports webp only")
             return self._generate_ugoira(metadata, original_path, progress=progress, deadline=deadline)
         if is_animated_raster(original_path, limits=self.limits):
+            if target_format == "avif":
+                raise MediaGenerationError("animated raster output supports webp only")
             return self._generate_animated_raster(metadata, original_path, progress=progress, deadline=deadline)
-        return self._generate_static(metadata, original_path, progress=progress, deadline=deadline)
+        return self._generate_static(metadata, original_path, target_format=target_format, progress=progress, deadline=deadline)
 
     def generate_from_cover(
         self,
@@ -282,6 +291,7 @@ class MediaGenerator:
         metadata: GalleryMetadata,
         original_path: Path,
         *,
+        target_format: str = "auto",
         progress: ProgressCallback | None = None,
         deadline: float | None = None,
     ) -> GeneratedMedia:
@@ -297,15 +307,23 @@ class MediaGenerator:
             _check_deadline(deadline)
             preview = _fit_image(image, self.preview_max_edge)
             thumb = _fit_image(image, self.thumb_max_edge)
-            preview_path = self.storage.preview_path(metadata.asset_key, ".avif")
-            thumb_path = self.storage.thumb_path(metadata.asset_key, ".avif")
-            _remove_if_exists(self.storage.preview_path(metadata.asset_key, ".webp"))
+            extension = ".webp" if target_format == "webp" else ".avif"
+            preview_path = self.storage.preview_path(metadata.asset_key, extension)
+            thumb_path = self.storage.thumb_path(metadata.asset_key, extension)
+            _remove_if_exists(self.storage.preview_path(metadata.asset_key, ".webp" if extension == ".avif" else ".avif"))
+            _remove_if_exists(self.storage.thumb_path(metadata.asset_key, ".webp" if extension == ".avif" else ".avif"))
             _emit_progress(progress, stage="encoding_preview", progress=65.0, message="encoding preview")
             _check_deadline(deadline)
-            _save_avif(preview, preview_path, self.avif_quality)
+            if extension == ".webp":
+                _save_webp(preview, preview_path, self.webp_quality)
+            else:
+                _save_avif(preview, preview_path, self.avif_quality)
             _emit_progress(progress, stage="encoding_thumb", progress=85.0, message="encoding thumbnail")
             _check_deadline(deadline)
-            _save_avif(thumb, thumb_path, self.avif_quality)
+            if extension == ".webp":
+                _save_webp(thumb, thumb_path, self.webp_quality)
+            else:
+                _save_avif(thumb, thumb_path, self.avif_quality)
         return GeneratedMedia(
             asset_key=metadata.asset_key,
             preview_path=self.storage.cache_relative_path(preview_path),
@@ -669,6 +687,11 @@ def _fit_image(image, max_edge: int):
 def _save_avif(image, path: Path, quality: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     image.save(path, format="AVIF", quality=quality)
+
+
+def _save_webp(image, path: Path, quality: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    image.save(path, format="WEBP", quality=quality, method=6)
 
 
 def _composite_apng_frame(source, canvas):

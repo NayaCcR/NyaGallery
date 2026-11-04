@@ -642,6 +642,10 @@ class ShareGroupUpdate(BaseModel):
     member_usernames: list[str] = Field(default_factory=list)
 
 
+class TranscodeRequest(BaseModel):
+    target_format: str = Field(default="auto", pattern="^(auto|avif|webp)$")
+
+
 class ShareGroupInviteCreate(BaseModel):
     username: str = Field(min_length=1, max_length=80)
 
@@ -2341,9 +2345,13 @@ def create_app(
         background_tasks: BackgroundTasks,
         db: DbSession,
         principal: ApiPrincipal,
+        payload: TranscodeRequest | None = None,
     ) -> dict[str, object]:
         asset = _get_asset(db, asset_key)
         _require_asset_owner_or_admin(asset, principal)
+        target_format = payload.target_format if payload else "auto"
+        if target_format == "avif" and asset.is_animated:
+            raise HTTPException(status_code=422, detail="animated assets support webp only")
         existing = db.scalar(
             select(TranscodeJobModel)
             .where(
@@ -2355,7 +2363,7 @@ def create_app(
         if existing:
             return {"job": transcode_job_to_dict(existing), "status": "already_running"}
 
-        job = create_transcode_job(db, asset, source="manual", file_size=_asset_original_size(storage, asset))
+        job = create_transcode_job(db, asset, source="manual", file_size=_asset_original_size(storage, asset), target_format=None if target_format == "auto" else target_format)
         create_upload_log(
             db,
             asset_key=asset.asset_key,
@@ -6194,6 +6202,8 @@ def _generate_cache_and_refresh_asset(
     try:
         metadata = storage.read_metadata(asset_key)
         with session_factory() as session:
+            job = session.scalar(select(TranscodeJobModel).where(TranscodeJobModel.job_id == job_id))
+            target_format = job.target_format if job else None
             update_transcode_job(
                 session,
                 job_id,
@@ -6206,7 +6216,7 @@ def _generate_cache_and_refresh_asset(
         generated = MediaGenerator(
             storage,
             limits=media_limits_from_config(load_config().media),
-        ).generate_for_metadata(metadata, progress=report)
+        ).generate_for_metadata(metadata, target_format=target_format, progress=report)
         metadata = storage.read_metadata(asset_key)
         tags = catalog.canonicalize_tags(
             pixiv_tags=metadata.pixiv_tags,

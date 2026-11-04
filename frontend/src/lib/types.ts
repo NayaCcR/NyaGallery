@@ -787,6 +787,7 @@ export interface TranscodeJob {
   frames_total: number | null;
   frames_per_second: number | null;
   file_size: number | null;
+  target_format: "auto" | "avif" | "webp" | string;
   kind: string | null;
   source: string;
   error: string | null;

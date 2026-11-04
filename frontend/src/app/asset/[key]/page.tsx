@@ -35,6 +35,7 @@ export default function AssetDetailPage() {
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [transcoding, setTranscoding] = useState(false);
+  const [targetFormat, setTargetFormat] = useState<"auto" | "avif" | "webp">("auto");
   const [deleting, setDeleting] = useState(false);
   const [visibility, setVisibility] = useState<"public" | "private">("private");
   const [visibilityByAsset, setVisibilityByAsset] = useState<Record<string, "public" | "private">>({});
@@ -313,7 +314,7 @@ export default function AssetDetailPage() {
     if (!asset || !canTranscode) return;
     setTranscoding(true);
     try {
-      const result = await NyaApi.startTranscode(asset.asset_key);
+      const result = await NyaApi.startTranscode(asset.asset_key, targetFormat);
       toast.success(result.status === "already_running" ? t("pages.asset.transcodeAlreadyRunning") : t("pages.asset.transcodeQueued"));
       await refetch();
       qc.invalidateQueries({ queryKey: ["asset", asset.asset_key] });
@@ -495,10 +496,10 @@ export default function AssetDetailPage() {
             </div>
           )}
           {canTranscode && (
-            <Button variant="outline" size="sm" onClick={startTranscode} disabled={transcoding}>
+            <div className="flex items-center gap-2"><select value={targetFormat} onChange={(event) => setTargetFormat(event.target.value as "auto" | "avif" | "webp")} className="h-9 rounded-md border border-input bg-background px-2 text-sm" aria-label={t("pages.asset.transcodeFormat")}><option value="auto">{t("pages.asset.transcodeAuto")}</option><option value="avif" disabled={Boolean(asset.is_animated)}>{t("pages.asset.transcodeAvif")}</option><option value="webp">{t("pages.asset.transcodeWebp")}</option></select><Button variant="outline" size="sm" onClick={startTranscode} disabled={transcoding}>
               {transcoding ? <Spinner className="h-4 w-4" /> : <Code2 className="h-4 w-4" />}
               {t("pages.asset.retranscode")}
-            </Button>
+            </Button></div>
           )}
           {asset.original_url && (
             <Button asChild variant="outline" size="sm">

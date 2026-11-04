@@ -406,10 +406,10 @@ export const NyaApi = {
   transcodeJobs: (limit = 50, offset = 0) =>
     api<TranscodeJobResponse>(`/api/transcode/jobs?limit=${limit}&offset=${offset}`),
 
-  startTranscode: (assetKey: string) =>
+  startTranscode: (assetKey: string, targetFormat: "auto" | "avif" | "webp" = "auto") =>
     api<{ job: TranscodeJob | null; status: string }>(
       `/api/transcode/assets/${encodeURIComponent(assetKey)}/start`,
-      { method: "POST" }
+      { method: "POST", body: { target_format: targetFormat } }
     ),
   cancelAllTranscode: () =>
     api<{ cancelled: number }>("/api/transcode/cancel-all", { method: "POST" }),
