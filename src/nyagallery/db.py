@@ -1132,6 +1132,9 @@ def _apply_post_filters(statement, *, source: str = "", q: str = "", exclude_rat
     source_key = str(source or "").strip().casefold()
     if source_key:
         statement = statement.where(PostModel.source == source_key)
+    statement = statement.where(
+        or_(func.trim(PostModel.content) != "", PostModel.attachment_count > 0)
+    )
     term = str(q or "").strip()
     if term:
         pattern = _contains_pattern(term)
@@ -3137,6 +3140,137 @@ def transcode_job_to_dict(job: TranscodeJobModel | None) -> dict[str, object] | 
         "updated_at": _datetime_to_iso(job.updated_at),
     }
 
+
+SYNC_LOG_SOURCES = {"pixiv": "pixiv", "misskey": "misskey", "x": "x", "fanbox": "fanbox"}
+SYNC_LOG_ITEM_LIMIT = 200
+
+
+def latest_transcode_jobs_for_assets(session: Session, asset_keys: list[str]) -> dict[str, TranscodeJobModel]:
+    return _latest_jobs_for_assets(session, asset_keys)
+
+
+def _sync_log_platform(log: UploadLogModel) -> str | None:
+    event_name = (log.event or "").split("_", 1)[0]
+    return SYNC_LOG_SOURCES.get(event_name)
+
+
+def _parse_log_time(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _recover_sync_log_asset_keys(session: Session, log: UploadLogModel, platform: str) -> list[str]:
+    """Best-effort lookup of assets for logs written before asset_keys were recorded."""
+    extra = log.extra or {}
+    if log.status in ("queued", "running"):
+        return []
+    if platform == "pixiv":
+        kind = str(extra.get("kind") or "")
+        pid = str(extra.get("pixiv_id") or (extra.get("target") if kind == "pid" else "") or "")
+        if kind == "pid" and pid.isdigit():
+            return list(session.scalars(
+                select(AssetModel.asset_key)
+                .where(AssetModel.source == "pixiv", AssetModel.source_id == pid)
+                .order_by(AssetModel.page_index, AssetModel.asset_key)
+            ))
+        author = str(extra.get("target") or "") if kind == "user" else ""
+    else:
+        author = str(extra.get("user_id") or extra.get("creator_id") or extra.get("x_user_id") or "")
+    started = _parse_log_time(log.created_at)
+    finished = _parse_log_time(extra.get("last_update_at"))
+    if not author or started is None:
+        return []
+    # crawl_time keeps the fetch time (created_at is rewritten by database rebuilds); ISO-Z strings sort chronologically.
+    window_start = (started - timedelta(seconds=5)).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    window_end = ((finished or started) + timedelta(minutes=1)).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    statement = (
+        select(AssetModel.asset_key)
+        .where(
+            AssetModel.source == platform,
+            AssetModel.artist_id == author,
+            AssetModel.crawl_time >= window_start,
+            AssetModel.crawl_time <= window_end,
+        )
+        .order_by(AssetModel.source_id, AssetModel.page_index, AssetModel.asset_key)
+        .limit(SYNC_LOG_ITEM_LIMIT)
+    )
+    return list(session.scalars(statement))
+
+
+def _sync_asset_transcode_state(job: TranscodeJobModel | None) -> str:
+    if job is None:
+        return "none"
+    if job.status == "error":
+        return "error"
+    if job.status == "success" or job.stage == "done" or (job.progress or 0) >= 100:
+        return "success"
+    return job.status or "queued"
+
+
+def attach_sync_log_assets(
+    session: Session,
+    storage: GalleryStorage | None,
+    logs: list[UploadLogModel],
+    items: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Adds per-log asset summaries (cache / transcode / visibility) to serialized sync logs."""
+    keys_by_log: dict[int, tuple[list[str], bool]] = {}
+    for log in logs:
+        platform = _sync_log_platform(log)
+        if platform is None:
+            continue
+        raw = (log.extra or {}).get("asset_keys")
+        if isinstance(raw, list):
+            keys_by_log[log.id] = ([str(key) for key in raw if key][:SYNC_LOG_ITEM_LIMIT], False)
+        else:
+            keys_by_log[log.id] = (_recover_sync_log_asset_keys(session, log, platform), True)
+    all_keys = list(dict.fromkeys(key for keys, _ in keys_by_log.values() for key in keys))
+    assets = {asset.asset_key: asset for asset in session.scalars(select(AssetModel).where(AssetModel.asset_key.in_(all_keys)))} if all_keys else {}
+    jobs = _latest_jobs_for_assets(session, list(assets))
+    visibility: dict[tuple[int, str], str] = {}
+    owner_ids = {asset.uploader_user_id for asset in assets.values() if asset.uploader_user_id is not None}
+    if owner_ids:
+        for row in session.scalars(select(UserAssetModel).where(UserAssetModel.asset_key.in_(list(assets)), UserAssetModel.user_id.in_(owner_ids))):
+            visibility[(row.user_id, row.asset_key)] = row.visibility
+    for log, item in zip(logs, items):
+        if log.id not in keys_by_log:
+            continue
+        keys, recovered = keys_by_log[log.id]
+        rows: list[dict[str, object]] = []
+        for key in keys:
+            asset = assets.get(key)
+            if asset is None:
+                continue
+            cache = _asset_cache_state(storage, asset)
+            job = jobs.get(key)
+            rows.append({
+                "asset_key": key,
+                "page_index": asset.page_index,
+                "title": asset.title,
+                "mime_type": asset.mime_type,
+                "cache_status": cache["cache_status"],
+                "thumb_path": cache["thumb_path"],
+                "transcode_status": _sync_asset_transcode_state(job),
+                "transcode_error": (job.error or "")[:300] if job is not None and job.status == "error" else None,
+                "visibility": visibility.get((asset.uploader_user_id, key), "private") if asset.uploader_user_id is not None else "private",
+            })
+        item["sync_assets"] = rows
+        item["sync_assets_summary"] = {
+            "total": len(rows),
+            "cached": sum(1 for row in rows if row["cache_status"] == "ready"),
+            "failed": sum(1 for row in rows if row["transcode_status"] == "error"),
+            "pending": sum(1 for row in rows if row["transcode_status"] in ("queued", "running")),
+            "public": sum(1 for row in rows if row["visibility"] == "public"),
+            "recovered": recovered,
+        }
+    return items
 
 def upload_log_to_dict(
     log: UploadLogModel,

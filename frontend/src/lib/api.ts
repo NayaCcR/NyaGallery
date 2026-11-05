@@ -66,6 +66,8 @@ import type { ApiTokenSummary,
   EntitySummary,
   EntityTimelineResponse,
   TranscodeJobResponse,
+  BulkTranscodeRetryResponse,
+  BulkVisibilityResponse,
   TranscodeJob,
   UploadHistoryResponse,
   UploadLogResponse,
@@ -264,6 +266,10 @@ export const NyaApi = {
     api<AssetApiExamplesResponse>(`/api/assets/${encodeURIComponent(assetKey)}/api-examples`),
   assetVisibility: (assetKey: string) => api<{ visibility: "public" | "private" }>(`/api/assets/${encodeURIComponent(assetKey)}/visibility`),
   updateAssetVisibility: (assetKey: string, visibility: "public" | "private") => api<{ visibility: "public" | "private" }>(`/api/assets/${encodeURIComponent(assetKey)}/visibility`, { method: "PUT", body: { visibility } }),
+  bulkAssetVisibility: (assetKeys: string[], visibility: "public" | "private") =>
+    api<BulkVisibilityResponse>("/api/assets/visibility/bulk", { method: "POST", body: { asset_keys: assetKeys, visibility } }),
+  bulkRetryTranscode: (assetKeys: string[], onlyFailed = true) =>
+    api<BulkTranscodeRetryResponse>("/api/transcode/retry-bulk", { method: "POST", body: { asset_keys: assetKeys, only_failed: onlyFailed } }),
   apiAddresses: () => api<ApiAddressesResponse>("/api/me/api-addresses"),
   userPreferences: () => api<{ fit_mode: "fit" | "fill"; show_sensitive: boolean; show_ai: boolean }>("/api/user-preferences"),
   updateUserPreferences: (payload: { fit_mode: "fit" | "fill"; show_sensitive: boolean; show_ai: boolean }) => api<{ fit_mode: "fit" | "fill"; show_sensitive: boolean; show_ai: boolean }>("/api/user-preferences", { method: "PUT", body: payload }),
@@ -475,12 +481,6 @@ export const NyaApi = {
 
   pixivOAuthExchange: (payload: { code?: string; callback_url?: string; code_verifier: string; state?: string }) =>
     api<PixivOAuthExchangeResponse>("/api/sync/pixiv/oauth/exchange", {
-      method: "POST",
-      body: payload,
-    }),
-
-  pixivOAuthBrowserLogin: (payload: { username: string; password: string }) =>
-    api<PixivOAuthExchangeResponse>("/api/sync/pixiv/oauth/browser-login", {
       method: "POST",
       body: payload,
     }),

@@ -479,6 +479,7 @@ export interface MisskeySyncOptions {
   request_delay_seconds?: number;
   rebuild_db?: boolean;
   generate_cache?: boolean;
+  make_public?: boolean;
   dry_run?: boolean;
 }
 
@@ -568,6 +569,7 @@ export interface XSyncOptions {
   request_delay_seconds?: number;
   rebuild_db?: boolean;
   generate_cache?: boolean;
+  make_public?: boolean;
   dry_run?: boolean;
 }
 
@@ -838,6 +840,43 @@ export interface UploadLogItem {
   cache_status?: "ready" | "partial" | "missing" | string;
   is_hidden?: boolean;
   created_at: string | null;
+  sync_assets?: SyncLogAsset[];
+  sync_assets_summary?: SyncLogAssetSummary;
+}
+
+export interface SyncLogAsset {
+  asset_key: string;
+  page_index: number | null;
+  title: string;
+  mime_type: string | null;
+  cache_status: "ready" | "partial" | "missing" | string;
+  thumb_path: string | null;
+  transcode_status: "none" | "queued" | "running" | "success" | "error" | string;
+  transcode_error: string | null;
+  visibility: "public" | "private" | string;
+}
+
+export interface SyncLogAssetSummary {
+  total: number;
+  cached: number;
+  failed: number;
+  pending: number;
+  public: number;
+  recovered: boolean;
+}
+
+export interface BulkVisibilityResponse {
+  visibility: "public" | "private";
+  updated: number;
+  skipped: number;
+  skipped_keys: string[];
+}
+
+export interface BulkTranscodeRetryResponse {
+  queued: number;
+  running: number;
+  skipped: number;
+  denied: number;
 }
 
 export interface UploadHistoryResponse {

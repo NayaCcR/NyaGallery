@@ -1,16 +1,26 @@
 "use client";
 
 import type { Dispatch, SetStateAction } from "react";
-import { AtSign, KeyRound, ListChecks, RefreshCw, Save, ShieldAlert, Trash2 } from "lucide-react";
-import { EmptyLine } from "@/components/admin/admin-fields";
-import { formatDate } from "@/components/admin/admin-format";
+import { AtSign, KeyRound, Save } from "lucide-react";
 import { MisskeyLogRow } from "@/components/admin/admin-operation-rows";
+import {
+  SavedCredentialList,
+  StorageStrategySelect,
+  SyncCard,
+  SyncFieldGroup,
+  SyncLogsSection,
+  SyncNotice,
+  SyncNumberField,
+  SyncPanelLayout,
+  SyncSubmitButton,
+  SyncSwitchGroup,
+} from "@/components/admin/admin-sync-shared";
+import type { SyncBulkAction } from "@/components/admin/admin-sync-log-list";
 import { useI18n } from "@/components/providers/locale-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SwitchLabel } from "@/components/ui/switch-label";
-import { cn } from "@/lib/utils";
 import type { AdminPollingMode } from "@/hooks/admin/use-admin-operations";
 import type { MisskeyConfigResponse, MisskeyTokenSummary, UploadLogItem } from "@/lib/types";
 
@@ -43,6 +53,8 @@ type AdminMisskeyPanelProps = {
   onRebuildDbChange: (value: boolean) => void;
   generateCache: boolean;
   onGenerateCacheChange: (value: boolean) => void;
+  makePublic: boolean;
+  onMakePublicChange: (value: boolean) => void;
   dryRun: boolean;
   onDryRunChange: (value: boolean) => void;
   tokenDraft: string;
@@ -62,173 +74,94 @@ type AdminMisskeyPanelProps = {
   pollingMode: AdminPollingMode;
   lastUpdatedAt: string | null;
   onRefreshLogs: () => unknown;
+  onBulkAction: (action: SyncBulkAction, assetKeys: string[]) => unknown;
   onRetryMisskey: (target: string) => unknown;
 };
 
 export function AdminMisskeyPanel(props: AdminMisskeyPanelProps) {
   const { t } = useI18n();
-  const {
-    busy,
-    config,
-    target,
-    onTargetChange,
-    savedTokens,
-    savedTokenId,
-    onSavedTokenIdChange,
-    logs,
-    pollingMode,
-    lastUpdatedAt,
-    onRefreshLogs,
-    onRetryMisskey,
-    onSync,
-    dryRun,
-  } = props;
-  const activeTokens = savedTokens.filter((token) => token.is_active);
+  const { busy, config, target, onTargetChange, savedTokens, savedTokenId, onSavedTokenIdChange, logs, dryRun } = props;
   const hasCredential = Boolean(savedTokenId || props.tokenDraft.trim() || config?.token_configured);
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
-      <section className="space-y-4 rounded-lg border border-border bg-card p-5 shadow-sm">
-        <div>
-          <h2 className="flex items-center gap-2 text-sm font-medium">
-            <AtSign className="h-4 w-4" /> {t("admin.misskey.syncTitle")}
-          </h2>
-          <p className="mt-1 text-xs text-muted-foreground">{t("admin.misskey.syncDescription")}</p>
-        </div>
+    <SyncPanelLayout
+      main={
+        <SyncCard icon={AtSign} title={t("admin.misskey.syncTitle")} description={t("admin.misskey.syncDescription")}>
+          <SyncFieldGroup>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>{t("admin.misskey.username")}</Label>
+                <Input value={target} placeholder="noa" onChange={(event) => onTargetChange(event.target.value)} />
+                <p className="text-[11px] text-muted-foreground">{t("admin.misskey.usernameHint")}</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label>{t("admin.misskey.host")}</Label>
+                <Input value={props.host} placeholder={config?.host || "misskey.io"} onChange={(event) => props.onHostChange(event.target.value)} />
+                <p className="text-[11px] text-muted-foreground">{t("admin.misskey.hostHint")}</p>
+              </div>
+            </div>
+          </SyncFieldGroup>
 
-        <div className="grid gap-3 md:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label>{t("admin.misskey.username")}</Label>
-            <Input
-              value={target}
-              placeholder="noa"
-              onChange={(event) => onTargetChange(event.target.value)}
-            />
-            <p className="text-[11px] text-muted-foreground">{t("admin.misskey.usernameHint")}</p>
-          </div>
-          <div className="space-y-1.5">
-            <Label>{t("admin.misskey.host")}</Label>
-            <Input
-              value={props.host}
-              placeholder={config?.host || "misskey.io"}
-              onChange={(event) => props.onHostChange(event.target.value)}
-            />
-            <p className="text-[11px] text-muted-foreground">{t("admin.misskey.hostHint")}</p>
-          </div>
-        </div>
+          <SyncFieldGroup>
+            <div className="grid gap-3 md:grid-cols-3">
+              <SyncNumberField label={t("admin.misskey.limit")} value={props.limit} min={1} allowEmpty onChange={props.onLimitChange} hint={t("admin.misskey.limitHint")} />
+              <SyncNumberField label={t("admin.misskey.pageSize")} value={props.pageSize} min={1} max={100} onChange={(value) => props.onPageSizeChange(typeof value === "number" ? value : 100)} hint={t("admin.misskey.pageSizeHint")} />
+              <SyncNumberField label={t("admin.misskey.maxPages")} value={props.maxPages} min={1} allowEmpty onChange={props.onMaxPagesChange} hint={t("admin.misskey.maxPagesHint")} />
+              <SyncNumberField label={t("admin.misskey.delay")} value={props.delay} min={0} step={0.5} suffix="s" onChange={(value) => props.onDelayChange(typeof value === "number" ? value : 1)} />
+              <SyncNumberField label={t("admin.misskey.downloadConcurrency")} value={props.downloadConcurrency} min={1} max={16} onChange={(value) => props.onDownloadConcurrencyChange(typeof value === "number" ? value : 5)} />
+              <StorageStrategySelect label={t("admin.misskey.storageStrategy")} value={props.storageStrategy} strategies={config?.storage_strategies} onChange={props.onStorageStrategyChange} />
+            </div>
+          </SyncFieldGroup>
 
-        <div className="grid gap-3 md:grid-cols-3">
-          <NumberField
-            label={t("admin.misskey.limit")}
-            value={props.limit}
-            min={1}
-            allowEmpty
-            onChange={props.onLimitChange}
-            hint={t("admin.misskey.limitHint")}
+          <SyncSwitchGroup>
+            <SwitchLabel label={t("admin.misskey.downloadMedia")} checked={props.downloadMedia} onChange={props.onDownloadMediaChange} />
+            <SwitchLabel label={t("admin.misskey.includeReplies")} checked={props.includeReplies} onChange={props.onIncludeRepliesChange} />
+            <SwitchLabel label={t("admin.misskey.backfill")} checked={props.backfill} onChange={props.onBackfillChange} />
+            <SwitchLabel label={t("admin.misskey.rebuildDb")} checked={props.rebuildDb} onChange={props.onRebuildDbChange} />
+            <SwitchLabel label={t("admin.misskey.generateCache")} checked={props.generateCache} onChange={props.onGenerateCacheChange} />
+            <SwitchLabel label={t("admin.misskey.makePublic")} checked={props.makePublic} onChange={props.onMakePublicChange} />
+            <SwitchLabel label={t("admin.misskey.dryRun")} checked={dryRun} onChange={props.onDryRunChange} />
+          </SyncSwitchGroup>
+
+          {!hasCredential && <SyncNotice>{t("admin.misskey.tokenMissing")}</SyncNotice>}
+
+          <SyncSubmitButton
+            busy={busy === "misskey"}
+            disabled={!target.trim() || !hasCredential}
+            dryRun={dryRun}
+            label={t("admin.misskey.startSync")}
+            dryRunLabel={t("admin.misskey.startDryRun")}
+            onClick={props.onSync}
           />
-          <NumberField
-            label={t("admin.misskey.pageSize")}
-            value={props.pageSize}
-            min={1}
-            max={100}
-            onChange={(value) => props.onPageSizeChange(typeof value === "number" ? value : 100)}
-            hint={t("admin.misskey.pageSizeHint")}
+          <p className="text-[11px] leading-5 text-muted-foreground">{t("admin.misskey.note")}</p>
+        </SyncCard>
+      }
+      side={
+        <SyncCard icon={KeyRound} title={t("admin.misskey.tokensTitle")} description={t("admin.misskey.tokensDescription")}>
+          <SavedCredentialList
+            ns="admin.misskey"
+            selectLabel={t("admin.misskey.useSavedToken")}
+            noneLabel={t("admin.misskey.noSavedToken")}
+            emptyLabel={t("admin.misskey.emptyTokens")}
+            labelPlaceholder={t("admin.misskey.tokenLabel")}
+            busyPrefix={{ label: "misskey-token-label-", revoke: "misskey-token-revoke-" }}
+            busy={busy}
+            items={savedTokens.map((token) => ({
+              id: token.id,
+              title: tokenTitle(token),
+              meta: token.host,
+              isActive: token.is_active,
+              label: token.label,
+              lastUsedAt: token.last_used_at,
+            }))}
+            selectedId={savedTokenId}
+            onSelect={onSavedTokenIdChange}
+            labelDrafts={props.tokenLabelDrafts}
+            onLabelDraftChange={(id, value) => props.onTokenLabelDraftsChange((current) => ({ ...current, [id]: value }))}
+            onUpdateLabel={props.onUpdateTokenLabel}
+            onRevoke={props.onRevokeToken}
           />
-          <NumberField
-            label={t("admin.misskey.maxPages")}
-            value={props.maxPages}
-            min={1}
-            allowEmpty
-            onChange={props.onMaxPagesChange}
-            hint={t("admin.misskey.maxPagesHint")}
-          />
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-3">
-          <NumberField
-            label={t("admin.misskey.delay")}
-            value={props.delay}
-            min={0}
-            step={0.5}
-            onChange={(value) => props.onDelayChange(typeof value === "number" ? value : 1)}
-          />
-          <NumberField
-            label={t("admin.misskey.downloadConcurrency")}
-            value={props.downloadConcurrency}
-            min={1}
-            max={16}
-            onChange={(value) => props.onDownloadConcurrencyChange(typeof value === "number" ? value : 5)}
-          />
-          <div className="space-y-1.5">
-            <Label>{t("admin.misskey.storageStrategy")}</Label>
-            <select
-              className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-ring"
-              value={props.storageStrategy}
-              onChange={(event) => props.onStorageStrategyChange(event.target.value)}
-            >
-              {(config?.storage_strategies ?? []).map((strategy) => (
-                <option key={strategy.name} value={strategy.name}>
-                  {strategy.name}
-                  {strategy.is_default ? ` (${t("common.defaultOption")})` : ""}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap gap-x-4 gap-y-2 rounded-md border border-border bg-muted/35 p-3">
-          <SwitchLabel label={t("admin.misskey.downloadMedia")} checked={props.downloadMedia} onChange={props.onDownloadMediaChange} />
-          <SwitchLabel label={t("admin.misskey.includeReplies")} checked={props.includeReplies} onChange={props.onIncludeRepliesChange} />
-          <SwitchLabel label={t("admin.misskey.backfill")} checked={props.backfill} onChange={props.onBackfillChange} />
-          <SwitchLabel label={t("admin.misskey.rebuildDb")} checked={props.rebuildDb} onChange={props.onRebuildDbChange} />
-          <SwitchLabel label={t("admin.misskey.generateCache")} checked={props.generateCache} onChange={props.onGenerateCacheChange} />
-          <SwitchLabel label={t("admin.misskey.dryRun")} checked={dryRun} onChange={props.onDryRunChange} />
-        </div>
-
-        {!hasCredential && (
-          <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] leading-5 text-muted-foreground">
-            <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-            <span>{t("admin.misskey.tokenMissing")}</span>
-          </div>
-        )}
-
-        <Button
-          disabled={busy === "misskey" || !target.trim() || !hasCredential}
-          onClick={onSync}
-          className="w-full"
-        >
-          <RefreshCw className="h-4 w-4" /> {dryRun ? t("admin.misskey.startDryRun") : t("admin.misskey.startSync")}
-        </Button>
-
-        <p className="text-[11px] leading-5 text-muted-foreground">{t("admin.misskey.note")}</p>
-      </section>
-
-      <aside className="space-y-6">
-        <section className="space-y-3 rounded-lg border border-border bg-card p-5 shadow-sm">
-          <div>
-            <h2 className="flex items-center gap-2 text-sm font-medium">
-              <KeyRound className="h-4 w-4" /> {t("admin.misskey.tokensTitle")}
-            </h2>
-            <p className="mt-1 text-xs text-muted-foreground">{t("admin.misskey.tokensDescription")}</p>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>{t("admin.misskey.useSavedToken")}</Label>
-            <select
-              className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-ring"
-              value={savedTokenId ? String(savedTokenId) : ""}
-              onChange={(event) => onSavedTokenIdChange(event.target.value ? Number(event.target.value) : null)}
-            >
-              <option value="">{t("admin.misskey.noSavedToken")}</option>
-              {activeTokens.map((token) => (
-                <option key={token.id} value={String(token.id)}>
-                  {tokenTitle(token)}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="space-y-1.5">
+          <div className="space-y-1.5 border-t border-border pt-3">
             <Label>{t("admin.misskey.newToken")}</Label>
             <Input
               type="password"
@@ -236,146 +169,27 @@ export function AdminMisskeyPanel(props: AdminMisskeyPanelProps) {
               placeholder={config?.token_configured ? t("admin.misskey.tokenFromConfig") : ""}
               onChange={(event) => props.onTokenDraftChange(event.target.value)}
             />
-            <Input
-              value={props.tokenLabel}
-              placeholder={t("admin.misskey.tokenLabel")}
-              onChange={(event) => props.onTokenLabelChange(event.target.value)}
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={busy === "misskey-token-save" || !props.tokenDraft.trim()}
-              onClick={props.onSaveToken}
-              className="w-full"
-            >
+            <Input value={props.tokenLabel} placeholder={t("admin.misskey.tokenLabel")} onChange={(event) => props.onTokenLabelChange(event.target.value)} />
+            <Button variant="outline" size="sm" disabled={busy === "misskey-token-save" || !props.tokenDraft.trim()} onClick={props.onSaveToken} className="w-full">
               <Save className="h-4 w-4" /> {t("admin.misskey.saveToken")}
             </Button>
           </div>
-
-          <div className="space-y-2">
-            {savedTokens.length === 0 && <EmptyLine text={t("admin.misskey.emptyTokens")} />}
-            {savedTokens.map((token) => (
-              <div
-                key={token.id}
-                className={cn(
-                  "space-y-2 rounded-md border border-border p-3 text-xs",
-                  !token.is_active && "opacity-60"
-                )}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="min-w-0 truncate font-medium" title={tokenTitle(token)}>
-                    {tokenTitle(token)}
-                  </span>
-                  <span className="shrink-0 text-[11px] text-muted-foreground">
-                    {token.is_active ? token.host : t("admin.misskey.revoked")}
-                  </span>
-                </div>
-                <div className="text-[11px] text-muted-foreground">
-                  {token.last_used_at
-                    ? t("admin.misskey.lastUsed", { at: formatDate(token.last_used_at) })
-                    : t("admin.misskey.neverUsed")}
-                </div>
-                {token.is_active && (
-                  <div className="flex gap-2">
-                    <Input
-                      value={props.tokenLabelDrafts[token.id] ?? token.label}
-                      placeholder={t("admin.misskey.tokenLabel")}
-                      onChange={(event) =>
-                        props.onTokenLabelDraftsChange((current) => ({ ...current, [token.id]: event.target.value }))
-                      }
-                    />
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={busy === `misskey-token-label-${token.id}`}
-                      onClick={() => props.onUpdateTokenLabel(token.id)}
-                    >
-                      <Save className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={busy === `misskey-token-revoke-${token.id}`}
-                      onClick={() => props.onRevokeToken(token.id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="space-y-3 rounded-lg border border-border bg-card p-5 shadow-sm">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <h2 className="flex items-center gap-2 text-sm font-medium">
-                <ListChecks className="h-4 w-4" /> {t("admin.misskey.logsTitle")}
-              </h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {pollingMode === "active" && t("admin.misskey.pollingActive")}
-                {pollingMode === "idle" && t("admin.misskey.pollingIdle")}
-                {pollingMode === "paused" && t("admin.misskey.pollingPaused")}
-                {lastUpdatedAt && ` · ${formatDate(lastUpdatedAt)}`}
-              </p>
-            </div>
-            <Button variant="outline" size="sm" disabled={busy === "misskey-log-refresh"} onClick={onRefreshLogs}>
-              <RefreshCw className="h-4 w-4" />
-            </Button>
-          </div>
-          <div className="max-h-[520px] space-y-2 overflow-auto">
-            {logs.map((log) => <MisskeyLogRow key={log.id} log={log} onRetry={onRetryMisskey} />)}
-            {logs.length === 0 && <EmptyLine text={t("admin.misskey.emptyLogs")} />}
-          </div>
-        </section>
-      </aside>
-    </div>
-  );
-}
-
-function NumberField({
-  label,
-  value,
-  onChange,
-  min,
-  max,
-  step,
-  allowEmpty = false,
-  hint,
-}: {
-  label: string;
-  value: number | "";
-  onChange: (value: number | "") => void;
-  min?: number;
-  max?: number;
-  step?: number;
-  allowEmpty?: boolean;
-  hint?: string;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <Label>{label}</Label>
-      <Input
-        type="number"
-        min={min}
-        max={max}
-        step={step}
-        value={value === "" ? "" : String(value)}
-        onChange={(event) => {
-          const raw = event.target.value;
-          if (raw === "" && allowEmpty) {
-            onChange("");
-            return;
-          }
-          const parsed = Number(raw);
-          if (!Number.isFinite(parsed)) return;
-          const bounded = Math.min(max ?? Number.MAX_SAFE_INTEGER, Math.max(min ?? 0, parsed));
-          onChange(bounded);
-        }}
-      />
-      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
-    </div>
+        </SyncCard>
+      }
+      logs={
+        <SyncLogsSection
+          ns="admin.misskey"
+          logs={logs}
+          pollingMode={props.pollingMode}
+          lastUpdatedAt={props.lastUpdatedAt}
+          refreshing={busy === "misskey-log-refresh"}
+          onRefresh={props.onRefreshLogs}
+          bulkBusy={busy === "sync-bulk"}
+          onBulkAction={props.onBulkAction}
+          renderRow={(log) => <MisskeyLogRow log={log} onRetry={props.onRetryMisskey} />}
+        />
+      }
+    />
   );
 }
 

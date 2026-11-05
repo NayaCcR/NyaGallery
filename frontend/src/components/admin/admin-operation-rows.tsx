@@ -34,16 +34,30 @@ import {
   statusClass,
 } from "./admin-format";
 
-export function TranscodeJobRow({ job }: { job: TranscodeJob }) {
+export function TranscodeJobRow({
+  job,
+  selected,
+  busy = false,
+  onToggle,
+  onRetry,
+}: {
+  job: TranscodeJob;
+  selected: boolean;
+  busy?: boolean;
+  onToggle: () => void;
+  onRetry: () => void;
+}) {
   const { t } = useI18n();
+  const status = terminalStatus(job);
+  const isError = status === "error";
   const progress = Math.max(0, Math.min(100, job.progress || 0));
-  const terminal = terminalStatus(job) === "success" || terminalStatus(job) === "error";
+  const terminal = status === "success" || isError;
   const finishedAt = terminal ? job.finished_at || job.updated_at : undefined;
   const elapsed = elapsedSecondsBetween(job.started_at, finishedAt);
   const stageElapsed = elapsedSecondsBetween(job.stage_started_at || job.updated_at, finishedAt);
   const eta = estimateRemainingSeconds(job);
   const etaText = terminal
-    ? terminalStatus(job) === "error"
+    ? isError
       ? t("admin.transcode.etaError")
       : t("admin.transcode.etaComplete")
     : eta == null
@@ -51,14 +65,38 @@ export function TranscodeJobRow({ job }: { job: TranscodeJob }) {
       : formatDuration(eta);
 
   return (
-    <div className="rounded-lg border border-border p-3 text-xs">
+    <div
+      className={cn(
+        "rounded-lg border border-border p-3 text-xs transition-colors",
+        isError && "border-destructive/25",
+        selected && "border-primary/50 bg-primary/5 ring-1 ring-primary/20"
+      )}
+    >
       <div className="mb-2 flex items-center justify-between gap-2">
-        <Link href={`/asset/${encodeURIComponent(job.asset_key)}`} className="min-w-0 truncate font-mono hover:underline">
-          {job.asset_key}
-        </Link>
-        <span className={cn("shrink-0 rounded-full px-2 py-0.5 font-medium", statusPillClass(terminalStatus(job)))}>
-          {statusLabel(terminalStatus(job), t)}
-        </span>
+        <div className="flex min-w-0 items-center gap-2">
+          {isError && (
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={onToggle}
+              aria-label={t("admin.ops.selectTranscodeJob", { assetKey: job.asset_key })}
+              className="h-4 w-4 shrink-0 cursor-pointer rounded border-border accent-primary"
+            />
+          )}
+          <Link href={`/asset/${encodeURIComponent(job.asset_key)}`} className="min-w-0 truncate font-mono hover:underline" title={job.asset_key}>
+            {job.asset_key}
+          </Link>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {isError && (
+            <Button type="button" size="sm" variant="outline" className="h-6 gap-1 px-2 text-[11px]" disabled={busy} onClick={onRetry}>
+              <RotateCcw className={cn("h-3 w-3", busy && "animate-spin")} /> {t("admin.ops.retry")}
+            </Button>
+          )}
+          <span className={cn("shrink-0 rounded-full px-2 py-0.5 font-medium", statusPillClass(status))}>
+            {statusLabel(status, t)}
+          </span>
+        </div>
       </div>
       <div className="mb-2 h-2 overflow-hidden rounded-full bg-muted">
         <div
@@ -248,7 +286,7 @@ export function PixivLogRow({ log, onRetry }: { log: UploadLogItem; onRetry?: (t
         {queued !== null && <span>{t("admin.pixivStats.transcode", { count: queued })}</span>}
         {retryAfter !== null && <span className="text-amber-600 dark:text-amber-400">{t("admin.pixivStats.rateLimited", { seconds: retryAfter })}</span>}
         {title && <span className="max-w-full truncate" title={title}>{title}</span>}
-        {assetKey && <span className="font-mono">{assetKey}</span>}
+        {assetKey && (log.sync_assets?.length ?? 0) === 0 && <span className="font-mono">{assetKey}</span>}
         <span>{localizedPixivMessage(log.message, t)}</span>
       </div>
       {error && <div className="mt-2 break-words text-destructive">{error}</div>}

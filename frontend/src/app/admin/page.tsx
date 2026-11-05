@@ -30,12 +30,12 @@ import { AdminXPanel } from "@/components/admin/admin-x-panel";
 import { AdminFanboxPanel } from "@/components/admin/admin-fanbox-panel";
 import { AdminOperationsPanel } from "@/components/admin/admin-operations-panel";
 import { AdminPixivPanel } from "@/components/admin/admin-pixiv-panel";
+import type { SyncBulkAction } from "@/components/admin/admin-sync-log-list";
 import { AdminSecurityPanel } from "@/components/admin/admin-security-panel";
 import { AdminRegistrationPanel } from "@/components/admin/admin-registration-panel";
 import { AdminTagsPanel } from "@/components/admin/admin-tags-panel";
 import { AdminAccessPanel } from "@/components/admin/admin-access-panel";
 import { AdminMigrationPanel } from "@/components/admin/admin-migration-panel";
-import { AdminNotificationsPanel } from "@/components/admin/admin-notifications-panel";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useI18n } from "@/components/providers/locale-provider";
 import { useToast } from "@/components/providers/toast-provider";
@@ -132,6 +132,8 @@ export default function AdminPage() {
     setPixivDryRun,
     pixivPublicFirst,
     setPixivPublicFirst,
+    pixivMakePublic,
+    setPixivMakePublic,
     pixivDelay,
     setPixivDelay,
     pixivMaxRetries,
@@ -180,8 +182,6 @@ export default function AdminPage() {
     username: me?.username ?? "",
   });
   const {
-    pixivLoginDraft,
-    setPixivLoginDraft,
     pixivVisibleSession,
     pixivOAuthCallback,
     setPixivOAuthCallback,
@@ -191,11 +191,9 @@ export default function AdminPage() {
     pixivOAuthOpenInputUrl,
     pixivOAuthStartUrl,
     pixivOAuthHintText,
-    pixivBrowserLoginDisabledReason,
     pixivVisibleLoginDisabledReason,
     startPixivOAuth,
     exchangePixivOAuth,
-    loginPixivInBrowser,
     startVisiblePixivLogin,
   } = useAdminPixivOAuth({
     busy,
@@ -450,6 +448,52 @@ export default function AdminPage() {
     await refreshOperations(false);
   }
 
+  /** Bulk visibility / transcode-retry for assets of selected sync logs; refreshes that platform's log feed once. */
+  async function syncBulkAction(action: SyncBulkAction, assetKeys: string[], refresh: (showError?: boolean) => Promise<unknown>) {
+    if (assetKeys.length === 0) return;
+    if (action === "retry") {
+      await run(
+        "sync-bulk",
+        () => NyaApi.bulkRetryTranscode(assetKeys),
+        (result) => t("admin.syncLogs.retryDone", { queued: result.queued, running: result.running, skipped: result.skipped + result.denied })
+      );
+    } else {
+      await run(
+        "sync-bulk",
+        () => NyaApi.bulkAssetVisibility(assetKeys, action),
+        (result) =>
+          t(action === "public" ? "admin.syncLogs.publicDone" : "admin.syncLogs.privateDone", { updated: result.updated, skipped: result.skipped })
+      );
+    }
+    await refresh(false);
+  }
+
+  async function retryTranscodeBatch(assetKeys: string[]) {
+    const unique = Array.from(new Set(assetKeys));
+    if (unique.length === 0) return;
+    await run(
+      "transcode-batch",
+      async () => {
+        const counts = { queued: 0, running: 0, failed: 0 };
+        let firstError: unknown = null;
+        for (const assetKey of unique) {
+          try {
+            const result = await NyaApi.startTranscode(assetKey);
+            if (result.status === "already_running") counts.running += 1;
+            else counts.queued += 1;
+          } catch (err) {
+            counts.failed += 1;
+            firstError ??= err;
+          }
+        }
+        if (counts.failed === unique.length && firstError) throw firstError;
+        return counts;
+      },
+      (counts) => t("admin.page.transcodeBatchDone", counts)
+    );
+    await refreshOperations(false);
+  }
+
   async function cancelAllTranscode() {
     if (!window.confirm(t("admin.page.cancelAllTranscodeConfirm"))) return;
     await run(
@@ -493,6 +537,7 @@ export default function AdminPage() {
       pixiv_cookie_id: auth_mode === "cookie" ? pixivSavedCookieId || undefined : undefined,
       storage_strategy: pixivStorageStrategy,
       public_first: pixivPublicFirst,
+      make_public: pixivMakePublic,
       rebuild_db: pixivRebuildDb,
       generate_cache: pixivGenerateCache,
       limit: kind !== "pid" ? pixivLimit : undefined,
@@ -667,13 +712,9 @@ export default function AdminPage() {
             pixivConfig={pixivConfig}
             pixivAuthMode={pixivAuthMode}
             onPixivAuthModeChange={setPixivAuthMode}
-            pixivLoginDraft={pixivLoginDraft}
-            onPixivLoginDraftChange={setPixivLoginDraft}
             pixivVisibleSession={pixivVisibleSession}
             pixivVisibleLoginDisabledReason={pixivVisibleLoginDisabledReason}
-            pixivBrowserLoginDisabledReason={pixivBrowserLoginDisabledReason}
             onStartVisiblePixivLogin={startVisiblePixivLogin}
-            onLoginPixivInBrowser={loginPixivInBrowser}
             pixivRefreshToken={pixivRefreshToken}
             onPixivRefreshTokenChange={setPixivRefreshToken}
             pixivSavedTokenId={pixivSavedTokenId}
@@ -732,6 +773,8 @@ export default function AdminPage() {
             onPixivDryRunChange={setPixivDryRun}
             pixivPublicFirst={pixivPublicFirst}
             onPixivPublicFirstChange={setPixivPublicFirst}
+            pixivMakePublic={pixivMakePublic}
+            onPixivMakePublicChange={setPixivMakePublic}
             pixivDelay={pixivDelay}
             onPixivDelayChange={setPixivDelay}
             pixivConcurrency={pixivConcurrency}
@@ -749,6 +792,7 @@ export default function AdminPage() {
             pixivPollingMode={pixivPollingMode}
             pixivLastUpdatedAt={pixivLastUpdatedAt}
             onRefreshPixivLogs={() => run("pixiv-log-refresh", () => refreshPixivLogs(), () => t("admin.page.pixivLogsRefreshed"))}
+            onSyncBulkAction={(action, keys) => syncBulkAction(action, keys, refreshPixivLogs)}
             pixivTargetResults={pixivTargetResults}
             onRetryPixiv={(target, kind) => syncPixiv(target, kind)}
           />
@@ -784,6 +828,8 @@ export default function AdminPage() {
             onRebuildDbChange={misskey.setRebuildDb}
             generateCache={misskey.generateCache}
             onGenerateCacheChange={misskey.setGenerateCache}
+            makePublic={misskey.makePublic}
+            onMakePublicChange={misskey.setMakePublic}
             dryRun={misskey.dryRun}
             onDryRunChange={misskey.setDryRun}
             tokenDraft={misskey.tokenDraft}
@@ -803,6 +849,7 @@ export default function AdminPage() {
             pollingMode={misskeyPollingMode}
             lastUpdatedAt={misskeyLastUpdatedAt}
             onRefreshLogs={() => run("misskey-log-refresh", () => refreshMisskeyLogs(), () => t("admin.misskey.logsRefreshed"))}
+            onBulkAction={(action, keys) => syncBulkAction(action, keys, refreshMisskeyLogs)}
             onRetryMisskey={(target) => syncMisskey(target)}
           />
         )}
@@ -841,6 +888,8 @@ export default function AdminPage() {
             onRebuildDbChange={x.setRebuildDb}
             generateCache={x.generateCache}
             onGenerateCacheChange={x.setGenerateCache}
+            makePublic={x.makePublic}
+            onMakePublicChange={x.setMakePublic}
             dryRun={x.dryRun}
             onDryRunChange={x.setDryRun}
             tokenDraft={x.tokenDraft}
@@ -863,6 +912,7 @@ export default function AdminPage() {
             pollingMode={xPollingMode}
             lastUpdatedAt={xLastUpdatedAt}
             onRefreshLogs={() => run("x-log-refresh", () => refreshXLogs(), () => t("admin.x.logsRefreshed"))}
+            onBulkAction={(action, keys) => syncBulkAction(action, keys, refreshXLogs)}
           />
         )}
 
@@ -921,11 +971,11 @@ export default function AdminPage() {
             pollingMode={fanboxPollingMode}
             lastUpdatedAt={fanboxLastUpdatedAt}
             onRefreshLogs={() => run("fanbox-log-refresh", () => refreshFanboxLogs(), () => t("admin.fanbox.logsRefreshed"))}
+            onBulkAction={(action, keys) => syncBulkAction(action, keys, refreshFanboxLogs)}
           />
         )}
 
         <main className="space-y-6">
-        <AdminNotificationsPanel />
         {activeSection === "operations" && (
           <AdminOperationsPanel
             isAdmin={isAdmin}
@@ -938,6 +988,7 @@ export default function AdminPage() {
             uploadLogs={uploadLogs}
             onRefresh={() => run("ops-refresh", () => refreshOperations(), () => t("admin.page.opsRefreshed"))}
             onStartTranscode={startTranscode}
+            onRetryTranscodeBatch={retryTranscodeBatch}
             onCancelAllTranscode={cancelAllTranscode}
           />
         )}

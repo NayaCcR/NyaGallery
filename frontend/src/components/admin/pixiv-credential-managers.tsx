@@ -57,7 +57,7 @@ export function PixivTokenManager({
           ))}
         </select>
       </div>
-      <div className="grid gap-2 sm:grid-cols-[1fr_auto] xl:grid-cols-1">
+      <div className="grid gap-2 sm:grid-cols-[1fr_auto] lg:grid-cols-1">
         <Input
           value={label}
           onChange={(event) => onLabelChange(event.target.value)}
@@ -98,7 +98,7 @@ export function PixivTokenManager({
                   {token.is_active ? t("admin.tokens.active") : t("admin.tokens.revoked")}
                 </span>
               </div>
-              <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto_auto] xl:grid-cols-1">
+              <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto_auto] lg:grid-cols-1">
                 <Input
                   className="h-8 text-xs"
                   value={drafts[token.id] ?? token.label ?? ""}
@@ -185,7 +185,7 @@ export function PixivCookieManager({
           ))}
         </select>
       </div>
-      <div className="grid gap-2 sm:grid-cols-[1fr_auto] xl:grid-cols-1">
+      <div className="grid gap-2 sm:grid-cols-[1fr_auto] lg:grid-cols-1">
         <Input
           value={label}
           onChange={(event) => onLabelChange(event.target.value)}
@@ -226,7 +226,7 @@ export function PixivCookieManager({
                   {cookie.is_active ? t("admin.tokens.active") : t("admin.tokens.revoked")}
                 </span>
               </div>
-              <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto_auto] xl:grid-cols-1">
+              <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto_auto] lg:grid-cols-1">
                 <Input
                   className="h-8 text-xs"
                   value={drafts[cookie.id] ?? cookie.label ?? ""}

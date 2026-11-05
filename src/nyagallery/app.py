@@ -155,6 +155,7 @@ from nyagallery.db import (
     now_utc,
     post_source_counts,
     post_to_dict,
+    _prune_access_logs,
     posts_attachment_asset_map,
     purge_pending_asset,
     random_asset,
@@ -195,6 +196,8 @@ from nyagallery.db import (
     update_security_settings,
     update_transcode_job,
     upload_log_to_dict,
+    attach_sync_log_assets,
+    latest_transcode_jobs_for_assets,
 )
 from nyagallery.metadata import GalleryMetadata, make_asset_key, normalize_timestamp, parse_pixiv_filename, utc_now_iso
 from nyagallery.media import MediaGenerator, is_animated_raster, media_limits_from_config, probe_media_size
@@ -427,6 +430,7 @@ class PixivSyncRequest(BaseModel):
     proxy_url: str | None = None
     storage_strategy: str | None = None
     public_first: bool = True
+    make_public: bool = True
     rebuild_db: bool = True
     generate_cache: bool = False
     limit: int | None = Field(default=None, ge=1, le=500)
@@ -508,6 +512,7 @@ class XTokenUpdate(BaseModel):
 
 
 class XSyncRequest(BaseModel):
+    make_public: bool = True
     name_media_by_post_id: bool | None = None
     auth_token: str | None = None
     ct0: str | None = None
@@ -533,6 +538,7 @@ class XSyncRequest(BaseModel):
 
 
 class MisskeySyncRequest(BaseModel):
+    make_public: bool = True
     name_media_by_post_id: bool | None = None
     token: str | None = None
     misskey_token_id: int | None = None
@@ -560,7 +566,8 @@ class RemoteUploadRequest(BaseModel):
     title: str = Field(default="", max_length=500)
     artist_name: str = Field(default="", max_length=200)
     canonical_tags: list[str] = Field(default_factory=list, max_length=200)
-    generate_cache: bool = False
+    generate_cache: bool = True
+    visibility: str = Field(default="public", pattern="^(public|private)$")
     storage_strategy: str | None = Field(default=None, max_length=100)
 
 
@@ -726,6 +733,16 @@ class EntityLinkRequest(BaseModel):
 
 class AssetVisibilityUpdate(BaseModel):
     visibility: str = Field(pattern="^(public|private)$")
+
+
+class BulkAssetVisibilityUpdate(BaseModel):
+    asset_keys: list[str] = Field(min_length=1, max_length=2000)
+    visibility: str = Field(pattern="^(public|private)$")
+
+
+class BulkTranscodeRetryRequest(BaseModel):
+    asset_keys: list[str] = Field(min_length=1, max_length=2000)
+    only_failed: bool = True
 
 
 class NotificationReadRequest(BaseModel):
@@ -1577,6 +1594,29 @@ def create_app(
         db.commit()
         return {"visibility": row.visibility}
 
+    @app.post("/api/assets/visibility/bulk")
+    def api_bulk_update_asset_visibility(payload: BulkAssetVisibilityUpdate, db: DbSession, principal: EditTagsPrincipal) -> dict[str, object]:
+        updated = 0
+        skipped: list[str] = []
+        keys = list(dict.fromkeys(key for key in payload.asset_keys if key))
+        assets = {asset.asset_key: asset for asset in db.scalars(select(AssetModel).where(AssetModel.asset_key.in_(keys)))}
+        for key in keys:
+            asset = assets.get(key)
+            if asset is None or not _principal_owns_asset(asset, principal):
+                skipped.append(key)
+                continue
+            owner_id = asset.uploader_user_id or principal.user_id
+            if owner_id is None:
+                skipped.append(key)
+                continue
+            if asset.uploader_user_id is None and principal.user_id == owner_id:
+                asset.uploader_user_id = owner_id
+                asset.uploader_username = principal.username
+            upsert_user_asset(db, user_id=owner_id, asset_key=asset.asset_key, visibility=payload.visibility)
+            updated += 1
+        db.commit()
+        return {"visibility": payload.visibility, "updated": updated, "skipped": len(skipped), "skipped_keys": skipped[:50]}
+
     @app.get("/api/assets/{asset_key}/likes")
     def api_asset_likes(asset_key: str, db: DbSession, principal: ViewPrincipal) -> dict[str, object]:
         asset = _get_asset(db, asset_key)
@@ -2403,7 +2443,12 @@ def create_app(
             )
         } if logs else {}
         return {
-            "items": [upload_log_to_dict(log, storage=storage, asset=assets.get(log.asset_key or "")) for log in logs],
+            "items": attach_sync_log_assets(
+                db,
+                storage,
+                logs,
+                [upload_log_to_dict(log, storage=storage, asset=assets.get(log.asset_key or "")) for log in logs],
+            ),
             "limit": limit,
             "offset": offset,
         }
@@ -2444,6 +2489,55 @@ def create_app(
             job.updated_at = now
         db.commit()
         return {"cancelled": count}
+
+    @app.post("/api/transcode/retry-bulk")
+    def api_bulk_retry_transcode(
+        payload: BulkTranscodeRetryRequest,
+        background_tasks: BackgroundTasks,
+        db: DbSession,
+        principal: ApiPrincipal,
+    ) -> dict[str, object]:
+        keys = list(dict.fromkeys(key for key in payload.asset_keys if key))
+        assets = {asset.asset_key: asset for asset in db.scalars(select(AssetModel).where(AssetModel.asset_key.in_(keys)))}
+        latest = latest_transcode_jobs_for_assets(db, keys)
+        is_admin = _is_admin_principal(principal)
+        counts = {"queued": 0, "running": 0, "skipped": 0, "denied": 0}
+        tasks: list[tuple[str, str]] = []
+        for key in keys:
+            asset = assets.get(key)
+            if asset is None:
+                counts["skipped"] += 1
+                continue
+            if not is_admin and (principal.user_id is None or asset.uploader_user_id != principal.user_id):
+                counts["denied"] += 1
+                continue
+            job = latest.get(key)
+            if job is not None and job.status in ("queued", "running"):
+                counts["running"] += 1
+                continue
+            if payload.only_failed and not (job is not None and job.status == "error"):
+                counts["skipped"] += 1
+                continue
+            new_job = create_transcode_job(db, asset, source="manual", file_size=_asset_original_size(storage, asset))
+            create_upload_log(
+                db,
+                asset_key=asset.asset_key,
+                uploader_user_id=asset.uploader_user_id,
+                uploader_username=asset.uploader_username,
+                original_filename=asset.original_filename,
+                file_size=_asset_original_size(storage, asset),
+                mime_type=asset.mime_type,
+                event="transcode_request",
+                status="queued",
+                message=f"bulk retry requested by {principal.username}",
+                extra={"job_id": new_job.job_id, "bulk": True},
+            )
+            tasks.append((asset.asset_key, new_job.job_id))
+            counts["queued"] += 1
+        db.commit()
+        for asset_key, job_id in tasks:
+            background_tasks.add_task(_generate_cache_and_refresh_asset, storage, session_factory, catalog, asset_key, job_id)
+        return counts
 
     @app.post("/api/transcode/assets/{asset_key}/start")
     def api_start_transcode(
@@ -2804,7 +2898,8 @@ def create_app(
         artist_name: str = Form(""),
         canonical_tags: str = Form(""),
         tag_aliases: str = Form(""),
-        generate_cache: bool = Form(False),
+        generate_cache: bool = Form(True),
+        visibility: str = Form("public", pattern="^(public|private)$"),
         storage_strategy: str | None = Form(None),
         original_url: str = Form(""),
         last_modified_ms: str | None = Form(None),
@@ -2843,7 +2938,7 @@ def create_app(
             raise HTTPException(status_code=422, detail="uploaded sha256 does not match manifest")
         with combined.open("rb") as stream:
             upload_file = UploadFile(filename=str(manifest["filename"]), file=stream, size=total, headers={"content-type": str(manifest.get("content_type") or "application/octet-stream")})
-            response = await api_upload(background_tasks, db, principal, upload_file, title=title, source_id=source_id, artist_name=artist_name, canonical_tags=canonical_tags, tag_aliases=tag_aliases, generate_cache=generate_cache, storage_strategy=storage_strategy, original_url=original_url, last_modified_ms=last_modified_ms, rotation=rotation, crop_left=crop_left, crop_top=crop_top, crop_right=crop_right, crop_bottom=crop_bottom, flip_horizontal=flip_horizontal, flip_vertical=flip_vertical, exif_policy=exif_policy, duplicate_strategy=duplicate_strategy)
+            response = await api_upload(background_tasks, db, principal, upload_file, title=title, source_id=source_id, artist_name=artist_name, canonical_tags=canonical_tags, tag_aliases=tag_aliases, generate_cache=generate_cache, visibility=visibility, storage_strategy=storage_strategy, original_url=original_url, last_modified_ms=last_modified_ms, rotation=rotation, crop_left=crop_left, crop_top=crop_top, crop_right=crop_right, crop_bottom=crop_bottom, flip_horizontal=flip_horizontal, flip_vertical=flip_vertical, exif_policy=exif_policy, duplicate_strategy=duplicate_strategy)
         shutil.rmtree(root, ignore_errors=True)
         return response
 
@@ -2858,7 +2953,8 @@ def create_app(
         artist_name: str = Form(""),
         canonical_tags: str = Form(""),
         tag_aliases: str = Form(""),
-        generate_cache: bool = Form(False),
+        generate_cache: bool = Form(True),
+        visibility: str = Form("public", pattern="^(public|private)$"),
         storage_strategy: str | None = Form(None),
         original_url: str = Form(""),
         last_modified_ms: str | None = Form(None),
@@ -3014,6 +3110,8 @@ def create_app(
                 asset = upsert_asset(db, storage, metadata, tags, duplicate_of=duplicate_of)
         else:
             asset = upsert_asset(db, storage, metadata, tags, duplicate_of=None)
+        if principal.user_id is not None and asset.uploader_user_id == principal.user_id:
+            upsert_user_asset(db, user_id=principal.user_id, asset_key=asset.asset_key, visibility=visibility)
         effective_file_size = _file_size_for_kind(storage, asset, "original") or stored.size
         job_id: str | None = None
         if generate_cache:
@@ -3071,15 +3169,16 @@ def create_app(
                 db,
                 principal,
                 remote_file,
-                payload.title,
-                None,
-                payload.artist_name,
-                " ".join(payload.canonical_tags),
-                "",
-                payload.generate_cache,
-                payload.storage_strategy,
-                payload.url.strip(),
-                None,
+                title=payload.title,
+                source_id=None,
+                artist_name=payload.artist_name,
+                canonical_tags=" ".join(payload.canonical_tags),
+                tag_aliases="",
+                generate_cache=payload.generate_cache,
+                visibility=payload.visibility,
+                storage_strategy=payload.storage_strategy,
+                original_url=payload.url.strip(),
+                last_modified_ms=None,
             )
         finally:
             await remote_file.close()
@@ -3513,7 +3612,7 @@ def create_app(
             offset=offset,
         )
         return {
-            "items": [upload_log_to_dict(log) for log in logs],
+            "items": attach_sync_log_assets(db, storage, logs, [upload_log_to_dict(log) for log in logs]),
             "limit": limit,
             "offset": offset,
         }
@@ -3639,7 +3738,7 @@ def create_app(
             limit=limit,
             offset=offset,
         )
-        return {"items": [upload_log_to_dict(log) for log in logs], "limit": limit, "offset": offset}
+        return {"items": attach_sync_log_assets(db, storage, logs, [upload_log_to_dict(log) for log in logs]), "limit": limit, "offset": offset}
 
     @app.post("/api/sync/fanbox/login")
     def api_fanbox_login(
@@ -3876,7 +3975,7 @@ def create_app(
             offset=offset,
         )
         return {
-            "items": [upload_log_to_dict(log) for log in logs],
+            "items": attach_sync_log_assets(db, storage, logs, [upload_log_to_dict(log) for log in logs]),
             "limit": limit,
             "offset": offset,
         }
@@ -4924,6 +5023,23 @@ def _clip_log_text(value: str, limit: int = 500) -> str:
     return text if len(text) <= limit else f"{text[: max(0, limit - 3)]}..."
 
 
+SYNC_LOG_ASSET_KEYS_LIMIT = 500
+
+
+def _sync_asset_keys(asset_keys: Iterable[str]) -> list[str]:
+    """De-duplicated, bounded list of asset keys produced by one sync run, stored in the log extra."""
+    return list(dict.fromkeys(key for key in asset_keys if key))[:SYNC_LOG_ASSET_KEYS_LIMIT]
+
+
+def _set_synced_assets_public(db: Session, asset_keys: Iterable[str], principal: Principal, enabled: bool) -> None:
+    if not enabled or principal.user_id is None:
+        return
+    for asset_key in dict.fromkeys(key for key in asset_keys if key):
+        asset = db.get(AssetModel, asset_key)
+        if asset is not None and asset.uploader_user_id == principal.user_id:
+            upsert_user_asset(db, user_id=principal.user_id, asset_key=asset_key, visibility="public")
+
+
 def _pixiv_sync_response(
     storage: GalleryStorage,
     db: Session,
@@ -4942,9 +5058,11 @@ def _pixiv_sync_response(
     progress_extra: dict[str, object] | None = None,
 ) -> dict[str, object]:
     media_items = []
-    rebuild_result = rebuild_database(db, storage, catalog) if rebuild_db or generate_cache else None
+    make_public = bool(options.get("make_public", True))
+    rebuild_result = rebuild_database(db, storage, catalog) if rebuild_db or generate_cache or make_public else None
     if rebuild_result is not None:
         _save_catalog(storage, catalog)
+    _set_synced_assets_public(db, (result.asset_key for result in results), principal, make_public)
     jobs = []
     cache_tasks: list[tuple[GalleryStorage, sessionmaker[Session], TagCatalog, str, str]] = []
     if generate_cache:
@@ -4986,6 +5104,7 @@ def _pixiv_sync_response(
             _schedule_background_task(background_tasks, _generate_cache_and_refresh_asset, *task_args)
     final_extra = {
         "sync_count": len(results),
+        "asset_keys": _sync_asset_keys(result.asset_key for result in results),
         "queued_transcode_jobs": len([job for job in jobs if job]),
         "rebuild": rebuild_result.__dict__ if rebuild_result else None,
         "options": options,
@@ -5229,6 +5348,7 @@ def _pixiv_options_log(request: PixivSyncRequest) -> dict[str, object]:
         "pixiv_cookie_id": request.pixiv_cookie_id,
         "storage_strategy": request.storage_strategy,
         "public_first": request.public_first,
+        "make_public": request.make_public,
         "limit": request.limit,
         "rebuild_db": request.rebuild_db,
         "generate_cache": request.generate_cache,
@@ -5585,6 +5705,7 @@ def _fanbox_sync_finish(
             "skipped_assets": len([item for item in assets if item.status == "skipped"]),
             "duplicate_assets": len([item for item in assets if item.status == "duplicate"]),
             "file_assets": len([item for item in assets if item.kind != "image"]),
+            "asset_keys": _sync_asset_keys(item.asset_key for item in assets),
             "queued_transcode_jobs": len([job for job in jobs if job]),
             "failure_count": len(failures),
             "failures": [failure.to_dict() for failure in failures][:50],
@@ -5686,6 +5807,7 @@ def _x_options_log(request: XSyncRequest) -> dict[str, object]:
         "download_concurrency": request.download_concurrency,
         "request_delay_seconds": request.request_delay_seconds,
         "storage_strategy": request.storage_strategy,
+        "make_public": request.make_public,
         "rebuild_db": request.rebuild_db,
         "generate_cache": request.generate_cache,
         "session_configured": bool(request.auth_token and request.ct0),
@@ -5918,9 +6040,10 @@ def _x_sync_finish(
     extra: dict[str, object],
 ) -> None:
     assets = [asset for result in results for asset in result.assets]
-    rebuild_result = rebuild_database(db, storage, catalog) if request.rebuild_db or request.generate_cache else None
+    rebuild_result = rebuild_database(db, storage, catalog) if request.rebuild_db or request.generate_cache or request.make_public else None
     if rebuild_result is not None:
         _save_catalog(storage, catalog)
+    _set_synced_assets_public(db, (asset.asset_key for asset in assets), principal, request.make_public)
     jobs: list[dict[str, object] | None] = []
     cache_tasks: list[tuple[GalleryStorage, sessionmaker[Session], TagCatalog, str, str]] = []
     if request.generate_cache:
@@ -5962,6 +6085,7 @@ def _x_sync_finish(
             "skipped_assets": len([item for item in assets if item.status == "skipped"]),
             "duplicate_assets": len([item for item in assets if item.status == "duplicate"]),
             "video_assets": len([item for item in assets if not item.needs_transcode]),
+            "asset_keys": _sync_asset_keys(item.asset_key for item in assets),
             "queued_transcode_jobs": len([job for job in jobs if job]),
             "failure_count": len(failures),
             "failures": [failure.to_dict() for failure in failures][:50],
@@ -6045,6 +6169,7 @@ def _misskey_options_log(request: MisskeySyncRequest) -> dict[str, object]:
         "download_concurrency": request.download_concurrency,
         "request_delay_seconds": request.request_delay_seconds,
         "storage_strategy": request.storage_strategy,
+        "make_public": request.make_public,
         "rebuild_db": request.rebuild_db,
         "generate_cache": request.generate_cache,
         "proxy_configured": bool(request.proxy_url),
@@ -6237,9 +6362,10 @@ def _misskey_sync_finish(
     extra: dict[str, object],
 ) -> None:
     assets = [asset for result in results for asset in result.assets]
-    rebuild_result = rebuild_database(db, storage, catalog) if request.rebuild_db or request.generate_cache else None
+    rebuild_result = rebuild_database(db, storage, catalog) if request.rebuild_db or request.generate_cache or request.make_public else None
     if rebuild_result is not None:
         _save_catalog(storage, catalog)
+    _set_synced_assets_public(db, (asset.asset_key for asset in assets), principal, request.make_public)
     jobs: list[dict[str, object] | None] = []
     cache_tasks: list[tuple[GalleryStorage, sessionmaker[Session], TagCatalog, str, str]] = []
     if request.generate_cache:
@@ -6280,6 +6406,7 @@ def _misskey_sync_finish(
             "downloaded_assets": len([item for item in assets if item.status == "downloaded"]),
             "skipped_assets": len([item for item in assets if item.status == "skipped"]),
             "duplicate_assets": len([item for item in assets if item.status == "duplicate"]),
+            "asset_keys": _sync_asset_keys(item.asset_key for item in assets),
             "queued_transcode_jobs": len([job for job in jobs if job]),
             "rebuild": rebuild_result.__dict__ if rebuild_result else None,
             "options": _misskey_options_log(request),
