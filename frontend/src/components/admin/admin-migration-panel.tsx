@@ -1,51 +1,312 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { ArrowRightLeft, Check, Copy, Database, FileJson } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowRightLeft, Check, Copy, Database, FileJson, FolderInput, Info, Loader2, Pause, Play, RotateCcw, Terminal } from "lucide-react";
+import { SegmentedControl, SyncCard, SyncNotice } from "@/components/admin/admin-sync-shared";
+import { EmptyLine } from "@/components/admin/admin-fields";
+import { formatDate } from "@/components/admin/admin-format";
 import { useI18n } from "@/components/providers/locale-provider";
 import { useToast } from "@/components/providers/toast-provider";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { SwitchLabel } from "@/components/ui/switch-label";
 import { NyaApi } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import type { MigrationConfigResponse } from "@/lib/types";
+
+type MetadataMode = "file" | "database";
+type ImportSourceType = "auto" | "nyagallery_v1" | "lsky_pro";
+type ImportJob = Awaited<ReturnType<typeof NyaApi.importJobs>>["items"][number] & { created_at?: string | null; updated_at?: string | null };
+
+/** Quote a CLI argument for both PowerShell and POSIX shells when it contains spaces or quotes. */
+function shellArg(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  return /[\s"'`$]/.test(trimmed) ? `"${trimmed.replace(/(["`$\\])/g, "\\$1")}"` : trimmed;
+}
 
 export function AdminMigrationPanel() {
   const { t } = useI18n();
   const toast = useToast();
   const [config, setConfig] = useState<MigrationConfigResponse | null>(null);
-  const [mode, setMode] = useState<"file" | "database">("database");
+  const [mode, setMode] = useState<MetadataMode>("database");
+  const [savingMode, setSavingMode] = useState(false);
+  const [restartPending, setRestartPending] = useState(false);
+  const [importJobs, setImportJobs] = useState<ImportJob[]>([]);
   const [copied, setCopied] = useState<string | null>(null);
-  const [importJobs, setImportJobs] = useState<Array<{ job_id: string; source_type: string; status: string; total: number; cursor: number; succeeded: number; failed: number; progress: number; errors: string[] }>>([]);
-  const [sourceType, setSourceType] = useState("url_list");
-  const [sourceConfig, setSourceConfig] = useState("");
 
-  // The locale/toast helpers are stable for the lifetime of the admin page.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // CLI command builder state
+  const [sourceType, setSourceType] = useState<ImportSourceType>("lsky_pro");
+  const [sourcePath, setSourcePath] = useState("");
+  const [sourceRoot, setSourceRoot] = useState("");
+  const [target, setTarget] = useState<MetadataMode>("database");
+  const [outputDir, setOutputDir] = useState("");
+  const [hardlink, setHardlink] = useState(false);
+  const [confirmWrite, setConfirmWrite] = useState(false);
+  const [convertOutput, setConvertOutput] = useState("");
+
   useEffect(() => {
-    void NyaApi.migrationConfig().then((value) => { setConfig(value); setMode(value.metadata_mode === "file" ? "file" : "database"); }).catch((error) => toast.error(error instanceof Error ? error.message : t("admin.migration.loadFailed")));
-    void NyaApi.importJobs().then((value) => setImportJobs(value.items)).catch(() => undefined);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    let cancelled = false;
+    NyaApi.migrationConfig()
+      .then((value) => {
+        if (cancelled) return;
+        setConfig(value);
+        const current = value.metadata_mode === "file" ? "file" : "database";
+        setMode(current);
+        setTarget(current);
+      })
+      .catch((error) => toast.error(error instanceof Error ? error.message : t("admin.migration.loadFailed")));
+    NyaApi.importJobs()
+      .then((value) => {
+        if (!cancelled) setImportJobs(value.items);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+    // toast / t are stable for the admin page lifetime
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const currentMode = config?.metadata_mode === "file" ? "file" : "database";
+  const modeChanged = config != null && mode !== currentMode;
+
   async function saveMode() {
-    try { const value = await NyaApi.updateMigrationConfig(mode); setConfig((current) => current ? { ...current, metadata_mode: value.metadata_mode } : current); toast.success(t("admin.migration.saved")); }
-    catch (error) { toast.error(error instanceof Error ? error.message : t("admin.migration.saveFailed")); }
+    setSavingMode(true);
+    try {
+      const value = await NyaApi.updateMigrationConfig(mode);
+      setConfig((current) => (current ? { ...current, metadata_mode: value.metadata_mode } : current));
+      setRestartPending(Boolean(value.restart_required ?? true));
+      toast.success(t("admin.migration.saved"));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("admin.migration.saveFailed"));
+    } finally {
+      setSavingMode(false);
+    }
   }
 
-  async function createImport() { try { const config = sourceType === "url_list" ? { urls: sourceConfig.split(/\r?\n/).map((value) => value.trim()).filter(Boolean) } : sourceType === "local_directory" ? { root: sourceConfig.trim() } : { endpoint: sourceConfig.trim(), prefix: "" }; const job = await NyaApi.createImportJob(sourceType, config); setImportJobs((current) => [{ ...job, source_type: sourceType, total: 0, cursor: 0, succeeded: 0, failed: 0, progress: 0, errors: [] }, ...current]); toast.success(t("admin.migration.importCreated")); } catch (error) { toast.error(error instanceof Error ? error.message : t("admin.migration.importFailed")); } }
-  async function actImport(jobId: string, action: "pause" | "resume" | "retry_failed") { try { const job = await NyaApi.importJobAction(jobId, action); setImportJobs((current) => current.map((item) => item.job_id === jobId ? { ...item, ...job } : item)); } catch (error) { toast.error(error instanceof Error ? error.message : t("admin.migration.importFailed")); } }
-
-  async function copyCommand(value: string) {
-    await navigator.clipboard.writeText(value); setCopied(value); window.setTimeout(() => setCopied(null), 1200); toast.success(t("common.copied"));
+  async function copy(value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(value);
+      window.setTimeout(() => setCopied((current) => (current === value ? null : current)), 1500);
+      toast.success(t("common.copied"));
+    } catch {
+      toast.error(t("admin.migration.copyFailed"));
+    }
   }
 
-  return <div className="space-y-6">
-    <section className="space-y-4 rounded-lg border border-border bg-card p-6 shadow-sm">
-      <div><h2 className="flex items-center gap-2 text-sm font-medium"><ArrowRightLeft className="h-4 w-4" />{t("admin.migration.primaryTitle")}</h2><p className="mt-1 text-xs text-muted-foreground">{t("admin.migration.primaryHint")}</p></div>
-      <div className="flex flex-wrap items-end gap-3"><label className="space-y-1.5 text-xs"><span className="block font-medium">{t("admin.migration.primaryMode")}</span><select value={mode} onChange={(event) => setMode(event.target.value as "file" | "database")} className="h-9 rounded-md border border-input bg-background px-3 text-sm"><option value="database">database</option><option value="file">file</option></select></label><Button onClick={saveMode}>{t("admin.migration.saveMode")}</Button></div>
-      {config && <p className="text-xs text-muted-foreground">{t("admin.migration.configPath")}: <code>{config.config_path}</code></p>}
-    </section>
-    <section className="space-y-4 rounded-lg border border-border bg-card p-6 shadow-sm"><div><h2 className="flex items-center gap-2 text-sm font-medium"><Database className="h-4 w-4" />{t("admin.migration.sourcesTitle")}</h2><p className="mt-1 text-xs text-muted-foreground">{t("admin.migration.sourcesHint")}</p></div><div className="flex flex-wrap gap-2">{(config?.sources ?? []).map((source) => <span key={source} className="rounded-md border border-border px-2 py-1 text-xs">{source}</span>)}</div></section>
-    <section className="space-y-4 rounded-lg border border-border bg-card p-6 shadow-sm"><div><h2 className="text-sm font-medium">{t("admin.migration.importJobs")}</h2><p className="mt-1 text-xs text-muted-foreground">{t("admin.migration.importJobsHint")}</p></div><div className="flex flex-wrap gap-2"><select value={sourceType} onChange={(event) => setSourceType(event.target.value)} className="h-9 rounded-md border border-input bg-background px-2 text-sm"><option value="url_list">URL list</option><option value="local_directory">Local directory</option><option value="s3">S3</option><option value="webdav">WebDAV</option></select><textarea value={sourceConfig} onChange={(event) => setSourceConfig(event.target.value)} placeholder={t("admin.migration.sourceConfigPlaceholder")} className="min-h-9 min-w-64 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm" /><Button onClick={() => void createImport()} disabled={!sourceConfig.trim()}>{t("admin.migration.createImport")}</Button></div><div className="divide-y divide-border">{importJobs.map((job) => <div key={job.job_id} className="flex flex-wrap items-center justify-between gap-3 py-3 text-xs"><div><code>{job.job_id}</code><span className="ml-2 text-muted-foreground">{job.source_type} · {job.status} · {Math.round(job.progress)}% · {t("admin.migration.failedCount", { count: job.failed })}</span></div><div className="flex gap-2">{job.status === "running" ? <Button variant="outline" size="sm" onClick={() => void actImport(job.job_id, "pause")}>{t("admin.migration.pause")}</Button> : <Button variant="outline" size="sm" onClick={() => void actImport(job.job_id, job.status === "failed" ? "retry_failed" : "resume")}>{t("admin.migration.resume")}</Button>}</div></div>)}</div></section>
-    <section className="space-y-3 rounded-lg border border-border bg-card p-6 shadow-sm"><h2 className="flex items-center gap-2 text-sm font-medium"><FileJson className="h-4 w-4" />{t("admin.migration.commandsTitle")}</h2>{Object.entries(config?.commands ?? {}).map(([name, command]) => <div key={name} className="flex items-start gap-2 rounded-md border border-border bg-muted/30 p-3"><div className="min-w-0 flex-1"><div className="mb-1 text-xs font-medium">{t(`admin.migration.commands.${name}`)}</div><code className="block break-all text-[11px]">{command}</code></div><Button variant="ghost" size="icon" title={t("common.copyLink")} onClick={() => void copyCommand(command)}>{copied === command ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}</Button></div>)}</section>
-  </div>;
+  const importCommand = useMemo(() => {
+    const parts = ["nyagallery", "import", shellArg(sourcePath) || "<source>"];
+    parts.push("--source-type", sourceType);
+    if (sourceRoot.trim()) parts.push("--source-root", shellArg(sourceRoot));
+    parts.push("--target", target);
+    if (target === "file" && outputDir.trim()) parts.push("--output", shellArg(outputDir));
+    if (hardlink) parts.push("--hardlink");
+    if (confirmWrite) parts.push("--confirm");
+    return parts.join(" ");
+  }, [confirmWrite, hardlink, outputDir, sourcePath, sourceRoot, sourceType, target]);
+
+  const convertCommand = useMemo(() => {
+    const to: MetadataMode = currentMode === "database" ? "file" : "database";
+    const parts = ["nyagallery", "convert", "--from", currentMode, "--to", to];
+    if (to === "file") parts.push("--output", shellArg(convertOutput) || "<sidecar>");
+    parts.push("--confirm");
+    return parts.join(" ");
+  }, [convertOutput, currentMode]);
+
+  async function actImport(jobId: string, action: "pause" | "resume" | "retry_failed") {
+    try {
+      const job = await NyaApi.importJobAction(jobId, action);
+      setImportJobs((current) => current.map((item) => (item.job_id === jobId ? { ...item, ...job } : item)));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("admin.migration.importFailed"));
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <SyncCard icon={Terminal} title={t("admin.migration.importTitle")} description={t("admin.migration.importHint")}>
+          <div className="space-y-1.5">
+            <Label>{t("admin.migration.sourceType")}</Label>
+            <SegmentedControl
+              value={sourceType}
+              onChange={setSourceType}
+              options={(["lsky_pro", "nyagallery_v1", "auto"] as ImportSourceType[]).map((value) => ({
+                value,
+                label: t(`admin.migration.sourceTypes.${value}`),
+              }))}
+            />
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>{t("admin.migration.sourcePath")}</Label>
+              <Input value={sourcePath} placeholder={sourceType === "lsky_pro" ? "D:\\lsky\\database.sqlite" : "export.json"} onChange={(event) => setSourcePath(event.target.value)} />
+              <p className="text-[11px] text-muted-foreground">{t(`admin.migration.sourcePathHints.${sourceType}`)}</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t("admin.migration.sourceRoot")}</Label>
+              <Input value={sourceRoot} placeholder="D:\\lsky\\storage\\app\\uploads" onChange={(event) => setSourceRoot(event.target.value)} />
+              <p className="text-[11px] text-muted-foreground">{t("admin.migration.sourceRootHint")}</p>
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>{t("admin.migration.target")}</Label>
+              <SegmentedControl
+                value={target}
+                onChange={setTarget}
+                options={[
+                  { value: "database" as MetadataMode, label: t("admin.migration.modes.database") },
+                  { value: "file" as MetadataMode, label: t("admin.migration.modes.file") },
+                ]}
+              />
+            </div>
+            {target === "file" && (
+              <div className="space-y-1.5">
+                <Label>{t("admin.migration.outputDir")}</Label>
+                <Input value={outputDir} placeholder={t("admin.migration.outputDirPlaceholder")} onChange={(event) => setOutputDir(event.target.value)} />
+              </div>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-x-5 gap-y-2.5 rounded-md border border-border bg-muted/35 p-3">
+            <SwitchLabel label={t("admin.migration.hardlink")} checked={hardlink} onChange={setHardlink} />
+            <SwitchLabel label={t("admin.migration.confirmWrite")} checked={confirmWrite} onChange={setConfirmWrite} />
+          </div>
+          {!confirmWrite && <SyncNotice tone="info">{t("admin.migration.dryRunHint")}</SyncNotice>}
+          <CommandBox command={importCommand} copied={copied === importCommand} onCopy={() => void copy(importCommand)} disabled={!sourcePath.trim()} />
+          <p className="text-[11px] leading-5 text-muted-foreground">{t("admin.migration.runHint")}</p>
+        </SyncCard>
+
+        <aside className="space-y-6">
+          <SyncCard icon={ArrowRightLeft} title={t("admin.migration.primaryTitle")} description={t("admin.migration.primaryHint")}>
+            <div className="flex items-center justify-between rounded-md border border-border bg-muted/30 px-3 py-2 text-xs">
+              <span className="text-muted-foreground">{t("admin.migration.currentMode")}</span>
+              <span className="inline-flex items-center gap-1.5 font-medium">
+                {currentMode === "database" ? <Database className="h-3.5 w-3.5" /> : <FileJson className="h-3.5 w-3.5" />}
+                {config ? t(`admin.migration.modes.${currentMode}`) : "…"}
+              </span>
+            </div>
+            <SegmentedControl
+              value={mode}
+              onChange={setMode}
+              options={[
+                { value: "database" as MetadataMode, label: t("admin.migration.modes.database") },
+                { value: "file" as MetadataMode, label: t("admin.migration.modes.file") },
+              ]}
+            />
+            <Button className="w-full" disabled={!modeChanged || savingMode} onClick={() => void saveMode()}>
+              {savingMode && <Loader2 className="h-4 w-4 animate-spin" />} {t("admin.migration.saveMode")}
+            </Button>
+            {restartPending && <SyncNotice>{t("admin.migration.restartRequired")}</SyncNotice>}
+            {config && (
+              <p className="break-all text-[11px] text-muted-foreground">
+                {t("admin.migration.configPath")}: <code>{config.config_path}</code>
+              </p>
+            )}
+            <div className="space-y-1.5 border-t border-border pt-3">
+              <Label>{t("admin.migration.convertTitle")}</Label>
+              <p className="text-[11px] leading-5 text-muted-foreground">{t("admin.migration.convertHint")}</p>
+              {currentMode === "database" && (
+                <Input value={convertOutput} placeholder={t("admin.migration.outputDirPlaceholder")} onChange={(event) => setConvertOutput(event.target.value)} />
+              )}
+              <CommandBox command={convertCommand} copied={copied === convertCommand} onCopy={() => void copy(convertCommand)} />
+            </div>
+          </SyncCard>
+
+          <SyncCard icon={FolderInput} title={t("admin.migration.sourcesTitle")} description={t("admin.migration.sourcesHint")}>
+            <div className="flex flex-wrap gap-1.5">
+              {(config?.sources ?? []).map((source) => (
+                <span key={source} className="rounded-full border border-border bg-background px-2.5 py-1 text-xs">
+                  {source}
+                </span>
+              ))}
+            </div>
+          </SyncCard>
+        </aside>
+      </div>
+
+      <SyncCard icon={Info} title={t("admin.migration.importJobs")} description={t("admin.migration.queueHint")}>
+        <SyncNotice>{t("admin.migration.queueNotRunning")}</SyncNotice>
+        {importJobs.length === 0 ? (
+          <EmptyLine text={t("admin.migration.emptyJobs")} />
+        ) : (
+          <div className="grid gap-2 xl:grid-cols-2">
+            {importJobs.map((job) => (
+              <ImportJobRow key={job.job_id} job={job} onAction={(action) => void actImport(job.job_id, action)} />
+            ))}
+          </div>
+        )}
+      </SyncCard>
+    </div>
+  );
+}
+
+function CommandBox({ command, copied, onCopy, disabled = false }: { command: string; copied: boolean; onCopy: () => void; disabled?: boolean }) {
+  const { t } = useI18n();
+  return (
+    <div className={cn("flex items-start gap-2 rounded-md border border-border bg-muted/40 p-2.5", disabled && "opacity-60")}>
+      <code className="min-w-0 flex-1 whitespace-pre-wrap break-all font-mono text-[11px] leading-5">{command}</code>
+      <Button type="button" variant="outline" size="sm" className="h-7 shrink-0 px-2 text-xs" onClick={onCopy} disabled={disabled}>
+        {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} {copied ? t("common.copied") : t("admin.migration.copy")}
+      </Button>
+    </div>
+  );
+}
+
+function ImportJobRow({ job, onAction }: { job: ImportJob; onAction: (action: "pause" | "resume" | "retry_failed") => void }) {
+  const { t } = useI18n();
+  const progress = Math.max(0, Math.min(100, Math.round(job.progress || 0)));
+  const failed = job.status === "failed" || job.failed > 0;
+  return (
+    <div className={cn("space-y-2 rounded-lg border border-border p-3 text-xs", failed && "border-destructive/35")}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate font-mono">{job.job_id}</div>
+          <div className="text-[11px] text-muted-foreground">
+            {job.source_type}
+            {job.created_at ? ` · ${formatDate(job.created_at)}` : ""}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <span className="rounded-full bg-muted px-2 py-0.5 font-medium">{t(`admin.migration.jobStatus.${job.status}`)}</span>
+          {job.status === "running" ? (
+            <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => onAction("pause")}>
+              <Pause className="h-3.5 w-3.5" /> {t("admin.migration.pause")}
+            </Button>
+          ) : job.status === "failed" ? (
+            <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => onAction("retry_failed")}>
+              <RotateCcw className="h-3.5 w-3.5" /> {t("admin.migration.retry")}
+            </Button>
+          ) : job.status === "queued" || job.status === "paused" ? (
+            <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => onAction("resume")}>
+              <Play className="h-3.5 w-3.5" /> {t("admin.migration.resume")}
+            </Button>
+          ) : null}
+        </div>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+        <div className={cn("h-full rounded-full", failed ? "bg-destructive" : "bg-primary")} style={{ width: `${progress}%` }} />
+      </div>
+      <div className="flex flex-wrap gap-x-3 text-[11px] text-muted-foreground tabular-nums">
+        <span>{progress}%</span>
+        <span>
+          {job.cursor}/{job.total}
+        </span>
+        <span>{t("admin.migration.succeededCount", { count: job.succeeded })}</span>
+        <span className={cn(job.failed > 0 && "text-destructive")}>{t("admin.migration.failedCount", { count: job.failed })}</span>
+      </div>
+      {job.errors.length > 0 && (
+        <ul className="space-y-0.5 text-[11px] text-destructive">
+          {job.errors.slice(0, 3).map((error, index) => (
+            <li key={index} className="break-words">
+              {error}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
