@@ -102,6 +102,8 @@ from nyagallery.db import (
     claim_registration_invite,
     count_posts,
     post_asset_visibility_clause,
+    asset_visibility_clause,
+    AssetTagModel,
     create_access_log,
     create_engine_for_url,
     create_login_session,
@@ -1273,6 +1275,24 @@ def create_app(
             "sort": sort_key,
             "order": sort_order,
         }
+
+    @app.get("/api/search/sensitive-count")
+    def api_search_sensitive_count(db: DbSession, principal: ViewPrincipal) -> dict[str, int]:
+        """How many visible assets carry a sensitive rating; lets the UI explain what the R-18 filter hides."""
+        if principal.role == "guest":
+            return {"count": 0}
+        statement = (
+            select(func.count(func.distinct(AssetModel.asset_key)))
+            .select_from(AssetModel)
+            .join(AssetTagModel, AssetTagModel.asset_key == AssetModel.asset_key)
+            .where(
+                AssetModel.deletion_status.is_(None),
+                AssetTagModel.tag.in_(sorted(SENSITIVE_RATING_TAGS)),
+            )
+        )
+        if not _is_admin_principal(principal):
+            statement = statement.where(asset_visibility_clause(user_id=principal.user_id))
+        return {"count": int(db.scalar(statement) or 0)}
 
     @app.get("/api/timeline")
     def api_timeline(

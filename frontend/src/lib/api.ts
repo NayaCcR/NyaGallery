@@ -265,6 +265,7 @@ export const NyaApi = {
   assetApiExamples: (assetKey: string) =>
     api<AssetApiExamplesResponse>(`/api/assets/${encodeURIComponent(assetKey)}/api-examples`),
   assetVisibility: (assetKey: string) => api<{ visibility: "public" | "private" }>(`/api/assets/${encodeURIComponent(assetKey)}/visibility`),
+  sensitiveAssetCount: () => api<{ count: number }>("/api/search/sensitive-count"),
   updateAssetVisibility: (assetKey: string, visibility: "public" | "private") => api<{ visibility: "public" | "private" }>(`/api/assets/${encodeURIComponent(assetKey)}/visibility`, { method: "PUT", body: { visibility } }),
   bulkAssetVisibility: (assetKeys: string[], visibility: "public" | "private") =>
     api<BulkVisibilityResponse>("/api/assets/visibility/bulk", { method: "POST", body: { asset_keys: assetKeys, visibility } }),

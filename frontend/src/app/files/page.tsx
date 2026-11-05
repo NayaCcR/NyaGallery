@@ -14,6 +14,7 @@ import {
   Type,
 } from "lucide-react";
 import { ContentFilterToggles } from "@/components/content/content-filter-toggles";
+import { SensitiveHiddenNotice } from "@/components/content/sensitive-hidden-notice";
 import { InfiniteGallery } from "@/components/gallery/infinite-gallery";
 import { useI18n } from "@/components/providers/locale-provider";
 import { Button } from "@/components/ui/button";
@@ -112,6 +113,8 @@ function FilesContent() {
           </Button>
         </div>
       </header>
+
+      <SensitiveHiddenNotice className="mb-4" />
 
       <InfiniteGallery
         query={effectiveQuery}

@@ -1032,7 +1032,9 @@
   },
   "content": {
     "showAi": "Show AI-generated artworks",
-    "showSensitive": "Show R-18 / R-18G"
+    "showSensitive": "Show R-18 / R-18G",
+    "sensitiveHidden": "{count} R-18 items are hidden by the content filter",
+    "showSensitiveNow": "Show R-18"
   },
   "gallery": {
     "emptyDescription": "Try different tags, or sync a few artworks first",

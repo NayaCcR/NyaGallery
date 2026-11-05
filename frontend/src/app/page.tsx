@@ -2,6 +2,7 @@
 
 import { Suspense } from "react";
 import { ContentFilterToggles } from "@/components/content/content-filter-toggles";
+import { SensitiveHiddenNotice } from "@/components/content/sensitive-hidden-notice";
 import { InfiniteGallery } from "@/components/gallery/infinite-gallery";
 import { useI18n } from "@/components/providers/locale-provider";
 import { SwitchLabel } from "@/components/ui/switch-label";
@@ -34,6 +35,8 @@ function HomeContent() {
           <SwitchLabel label={t("pages.home.multiSelect")} checked={multi} onChange={setMulti} />
         </div>
       </header>
+
+      {!q && <SensitiveHiddenNotice className="mb-4" />}
 
       <InfiniteGallery
         query={effectiveQuery}

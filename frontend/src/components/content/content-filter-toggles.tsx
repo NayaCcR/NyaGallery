@@ -41,28 +41,34 @@ function FilterSwitch({
   title: string;
 }) {
   return (
-    <label
-      className="inline-flex cursor-pointer select-none items-center gap-1.5 text-xs text-muted-foreground"
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={title}
       title={title}
+      onClick={() => onCheckedChange(!checked)}
+      className={cn(
+        "inline-flex h-8 select-none items-center gap-2 rounded-full border px-3 text-xs font-medium transition-colors focus-ring",
+        checked
+          ? "border-primary/50 bg-primary/10 text-foreground"
+          : "border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground"
+      )}
     >
       <span>{label}</span>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        onClick={() => onCheckedChange(!checked)}
+      <span
         className={cn(
-          "relative inline-flex h-5 w-9 items-center rounded-full border transition-colors",
-          checked ? "border-primary bg-primary" : "border-border bg-muted"
+          "relative inline-flex h-4 w-7 items-center rounded-full transition-colors",
+          checked ? "bg-primary" : "bg-muted-foreground/30"
         )}
       >
         <span
           className={cn(
-            "inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform",
-            checked ? "translate-x-4" : "translate-x-0.5"
+            "inline-block h-3 w-3 rounded-full bg-white shadow transition-transform",
+            checked ? "translate-x-3.5" : "translate-x-0.5"
           )}
         />
-      </button>
-    </label>
+      </span>
+    </button>
   );
 }

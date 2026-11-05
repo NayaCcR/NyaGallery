@@ -1032,7 +1032,9 @@
   },
   "content": {
     "showAi": "显示 AI 生成作品",
-    "showSensitive": "显示 R-18 / R-18G"
+    "showSensitive": "显示 R-18 / R-18G",
+    "sensitiveHidden": "有 {count} 个 R-18 作品被内容过滤隐藏了",
+    "showSensitiveNow": "显示 R-18"
   },
   "gallery": {
     "emptyDescription": "尝试不同的标签，或先同步几张作品",
