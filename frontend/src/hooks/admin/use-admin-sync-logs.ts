@@ -43,7 +43,9 @@ export function useAdminSyncLogs({ enabled, onError, loader, limit = 40 }: UseAd
           setLastUpdatedAt(new Date().toISOString());
           return response.items;
         } catch (err) {
-          if (showError) onError(err instanceof ApiError ? err.message : String(err));
+          // A request racing a plugin being disabled answers 404 "plugin ... is disabled"; that is expected, not an error.
+          const pluginDisabled = err instanceof ApiError && err.status === 404 && /plugin .+ is disabled/.test(err.message);
+          if (showError && !pluginDisabled) onError(err instanceof ApiError ? err.message : String(err));
           return null;
         }
       })();

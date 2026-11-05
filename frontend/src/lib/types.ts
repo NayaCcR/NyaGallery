@@ -311,6 +311,32 @@ export interface PixivSyncOptions {
   restrict?: string;
 }
 
+export interface PluginItem {
+  name: string;
+  version: string;
+  title: string;
+  description: string;
+  plugin_types: string[];
+  permissions: string[];
+  dependencies: string[];
+  dependents: string[];
+  core_min_version: string | null;
+  official: boolean;
+  source: string;
+  enabled: boolean;
+  error: string | null;
+  provides_sections: string[];
+  routes: number;
+  events: string[];
+}
+
+export interface PluginsResponse {
+  available: boolean;
+  core_version?: string;
+  items: PluginItem[];
+  disabled_sections: string[];
+}
+
 export interface NotificationPreferences {
   mention_enabled: boolean;
   like_enabled: boolean;

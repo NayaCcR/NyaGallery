@@ -9,6 +9,7 @@ import {
   KeyRound,
   LayoutDashboard,
   Link2,
+  Puzzle,
   Settings2,
   Shield,
   Tags,
@@ -32,5 +33,6 @@ export const ADMIN_SECTION_ICONS: Record<AdminSection, LucideIcon> = {
   accounts: KeyRound,
   access: UsersRound,
   migration: ArrowRightLeft,
+  plugins: Puzzle,
   developer: Settings2,
 };

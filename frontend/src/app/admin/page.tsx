@@ -26,6 +26,8 @@ import { AdminRegistrationPanel } from "@/components/admin/admin-registration-pa
 import { AdminTagsPanel } from "@/components/admin/admin-tags-panel";
 import { AdminAccessPanel } from "@/components/admin/admin-access-panel";
 import { AdminMigrationPanel } from "@/components/admin/admin-migration-panel";
+import { AdminPluginsPanel } from "@/components/admin/admin-plugins-panel";
+import { usePlugins } from "@/hooks/use-plugins";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useI18n } from "@/components/providers/locale-provider";
 import { useToast } from "@/components/providers/toast-provider";
@@ -71,14 +73,18 @@ export default function AdminPage() {
   const toast = useToast();
   const isAdmin = Boolean(me?.permissions?.includes("admin"));
   const isDeveloper = Boolean(me?.permissions?.includes("developer"));
-  const canPixivSync = canAccessAdminSection(me?.role, "pixiv");
-  const canMisskeySync = canAccessAdminSection(me?.role, "misskey");
-  const canXSync = canAccessAdminSection(me?.role, "x");
-  const canFanboxSync = canAccessAdminSection(me?.role, "fanbox");
+  // A platform is usable only if the role allows it AND its official plugin is enabled.
+  const { isSectionAvailable, ready: pluginsReady } = usePlugins();
+  const platformOn = (section: AdminSection) => pluginsReady && canAccessAdminSection(me?.role, section) && isSectionAvailable(section);
+  const canPixivSync = platformOn("pixiv");
+  const canMisskeySync = platformOn("misskey");
+  const canXSync = platformOn("x");
+  const canFanboxSync = platformOn("fanbox");
   const rawSection = searchParams?.get("section");
   const requestedSection = normalizeAdminSection(rawSection);
-  const activeSection = getVisibleAdminSection(me?.role, requestedSection);
-  const allowedSections = getAdminSectionsForRole(me?.role);
+  const visibleSection = getVisibleAdminSection(me?.role, requestedSection);
+  const activeSection = visibleSection && !isSectionAvailable(visibleSection) ? "plugins" : visibleSection;
+  const allowedSections = getAdminSectionsForRole(me?.role).filter(isSectionAvailable);
   const sectionLabel = activeSection ? t(`admin.sections.${activeSection}`) : t("nav.admin");
   const sectionDescription = activeSection ? t(`admin.sections.descriptions.${activeSection}`) : "";
 
@@ -719,7 +725,13 @@ export default function AdminPage() {
   async function afterSyncCenterRun() {
     qc.invalidateQueries({ queryKey: ["search"] });
     qc.invalidateQueries({ queryKey: ["posts"] });
-    await Promise.all([refreshPixivLogs(false), refreshMisskeyLogs(false), refreshXLogs(false), refreshFanboxLogs(false), refreshOperations(false)]);
+    await Promise.all([
+      canPixivSync ? refreshPixivLogs(false) : null,
+      canMisskeySync ? refreshMisskeyLogs(false) : null,
+      canXSync ? refreshXLogs(false) : null,
+      canFanboxSync ? refreshFanboxLogs(false) : null,
+      refreshOperations(false),
+    ]);
   }
 
   return (
@@ -1049,6 +1061,7 @@ export default function AdminPage() {
           {activeSection === "access" && <AdminAccessPanel />}
 
           {activeSection === "migration" && <AdminMigrationPanel />}
+          {activeSection === "plugins" && <AdminPluginsPanel />}
 
           {activeSection === "security" && (
           <>

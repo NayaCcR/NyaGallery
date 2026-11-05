@@ -71,6 +71,8 @@ import type { ApiTokenSummary,
   SyncResolveResponse,
   TimelineView,
   NotificationPreferences,
+  PluginItem,
+  PluginsResponse,
   BulkVisibilityResponse,
   TranscodeJob,
   UploadHistoryResponse,
@@ -270,6 +272,9 @@ export const NyaApi = {
     api<AssetApiExamplesResponse>(`/api/assets/${encodeURIComponent(assetKey)}/api-examples`),
   assetVisibility: (assetKey: string) => api<{ visibility: "public" | "private" }>(`/api/assets/${encodeURIComponent(assetKey)}/visibility`),
   sensitiveAssetCount: () => api<{ count: number }>("/api/search/sensitive-count"),
+  plugins: () => api<PluginsResponse>("/api/plugins"),
+  setPluginEnabled: (name: string, enabled: boolean) =>
+    api<{ item: PluginItem | null; disabled_sections: string[] }>(`/api/plugins/${encodeURIComponent(name)}`, { method: "PUT", body: { enabled } }),
   timelineViews: () => api<{ items: TimelineView[] }>("/api/me/timeline-views"),
   saveTimelineView: ({ name, ...view }: TimelineView) =>
     api<TimelineView>(`/api/me/timeline-views/${encodeURIComponent(name)}`, { method: "PUT", body: view }),

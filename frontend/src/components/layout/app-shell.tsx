@@ -19,6 +19,7 @@ import { SidebarShell } from "@/components/layout/sidebar-shell";
 import { TopbarShell } from "@/components/layout/topbar-shell";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useI18n } from "@/components/providers/locale-provider";
+import { usePlugins } from "@/hooks/use-plugins";
 import { useSiteConfig } from "@/lib/hooks";
 import { DEFAULT_REPOSITORY_URL, resolveBranding, resolveDefaultLayout, type LayoutStyle } from "@/lib/branding";
 import {
@@ -70,6 +71,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { token, ready, me } = useAuth();
+  const { isSectionAvailable } = usePlugins();
   const { t } = useI18n();
   const { data: siteConfig } = useSiteConfig();
 
@@ -119,7 +121,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const privateItems = signedIn ? PRIVATE_NAV : [];
   const adminDefs = signedIn
-    ? ADMIN_NAV.filter((item) => item.section && canAccessAdminSection(me?.role, item.section))
+    ? ADMIN_NAV.filter((item) => item.section && canAccessAdminSection(me?.role, item.section) && isSectionAvailable(item.section))
     : [];
   const onAdmin = isActivePath(pathname, "/admin");
 
