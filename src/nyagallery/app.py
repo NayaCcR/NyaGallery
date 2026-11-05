@@ -447,6 +447,20 @@ class PixivSyncRequest(BaseModel):
 
 
 PIXIV_PREVIEW_LIMIT = 30
+TIMELINE_VIEW_LIMIT = 50
+TIMELINE_FIELDS_PATTERN = "^(uploaded_at|published_at|captured_at|scraped_at|upload_timestamp)$"
+
+
+class TimelineViewPayload(BaseModel):
+    """A saved timeline filter set, stored per user in user_preferences.timeline_views."""
+
+    tag: str = Field(default="", max_length=200)
+    source: str = Field(default="", max_length=80)
+    artist: str = Field(default="", max_length=200)
+    rating: str = Field(default="", pattern="^(|safe|r18|r18g)$")
+    field: str = Field(default="uploaded_at", pattern=TIMELINE_FIELDS_PATTERN)
+    granularity: str = Field(default="day", pattern="^(day|month|year)$")
+    before: str = Field(default="", pattern=r"^(|\d{4}-\d{2}-\d{2})$")
 
 
 class SyncResolveRequest(BaseModel):
@@ -962,9 +976,56 @@ def create_app(
         if row is None:
             row = UserPreferenceModel(user_id=principal.user_id, preferences={})
             db.add(row)
-        row.preferences = {"fit_mode": payload.fit_mode, "show_sensitive": payload.show_sensitive, "show_ai": payload.show_ai}
+        # Merge so other preference keys (e.g. timeline_views) survive a display-preference save.
+        current = dict(row.preferences) if isinstance(row.preferences, dict) else {}
+        current.update({"fit_mode": payload.fit_mode, "show_sensitive": payload.show_sensitive, "show_ai": payload.show_ai})
+        row.preferences = current
         db.commit()
-        return row.preferences
+        return {"fit_mode": payload.fit_mode, "show_sensitive": payload.show_sensitive, "show_ai": payload.show_ai}
+
+    @app.get("/api/me/timeline-views")
+    def api_timeline_views(db: DbSession, principal: ViewPrincipal) -> dict[str, object]:
+        if principal.user_id is None:
+            raise HTTPException(status_code=401, detail="login required")
+        row = db.get(UserPreferenceModel, principal.user_id)
+        views = row.preferences.get("timeline_views", {}) if row and isinstance(row.preferences, dict) else {}
+        return {"items": [{"name": name, **view} for name, view in sorted(views.items()) if isinstance(view, dict)]}
+
+    @app.put("/api/me/timeline-views/{view_name}")
+    def api_put_timeline_view(view_name: str, payload: TimelineViewPayload, db: DbSession, principal: ViewPrincipal) -> dict[str, object]:
+        if principal.user_id is None:
+            raise HTTPException(status_code=401, detail="login required")
+        name = view_name.strip()
+        if not name or len(name) > 60:
+            raise HTTPException(status_code=422, detail="view name must be 1-60 characters")
+        row = db.get(UserPreferenceModel, principal.user_id)
+        if row is None:
+            row = UserPreferenceModel(user_id=principal.user_id, preferences={})
+            db.add(row)
+        preferences = dict(row.preferences) if isinstance(row.preferences, dict) else {}
+        views = dict(preferences.get("timeline_views") or {})
+        if name not in views and len(views) >= TIMELINE_VIEW_LIMIT:
+            raise HTTPException(status_code=409, detail=f"at most {TIMELINE_VIEW_LIMIT} saved views")
+        views[name] = payload.model_dump()
+        preferences["timeline_views"] = views
+        row.preferences = preferences
+        db.commit()
+        return {"name": name, **views[name]}
+
+    @app.delete("/api/me/timeline-views/{view_name}")
+    def api_delete_timeline_view(view_name: str, db: DbSession, principal: ViewPrincipal) -> dict[str, object]:
+        if principal.user_id is None:
+            raise HTTPException(status_code=401, detail="login required")
+        row = db.get(UserPreferenceModel, principal.user_id)
+        preferences = dict(row.preferences) if row and isinstance(row.preferences, dict) else {}
+        views = dict(preferences.get("timeline_views") or {})
+        if view_name not in views:
+            raise HTTPException(status_code=404, detail="view not found")
+        views.pop(view_name)
+        preferences["timeline_views"] = views
+        row.preferences = preferences
+        db.commit()
+        return {"name": view_name, "deleted": True}
 
     @app.get("/api/notification-preferences")
     def api_notification_preferences(db: DbSession, principal: ViewPrincipal) -> dict[str, bool]:

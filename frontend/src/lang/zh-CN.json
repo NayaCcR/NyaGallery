@@ -1358,7 +1358,11 @@
       "ratingAll": "全部评分",
       "viewName": "视图名称",
       "saveView": "保存视图",
-      "loadView": "加载视图"
+      "loadView": "加载视图",
+      "savedViews": "已保存视图",
+      "viewSaved": "已保存视图 {name}",
+      "deleteView": "删除视图 {name}",
+      "clearFilters": "清除筛选"
     },
     "files": {
       "collapseWorks": "折叠多页",

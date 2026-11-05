@@ -69,6 +69,7 @@ import type { ApiTokenSummary,
   BulkTranscodeRetryResponse,
   PixivPreviewItem,
   SyncResolveResponse,
+  TimelineView,
   BulkVisibilityResponse,
   TranscodeJob,
   UploadHistoryResponse,
@@ -268,6 +269,11 @@ export const NyaApi = {
     api<AssetApiExamplesResponse>(`/api/assets/${encodeURIComponent(assetKey)}/api-examples`),
   assetVisibility: (assetKey: string) => api<{ visibility: "public" | "private" }>(`/api/assets/${encodeURIComponent(assetKey)}/visibility`),
   sensitiveAssetCount: () => api<{ count: number }>("/api/search/sensitive-count"),
+  timelineViews: () => api<{ items: TimelineView[] }>("/api/me/timeline-views"),
+  saveTimelineView: ({ name, ...view }: TimelineView) =>
+    api<TimelineView>(`/api/me/timeline-views/${encodeURIComponent(name)}`, { method: "PUT", body: view }),
+  deleteTimelineView: (name: string) =>
+    api<{ name: string; deleted: boolean }>(`/api/me/timeline-views/${encodeURIComponent(name)}`, { method: "DELETE" }),
   updateAssetVisibility: (assetKey: string, visibility: "public" | "private") => api<{ visibility: "public" | "private" }>(`/api/assets/${encodeURIComponent(assetKey)}/visibility`, { method: "PUT", body: { visibility } }),
   bulkAssetVisibility: (assetKeys: string[], visibility: "public" | "private") =>
     api<BulkVisibilityResponse>("/api/assets/visibility/bulk", { method: "POST", body: { asset_keys: assetKeys, visibility } }),

@@ -2,23 +2,31 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { CalendarDays, ImageOff } from "lucide-react";
+import { Bookmark, CalendarDays, ImageOff, Trash2, X } from "lucide-react";
 import { MasonryGrid } from "@/components/gallery/masonry-grid";
 import { AssetCardSkeleton } from "@/components/gallery/asset-card";
 import { useI18n } from "@/components/providers/locale-provider";
 import { useAuth } from "@/components/providers/auth-provider";
+import { useToast } from "@/components/providers/toast-provider";
 import { useContentPreferences } from "@/components/providers/content-preferences-provider";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { NyaApi } from "@/lib/api";
 import { useIntersection, useTimeline } from "@/lib/hooks";
+import { cn } from "@/lib/utils";
+import type { TimelineView } from "@/lib/types";
 import { exclusiveUtcNextDay, groupTimelineAssets, isValidTimelineDate, type TimelineGranularity } from "@/lib/timeline";
 
 const FIELDS = ["uploaded_at", "published_at", "captured_at", "scraped_at", "upload_timestamp"] as const;
+const LEGACY_VIEWS_KEY = "nyagallery.timeline.views";
+const controlClass = "h-9 rounded-md border border-input bg-background px-2.5 text-sm focus-ring";
 
 function TimelineContent() {
   const { t } = useI18n();
   const searchParams = useSearchParams();
-  const { ready: authReady } = useAuth();
+  const { ready: authReady, token, me } = useAuth();
+  const toast = useToast();
+  const signedIn = Boolean(token && me && me.user_id != null);
   const { ready: contentReady, applyContentFilters } = useContentPreferences();
   const [field, setField] = useState<string>("uploaded_at");
   const [granularity, setGranularity] = useState<TimelineGranularity>("day");
@@ -27,18 +35,34 @@ function TimelineContent() {
   const [sourceFilter, setSourceFilter] = useState("");
   const [artistFilter, setArtistFilter] = useState("");
   const [ratingFilter, setRatingFilter] = useState("");
-  const [savedViews, setSavedViews] = useState<Record<string, string>>({});
+  const [savedViews, setSavedViews] = useState<TimelineView[]>([]);
+  const [activeView, setActiveView] = useState("");
   const [viewName, setViewName] = useState("");
   const [dateError, setDateError] = useState(false);
   const sentinel = useRef<HTMLDivElement>(null);
   const visible = useIntersection(sentinel, { rootMargin: "1200px 0px" });
   const validDate = !selectedDate || isValidTimelineDate(selectedDate);
   const before = selectedDate ? exclusiveUtcNextDay(selectedDate) : null;
+  // Saved views live on the server per user; views saved by older builds in localStorage are migrated once.
   useEffect(() => {
-    const saved = window.localStorage.getItem("nyagallery.timeline.views");
-    if (saved) {
-      try { setSavedViews(JSON.parse(saved) as Record<string, string>); } catch { setSavedViews({}); }
-    }
+    if (!authReady || !signedIn) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const legacy = readLegacyViews();
+        for (const view of legacy) await NyaApi.saveTimelineView(view);
+        if (legacy.length) window.localStorage.removeItem(LEGACY_VIEWS_KEY);
+        const result = await NyaApi.timelineViews();
+        if (!cancelled) setSavedViews(result.items);
+      } catch {
+        /* views are optional; the timeline still works without them */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authReady, signedIn]);
+  useEffect(() => {
     setTagFilter(searchParams.get("tag") ?? "");
     setSourceFilter(searchParams.get("source") ?? "");
     setArtistFilter(searchParams.get("artist") ?? "");
@@ -46,46 +70,111 @@ function TimelineContent() {
   }, [searchParams]);
   const contentQuery = useMemo(() => applyContentFilters([tagFilter && `tag:${tagFilter}`, sourceFilter && `source:${sourceFilter}`, artistFilter && `artist:${artistFilter}`, ratingFilter && `rating:${ratingFilter}`].filter(Boolean).join(" ")), [applyContentFilters, artistFilter, ratingFilter, sourceFilter, tagFilter]);
   const query = useTimeline(field, before, { enabled: authReady && contentReady && validDate && !dateError, q: contentQuery });
-  const saveView = () => {
+  const filtersActive = Boolean(tagFilter || sourceFilter || artistFilter || ratingFilter || selectedDate);
+  const saveView = async () => {
     const name = viewName.trim();
     if (!name) return;
-    const next = { ...savedViews, [name]: JSON.stringify({ tagFilter, sourceFilter, artistFilter, ratingFilter, field, granularity, selectedDate }) };
-    setSavedViews(next); window.localStorage.setItem("nyagallery.timeline.views", JSON.stringify(next)); setViewName("");
-  };
-  const loadView = (name: string) => {
+    const view: TimelineView = {
+      name,
+      tag: tagFilter.trim(),
+      source: sourceFilter.trim(),
+      artist: artistFilter.trim(),
+      rating: (ratingFilter as TimelineView["rating"]) || "",
+      field,
+      granularity,
+      before: selectedDate,
+    };
     try {
-      const view = JSON.parse(savedViews[name]) as Record<string, string>;
-      setTagFilter(view.tagFilter ?? ""); setSourceFilter(view.sourceFilter ?? ""); setArtistFilter(view.artistFilter ?? ""); setRatingFilter(view.ratingFilter ?? "");
-      setField(view.field ?? "uploaded_at"); setGranularity((view.granularity as TimelineGranularity) ?? "day"); setSelectedDate(view.selectedDate ?? "");
-    } catch { /* ignore corrupt local view */ }
+      const saved = await NyaApi.saveTimelineView(view);
+      setSavedViews((current) => [...current.filter((item) => item.name !== saved.name), saved].sort((a, b) => a.name.localeCompare(b.name)));
+      setActiveView(saved.name);
+      setViewName("");
+      toast.success(t("pages.timeline.viewSaved", { name: saved.name }));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+  const loadView = (view: TimelineView) => {
+    setTagFilter(view.tag); setSourceFilter(view.source); setArtistFilter(view.artist); setRatingFilter(view.rating);
+    setField(view.field || "uploaded_at"); setGranularity(view.granularity || "day"); setSelectedDate(view.before);
+    setDateError(Boolean(view.before) && !isValidTimelineDate(view.before));
+    setActiveView(view.name);
+  };
+  const deleteView = async (name: string) => {
+    try {
+      await NyaApi.deleteTimelineView(name);
+      setSavedViews((current) => current.filter((item) => item.name !== name));
+      if (activeView === name) setActiveView("");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+  const clearFilters = () => {
+    setTagFilter(""); setSourceFilter(""); setArtistFilter(""); setRatingFilter(""); setSelectedDate(""); setDateError(false); setActiveView("");
   };
   const items = useMemo(() => query.data?.pages.flatMap((page) => page.items) ?? [], [query.data]);
   const groups = useMemo(() => groupTimelineAssets(items, granularity), [items, granularity]);
 
+  const { error: queryError, hasNextPage, isFetchingNextPage, fetchNextPage } = query;
   useEffect(() => {
-    if (visible && !query.error && query.hasNextPage && !query.isFetchingNextPage) void query.fetchNextPage();
-  }, [visible, query.error, query.hasNextPage, query.isFetchingNextPage, query.fetchNextPage]);
+    if (visible && !queryError && hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [visible, queryError, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   return (
     <div className="container space-y-6 py-6">
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2"><CalendarDays className="h-5 w-5" /><h1 className="text-2xl font-semibold">{t("pages.timeline.title")}</h1></div>
-        <div className="flex flex-wrap gap-2">
-          <select aria-label={t("pages.timeline.field")} value={field} onChange={(event) => setField(event.target.value)} className="h-9 rounded-md border border-border bg-background px-3 text-sm">
-            {FIELDS.map((value) => <option key={value} value={value}>{t(`pages.files.sort.${value}`)}</option>)}
-          </select>
-          <select aria-label={t("pages.timeline.granularity")} value={granularity} onChange={(event) => setGranularity(event.target.value as "day" | "month" | "year")} className="h-9 rounded-md border border-border bg-background px-3 text-sm">
-            <option value="day">{t("pages.timeline.day")}</option><option value="month">{t("pages.timeline.month")}</option><option value="year">{t("pages.timeline.year")}</option>
-          </select>
-          <label className="flex items-center gap-2 text-sm"><span>{t("pages.timeline.beforeDate")}</span><input type="date" value={selectedDate} onChange={(event) => { const value = event.target.value; setSelectedDate(value); setDateError(Boolean(value) && !isValidTimelineDate(value)); }} className="h-9 rounded-md border border-border bg-background px-2" /></label>
-          <input aria-label={t("pages.timeline.tagFilter")} value={tagFilter} onChange={(event) => setTagFilter(event.target.value)} placeholder={t("pages.timeline.tagFilter")} className="h-9 w-32 rounded-md border border-border bg-background px-2 text-sm" />
-          <input aria-label={t("pages.timeline.sourceFilter")} value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)} placeholder={t("pages.timeline.sourceFilter")} className="h-9 w-32 rounded-md border border-border bg-background px-2 text-sm" />
-          <input aria-label={t("pages.timeline.artistFilter")} value={artistFilter} onChange={(event) => setArtistFilter(event.target.value)} placeholder={t("pages.timeline.artistFilter")} className="h-9 w-32 rounded-md border border-border bg-background px-2 text-sm" />
-          <select aria-label={t("pages.timeline.ratingFilter")} value={ratingFilter} onChange={(event) => setRatingFilter(event.target.value)} className="h-9 rounded-md border border-border bg-background px-2 text-sm"><option value="">{t("pages.timeline.ratingAll")}</option><option value="safe">safe</option><option value="r18">R18</option><option value="r18g">R18G</option></select>
-          <input aria-label={t("pages.timeline.saveView")} value={viewName} onChange={(event) => setViewName(event.target.value)} placeholder={t("pages.timeline.viewName")} className="h-9 w-32 rounded-md border border-border bg-background px-2 text-sm" />
-          <Button size="sm" variant="outline" onClick={saveView} disabled={!viewName.trim()}>{t("pages.timeline.saveView")}</Button>
-          {Object.keys(savedViews).length > 0 && <select aria-label={t("pages.timeline.loadView")} defaultValue="" onChange={(event) => event.target.value && loadView(event.target.value)} className="h-9 rounded-md border border-border bg-background px-2 text-sm"><option value="">{t("pages.timeline.loadView")}</option>{Object.keys(savedViews).map((name) => <option key={name} value={name}>{name}</option>)}</select>}
+      <header className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2"><CalendarDays className="h-5 w-5" /><h1 className="text-2xl font-semibold">{t("pages.timeline.title")}</h1></div>
+          <div className="flex flex-wrap items-center gap-2">
+            <select aria-label={t("pages.timeline.field")} value={field} onChange={(event) => setField(event.target.value)} className={controlClass}>
+              {FIELDS.map((value) => <option key={value} value={value}>{t(`pages.files.sort.${value}`)}</option>)}
+            </select>
+            <div role="radiogroup" aria-label={t("pages.timeline.granularity")} className="flex rounded-md border border-input bg-muted/40 p-0.5">
+              {(["day", "month", "year"] as TimelineGranularity[]).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="radio"
+                  aria-checked={granularity === value}
+                  onClick={() => setGranularity(value)}
+                  className={cn("h-8 rounded px-3 text-xs font-medium focus-ring", granularity === value ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground")}
+                >
+                  {t(`pages.timeline.${value}`)}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/25 p-2.5">
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            {t("pages.timeline.beforeDate")}
+            <input type="date" value={selectedDate} onChange={(event) => { const value = event.target.value; setSelectedDate(value); setDateError(Boolean(value) && !isValidTimelineDate(value)); setActiveView(""); }} className={controlClass} />
+          </label>
+          <input aria-label={t("pages.timeline.tagFilter")} value={tagFilter} onChange={(event) => { setTagFilter(event.target.value); setActiveView(""); }} placeholder={t("pages.timeline.tagFilter")} className={cn(controlClass, "w-32")} />
+          <input aria-label={t("pages.timeline.sourceFilter")} value={sourceFilter} onChange={(event) => { setSourceFilter(event.target.value); setActiveView(""); }} placeholder={t("pages.timeline.sourceFilter")} className={cn(controlClass, "w-28")} />
+          <input aria-label={t("pages.timeline.artistFilter")} value={artistFilter} onChange={(event) => { setArtistFilter(event.target.value); setActiveView(""); }} placeholder={t("pages.timeline.artistFilter")} className={cn(controlClass, "w-32")} />
+          <select aria-label={t("pages.timeline.ratingFilter")} value={ratingFilter} onChange={(event) => { setRatingFilter(event.target.value); setActiveView(""); }} className={controlClass}><option value="">{t("pages.timeline.ratingAll")}</option><option value="safe">safe</option><option value="r18">R18</option><option value="r18g">R18G</option></select>
+          {filtersActive && (
+            <Button size="sm" variant="ghost" className="h-9" onClick={clearFilters}><X className="h-4 w-4" /> {t("pages.timeline.clearFilters")}</Button>
+          )}
+          {signedIn && (
+            <div className="ml-auto flex items-center gap-2">
+              <input aria-label={t("pages.timeline.viewName")} value={viewName} onChange={(event) => setViewName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void saveView(); }} placeholder={t("pages.timeline.viewName")} maxLength={60} className={cn(controlClass, "w-32")} />
+              <Button size="sm" variant="outline" className="h-9" onClick={() => void saveView()} disabled={!viewName.trim()}><Bookmark className="h-4 w-4" /> {t("pages.timeline.saveView")}</Button>
+            </div>
+          )}
+        </div>
+        {savedViews.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">{t("pages.timeline.savedViews")}</span>
+            {savedViews.map((view) => (
+              <span key={view.name} className={cn("inline-flex h-7 items-center rounded-full border text-xs", activeView === view.name ? "border-primary/50 bg-primary/10" : "border-border bg-background")}>
+                <button type="button" onClick={() => loadView(view)} className="h-full rounded-l-full pl-3 pr-1.5 hover:text-primary focus-ring">{view.name}</button>
+                <button type="button" onClick={() => void deleteView(view.name)} aria-label={t("pages.timeline.deleteView", { name: view.name })} title={t("pages.timeline.deleteView", { name: view.name })} className="grid h-full w-6 place-items-center rounded-r-full text-muted-foreground hover:text-destructive focus-ring"><Trash2 className="h-3 w-3" /></button>
+              </span>
+            ))}
+          </div>
+        )}
       </header>
       {dateError && <p className="text-sm text-destructive">{t("pages.timeline.invalidDate")}</p>}
       {query.isPending ? <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))" }}>{Array.from({ length: 8 }).map((_, index) => <AssetCardSkeleton key={index} />)}</div> : query.error ? (
@@ -96,6 +185,26 @@ function TimelineContent() {
       <div ref={sentinel} className="flex h-16 items-center justify-center">{query.isFetchingNextPage ? <Spinner /> : !query.hasNextPage && items.length > 0 ? <span className="text-xs text-muted-foreground">{t("gallery.end")}</span> : null}</div>
     </div>
   );
+}
+
+function readLegacyViews(): TimelineView[] {
+  try {
+    const raw = window.localStorage.getItem(LEGACY_VIEWS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    return Object.entries(parsed).flatMap(([name, value]) => {
+      try {
+        const view = JSON.parse(value) as Record<string, string>;
+        const rating = ["safe", "r18", "r18g"].includes(view.ratingFilter) ? (view.ratingFilter as TimelineView["rating"]) : "";
+        const granularity = ["day", "month", "year"].includes(view.granularity) ? (view.granularity as TimelineView["granularity"]) : "day";
+        return [{ name: name.slice(0, 60), tag: view.tagFilter ?? "", source: view.sourceFilter ?? "", artist: view.artistFilter ?? "", rating, field: FIELDS.includes(view.field as (typeof FIELDS)[number]) ? view.field : "uploaded_at", granularity, before: /^\d{4}-\d{2}-\d{2}$/.test(view.selectedDate ?? "") ? view.selectedDate : "" }];
+      } catch {
+        return [];
+      }
+    });
+  } catch {
+    return [];
+  }
 }
 
 function formatDate(value: string): string {

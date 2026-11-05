@@ -311,6 +311,17 @@ export interface PixivSyncOptions {
   restrict?: string;
 }
 
+export interface TimelineView {
+  name: string;
+  tag: string;
+  source: string;
+  artist: string;
+  rating: "" | "safe" | "r18" | "r18g";
+  field: string;
+  granularity: "day" | "month" | "year";
+  before: string;
+}
+
 export type SyncTargetPlatform = "pixiv" | "x" | "fanbox" | "misskey" | "unknown";
 export type SyncTargetKind = "artwork" | "user" | "post" | "creator" | "note" | "short_link" | "invalid";
 

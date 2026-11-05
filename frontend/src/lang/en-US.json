@@ -1358,7 +1358,11 @@
       "ratingAll": "All ratings",
       "viewName": "View name",
       "saveView": "Save view",
-      "loadView": "Load view"
+      "loadView": "Load view",
+      "savedViews": "Saved views",
+      "viewSaved": "Saved view {name}",
+      "deleteView": "Delete view {name}",
+      "clearFilters": "Clear filters"
     },
     "files": {
       "collapseWorks": "Collapse pages",
