@@ -1503,6 +1503,21 @@
   "theme": {
     "toDark": "切换到深色",
     "toLight": "切换到浅色",
-    "toggle": "切换深浅色"
+    "toggle": "外观",
+    "mode": "明暗模式",
+    "palette": "主题色",
+    "modes": {
+      "light": "浅色",
+      "dark": "深色",
+      "system": "跟随系统"
+    },
+    "palettes": {
+      "glacier": "冰川青",
+      "sakura": "樱粉",
+      "violet": "堇紫",
+      "forest": "森绿",
+      "amber": "琥珀",
+      "graphite": "石墨"
+    }
   }
 }

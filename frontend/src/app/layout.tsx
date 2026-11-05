@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import "./globals.css";
 import { AppProviders } from "@/components/providers/app-providers";
 import { AppShell } from "@/components/layout/app-shell";
+import { PALETTE_BOOT_SCRIPT } from "@/lib/theme-palettes";
 
 export const metadata: Metadata = {
   title: {
@@ -36,7 +37,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script
           // Sync theme before paint to avoid a flash.
           dangerouslySetInnerHTML={{
-            __html: `(()=>{try{const k='nya.theme';const v=localStorage.getItem(k)||'system';const m=window.matchMedia('(prefers-color-scheme: dark)').matches;const dark=v==='dark'||(v==='system'&&m);document.documentElement.classList.toggle('dark',dark);}catch(e){}})()`,
+            __html: `(()=>{try{const k='nya.theme';const v=localStorage.getItem(k)||'system';const m=window.matchMedia('(prefers-color-scheme: dark)').matches;const dark=v==='dark'||(v==='system'&&m);document.documentElement.classList.toggle('dark',dark);}catch(e){}${PALETTE_BOOT_SCRIPT}})()`,
           }}
         />
       </head>

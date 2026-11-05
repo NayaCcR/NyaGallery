@@ -72,6 +72,18 @@
     --ring: 190 72% 53%;
   }
 
+  /* Colour palettes: override accent hues only; light/dark mode stays orthogonal. */
+  [data-palette="sakura"] { --primary: 340 72% 50%; --primary-foreground: 0 0% 100%; --ring: 340 72% 50%; --accent: 340 60% 95%; --secondary: 340 50% 96%; }
+  .dark[data-palette="sakura"] { --primary: 340 78% 66%; --primary-foreground: 340 40% 10%; --ring: 340 78% 66%; --accent: 340 25% 17%; --secondary: 340 22% 16%; }
+  [data-palette="violet"] { --primary: 262 60% 55%; --primary-foreground: 0 0% 100%; --ring: 262 60% 55%; --accent: 262 55% 95%; --secondary: 262 45% 96%; }
+  .dark[data-palette="violet"] { --primary: 262 75% 72%; --primary-foreground: 262 40% 10%; --ring: 262 75% 72%; --accent: 262 25% 18%; --secondary: 262 22% 16%; }
+  [data-palette="forest"] { --primary: 152 55% 32%; --primary-foreground: 0 0% 100%; --ring: 152 55% 32%; --accent: 152 35% 93%; --secondary: 152 30% 95%; }
+  .dark[data-palette="forest"] { --primary: 152 52% 52%; --primary-foreground: 152 40% 8%; --ring: 152 52% 52%; --accent: 152 20% 15%; --secondary: 152 18% 14%; }
+  [data-palette="amber"] { --primary: 30 90% 44%; --primary-foreground: 0 0% 100%; --ring: 30 90% 44%; --accent: 35 80% 94%; --secondary: 35 60% 95%; }
+  .dark[data-palette="amber"] { --primary: 35 92% 60%; --primary-foreground: 30 50% 8%; --ring: 35 92% 60%; --accent: 30 25% 16%; --secondary: 30 20% 15%; }
+  [data-palette="graphite"] { --primary: 220 12% 28%; --primary-foreground: 0 0% 100%; --ring: 220 12% 28%; --accent: 220 10% 93%; --secondary: 220 10% 95%; }
+  .dark[data-palette="graphite"] { --primary: 220 12% 82%; --primary-foreground: 220 15% 10%; --ring: 220 12% 82%; --accent: 220 10% 17%; --secondary: 220 10% 15%; }
+
   * {
     @apply border-border;
   }

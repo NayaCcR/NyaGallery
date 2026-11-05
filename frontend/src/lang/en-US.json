@@ -1503,6 +1503,21 @@
   "theme": {
     "toDark": "Switch to dark mode",
     "toLight": "Switch to light mode",
-    "toggle": "Toggle color theme"
+    "toggle": "Appearance",
+    "mode": "Mode",
+    "palette": "Accent",
+    "modes": {
+      "light": "Light",
+      "dark": "Dark",
+      "system": "System"
+    },
+    "palettes": {
+      "glacier": "Glacier",
+      "sakura": "Sakura",
+      "violet": "Violet",
+      "forest": "Forest",
+      "amber": "Amber",
+      "graphite": "Graphite"
+    }
   }
 }
