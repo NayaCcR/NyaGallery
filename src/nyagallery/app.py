@@ -1556,24 +1556,6 @@ def create_app(
         row.revoked_at = datetime.now(timezone.utc); db.commit()
         return {"id": row.id, "revoked": True}
 
-    @app.get("/api/share/{token}")
-    def api_share_metadata(token: str, request: Request, db: DbSession, password: str | None = None) -> dict[str, object]:
-        row = _share_link_by_token(db, token)
-        asset = _get_asset(db, row.asset_key)
-        _validate_share_access(row, asset, password)
-        _record_share_access(db, row, request, "metadata")
-        return {"asset": _asset_response(storage, asset, catalog), "preview_url": f"/api/share/{token}/preview", "original_url": f"/api/share/{token}/original"}
-
-    @app.get("/api/share/{token}/preview")
-    def api_share_preview(token: str, request: Request, db: DbSession, password: str | None = None) -> FileResponse:
-        row = _share_link_by_token(db, token); asset = _get_asset(db, row.asset_key); _validate_share_access(row, asset, password)
-        _record_share_access(db, row, request, "preview"); return _file_response(storage, asset, "preview")
-
-    @app.get("/api/share/{token}/original")
-    def api_share_original(token: str, request: Request, db: DbSession, password: str | None = None) -> FileResponse:
-        row = _share_link_by_token(db, token); asset = _get_asset(db, row.asset_key); _validate_share_access(row, asset, password)
-        _record_share_access(db, row, request, "original"); return _file_response(storage, asset, "original")
-
     @app.get("/api/assets/{asset_key}")
     def api_asset(asset_key: str, db: DbSession, principal: ViewPrincipal) -> dict[str, object]:
         asset = _get_asset(db, asset_key)
@@ -2004,6 +1986,25 @@ def create_app(
         db.execute(delete(ShareAlbumGroupModel).where(ShareAlbumGroupModel.album_id == album.id, ShareAlbumGroupModel.group_id == group_id))
         db.commit()
         return {"album_id": album.id, "group_id": group_id, "deleted": True}
+
+    # Registered after the /api/share/albums* routes: {token} would otherwise capture "albums".
+    @app.get("/api/share/{token}")
+    def api_share_metadata(token: str, request: Request, db: DbSession, password: str | None = None) -> dict[str, object]:
+        row = _share_link_by_token(db, token)
+        asset = _get_asset(db, row.asset_key)
+        _validate_share_access(row, asset, password)
+        _record_share_access(db, row, request, "metadata")
+        return {"asset": _asset_response(storage, asset, catalog), "preview_url": f"/api/share/{token}/preview", "original_url": f"/api/share/{token}/original"}
+
+    @app.get("/api/share/{token}/preview")
+    def api_share_preview(token: str, request: Request, db: DbSession, password: str | None = None) -> FileResponse:
+        row = _share_link_by_token(db, token); asset = _get_asset(db, row.asset_key); _validate_share_access(row, asset, password)
+        _record_share_access(db, row, request, "preview"); return _file_response(storage, asset, "preview")
+
+    @app.get("/api/share/{token}/original")
+    def api_share_original(token: str, request: Request, db: DbSession, password: str | None = None) -> FileResponse:
+        row = _share_link_by_token(db, token); asset = _get_asset(db, row.asset_key); _validate_share_access(row, asset, password)
+        _record_share_access(db, row, request, "original"); return _file_response(storage, asset, "original")
 
     @app.get("/api/access/invitations")
     def api_my_share_group_invitations(db: DbSession, principal: ViewPrincipal) -> dict[str, object]:
