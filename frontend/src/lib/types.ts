@@ -298,6 +298,7 @@ export interface PixivSyncOptions {
   pixiv_cookie_id?: number | null;
   storage_strategy?: string | null;
   public_first?: boolean;
+  make_public?: boolean;
   rebuild_db?: boolean;
   generate_cache?: boolean;
   limit?: number | null;
@@ -308,6 +309,41 @@ export interface PixivSyncOptions {
   concurrency?: number;
   dry_run?: boolean;
   restrict?: string;
+}
+
+export type SyncTargetPlatform = "pixiv" | "x" | "fanbox" | "misskey" | "unknown";
+export type SyncTargetKind = "artwork" | "user" | "post" | "creator" | "note" | "short_link" | "invalid";
+
+export interface SyncTarget {
+  input: string;
+  platform: SyncTargetPlatform;
+  kind: SyncTargetKind;
+  value: string;
+  host: string;
+  error: string;
+}
+
+export interface SyncResolveResponse {
+  items: SyncTarget[];
+  groups: Record<string, number>;
+  valid: number;
+  invalid: number;
+  truncated: boolean;
+}
+
+export interface PixivPreviewItem {
+  pixiv_id: string;
+  title?: string;
+  artist_id?: string;
+  artist_name?: string;
+  page_count?: number;
+  tags?: string[];
+  age_rating?: string | null;
+  is_ai_generated?: boolean | null;
+  artwork_date?: string | null;
+  thumbnail_url?: string | null;
+  already_archived?: boolean;
+  error?: string;
 }
 
 export interface PixivSyncResponse {

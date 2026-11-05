@@ -3,29 +3,18 @@
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
-  Activity,
-  ArrowRightLeft,
-  AtSign,
-  BadgeDollarSign,
   CalendarDays,
-  Database,
-  Globe2,
-  Hash,
   HelpCircle,
   Images,
-  LayoutDashboard,
   MessageSquareText,
   Search,
   Settings,
-  Settings2,
-  Shield,
   Sparkles,
-  Tags,
   Upload,
-  UserCog,
   UsersRound,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { ADMIN_SECTION_ICONS } from "@/lib/admin-section-icons";
 import { SidebarShell } from "@/components/layout/sidebar-shell";
 import { TopbarShell } from "@/components/layout/topbar-shell";
 import { useAuth } from "@/components/providers/auth-provider";
@@ -66,22 +55,6 @@ const PRIVATE_NAV: NavDef[] = [
   { href: "/upload", labelKey: "nav.upload", icon: Upload },
   { href: "/admin", labelKey: "nav.admin", icon: Settings },
 ];
-
-const ADMIN_SECTION_ICONS: Record<AdminSection, LucideIcon> = {
-  dashboard: LayoutDashboard,
-  pixiv: Globe2,
-  misskey: AtSign,
-  x: Hash,
-  fanbox: BadgeDollarSign,
-  operations: Activity,
-  security: Shield,
-  tags: Tags,
-  maintenance: Database,
-  accounts: UserCog,
-  access: UsersRound,
-  migration: ArrowRightLeft,
-  developer: Settings2,
-};
 
 const ADMIN_NAV: NavDef[] = ADMIN_SECTION_ORDER.map((section) => ({
   section,

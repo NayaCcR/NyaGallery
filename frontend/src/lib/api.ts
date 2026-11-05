@@ -67,6 +67,8 @@ import type { ApiTokenSummary,
   EntityTimelineResponse,
   TranscodeJobResponse,
   BulkTranscodeRetryResponse,
+  PixivPreviewItem,
+  SyncResolveResponse,
   BulkVisibilityResponse,
   TranscodeJob,
   UploadHistoryResponse,
@@ -494,6 +496,12 @@ export const NyaApi = {
 
   pixivOAuthVisibleStatus: (sessionId: string) =>
     api<PixivOAuthVisibleSession>(`/api/sync/pixiv/oauth/visible/${encodeURIComponent(sessionId)}`),
+
+  resolveSyncTargets: (text: string) =>
+    api<SyncResolveResponse>("/api/sync/resolve", { method: "POST", body: { text } }),
+
+  previewPixiv: (pids: string[], options: PixivSyncOptions = {}) =>
+    api<{ items: PixivPreviewItem[] }>("/api/sync/pixiv/preview", { method: "POST", body: { pids, options } }),
 
   syncPixivPid: (pid: string, options: PixivSyncOptions = {}) =>
     api<PixivSyncResponse>(

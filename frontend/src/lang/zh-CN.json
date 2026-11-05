@@ -218,6 +218,49 @@
       "dateRange": "日期",
       "transcodeRecentHint": "仅筛选最近加载的 {count} 条任务"
     },
+    "syncCenter": {
+      "title": "粘贴链接，一次抓取",
+      "description": "支持 Pixiv / X / FANBOX / Misskey 的作品、用户、帖子链接和 ID，可混合粘贴。凭据与抓取参数沿用各平台页面的设置。",
+      "resolve": "识别链接",
+      "resolveHint": "Ctrl+Enter 也可识别；只做本地解析，不会访问外部网站。",
+      "resultTitle": "识别结果：{valid} 个可抓取，{invalid} 个无法识别",
+      "previewPixiv": "预览 Pixiv（{count}）",
+      "syncSelected": "抓取所选（{count}）",
+      "selectAll": "全选可抓取项",
+      "truncated": "一次最多处理 500 条，超出部分已忽略。",
+      "progress": "进度：完成 {done}，失败 {failed}，共 {total}",
+      "settingsHint": "凭据、储存策略、是否设为公开等选项在各平台页面里设置，这里会直接沿用。",
+      "archived": "已在图库",
+      "pages": "{count} 页",
+      "openSection": "平台设置",
+      "platformDisabled": "当前账号没有该平台的抓取权限",
+      "unsupportedKind": "该类型暂不支持在抓取中心抓取，请到对应平台页面操作",
+      "platforms": {
+        "pixiv": "Pixiv",
+        "x": "X",
+        "fanbox": "FANBOX",
+        "misskey": "Misskey",
+        "unknown": "未知"
+      },
+      "kinds": {
+        "artwork": "作品",
+        "user": "用户",
+        "post": "帖子",
+        "creator": "创作者",
+        "note": "帖子",
+        "short_link": "短链",
+        "invalid": "无法识别"
+      },
+      "errors": {
+        "unrecognized": "无法识别的内容",
+        "short_link": "短链需要先在浏览器打开，复制跳转后的完整链接",
+        "unsupported_pixiv_link": "不支持的 Pixiv 链接",
+        "unsupported_x_link": "不支持的 X 链接",
+        "unsupported_fanbox_link": "不支持的 FANBOX 链接",
+        "unsupported_misskey_link": "不支持的 Misskey 链接",
+        "unsupported_site": "暂不支持该网站"
+      }
+    },
     "syncLogs": {
       "selectAll": "全选记录",
       "selectLog": "选择抓取记录 #{id}",
@@ -278,6 +321,7 @@
       "accounts": "账户",
       "access": "访问控制",
       "dashboard": "仪表盘",
+      "sync": "抓取中心",
       "developer": "开发者",
       "maintenance": "维护",
       "migration": "迁移",
@@ -293,6 +337,7 @@
         "access": "分享组、角色权限组和保存的虚拟文件夹查询。",
         "fanbox": "FANBOX 归档：按作者或链接抓取，图片和附件入图库，正文与互动数据进帖子；会话可用 Pixiv cookie 换取。",
         "dashboard": "按角色汇总当前可用的管理入口。",
+        "sync": "粘贴任意平台链接，自动识别、预览并批量抓取。",
         "developer": "后端配置编辑、节点状态和开发者白名单维护动作。",
         "maintenance": "数据库重建、媒体缓存生成和云储存配置。",
         "migration": "选择元数据主模式，并查看带备份的转换与导入命令。",

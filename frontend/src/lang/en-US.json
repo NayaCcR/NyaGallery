@@ -218,6 +218,49 @@
       "dateRange": "Date",
       "transcodeRecentHint": "Filters only the {count} most recently loaded jobs"
     },
+    "syncCenter": {
+      "title": "Paste links, sync in one go",
+      "description": "Accepts Pixiv / X / FANBOX / Misskey artwork, user and post links or ids, mixed freely. Credentials and fetch options come from each platform's section.",
+      "resolve": "Detect links",
+      "resolveHint": "Ctrl+Enter also works. Parsing is local; no external site is contacted.",
+      "resultTitle": "Detected: {valid} syncable, {invalid} unrecognized",
+      "previewPixiv": "Preview Pixiv ({count})",
+      "syncSelected": "Sync selected ({count})",
+      "selectAll": "Select all syncable",
+      "truncated": "At most 500 entries are handled at once; the rest were ignored.",
+      "progress": "Progress: {done} done, {failed} failed, {total} total",
+      "settingsHint": "Credentials, storage strategy, make-public and other options are set on each platform's page and reused here.",
+      "archived": "Already archived",
+      "pages": "{count} pages",
+      "openSection": "Platform settings",
+      "platformDisabled": "Your role cannot sync from this platform",
+      "unsupportedKind": "This kind cannot be synced from the sync center yet; use the platform page",
+      "platforms": {
+        "pixiv": "Pixiv",
+        "x": "X",
+        "fanbox": "FANBOX",
+        "misskey": "Misskey",
+        "unknown": "Unknown"
+      },
+      "kinds": {
+        "artwork": "Artwork",
+        "user": "User",
+        "post": "Post",
+        "creator": "Creator",
+        "note": "Note",
+        "short_link": "Short link",
+        "invalid": "Unrecognized"
+      },
+      "errors": {
+        "unrecognized": "Unrecognized input",
+        "short_link": "Open the short link in a browser and paste the full URL it redirects to",
+        "unsupported_pixiv_link": "Unsupported Pixiv link",
+        "unsupported_x_link": "Unsupported X link",
+        "unsupported_fanbox_link": "Unsupported FANBOX link",
+        "unsupported_misskey_link": "Unsupported Misskey link",
+        "unsupported_site": "This site is not supported yet"
+      }
+    },
     "syncLogs": {
       "selectAll": "Select all",
       "selectLog": "Select sync log #{id}",
@@ -278,6 +321,7 @@
       "accounts": "Accounts",
       "access": "Access Control",
       "dashboard": "Dashboard",
+      "sync": "Sync center",
       "developer": "Developer",
       "maintenance": "Maintenance",
       "migration": "Migration",
@@ -293,6 +337,7 @@
         "access": "Share groups, role permission groups, and saved virtual-folder queries.",
         "fanbox": "FANBOX archiving by creator or link. Images and attachments join the gallery; body and engagement become posts. Sessions can be derived from a Pixiv cookie.",
         "dashboard": "Role-aware summary of available admin entries.",
+        "sync": "Paste links from any platform to detect, preview and sync them in bulk.",
         "developer": "Backend config editing, node status, and developer maintenance actions.",
         "maintenance": "Database rebuilds, media cache generation, and cloud storage settings.",
         "migration": "Select the metadata primary and review backed-up conversion/import commands.",

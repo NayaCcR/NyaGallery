@@ -5,22 +5,11 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  Activity,
-  ArrowRightLeft,
-  AtSign,
-  BadgeDollarSign,
   ChevronRight,
   Database,
-  Globe2,
-  Hash,
-  KeyRound,
-  LayoutDashboard,
-  Shield,
-  Settings2,
-  Tags,
-  UsersRound,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { ADMIN_SECTION_ICONS } from "@/lib/admin-section-icons";
 import { Button } from "@/components/ui/button";
 import { AdminAccountsPanel } from "@/components/admin/admin-accounts-panel";
 import { AdminDeveloperPanel } from "@/components/admin/admin-developer-panel";
@@ -30,6 +19,7 @@ import { AdminXPanel } from "@/components/admin/admin-x-panel";
 import { AdminFanboxPanel } from "@/components/admin/admin-fanbox-panel";
 import { AdminOperationsPanel } from "@/components/admin/admin-operations-panel";
 import { AdminPixivPanel } from "@/components/admin/admin-pixiv-panel";
+import { AdminSyncCenterPanel } from "@/components/admin/admin-sync-center-panel";
 import type { SyncBulkAction } from "@/components/admin/admin-sync-log-list";
 import { AdminSecurityPanel } from "@/components/admin/admin-security-panel";
 import { AdminRegistrationPanel } from "@/components/admin/admin-registration-panel";
@@ -63,7 +53,7 @@ import { useAdminSyncLogs } from "@/hooks/admin/use-admin-sync-logs";
 import { useAdminSecurity } from "@/hooks/admin/use-admin-security";
 import { useAdminTags } from "@/hooks/admin/use-admin-tags";
 import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
-import type { PixivAuthMode, PixivSyncResponse, Role } from "@/lib/types";
+import type { PixivAuthMode, PixivSyncOptions, PixivSyncResponse, Role, SyncTarget } from "@/lib/types";
 
 const PIXIV_AUTH_MODE_KEY = "nya.admin.pixivAuthMode";
 const PIXIV_AUTH_MODES: PixivAuthMode[] = ["public", "oauth_local", "oauth", "oauth_manual", "refresh_token", "cookie", "local_import"];
@@ -71,22 +61,6 @@ import { countPixivResults, parsePixivTargets, resolvePixivSyncKind, runPixivTar
 
 type PixivMode = "pid" | "user";
 type PixivSourceMode = "artist_works" | "bookmarks" | "following" | "search_tag" | "ranking";
-
-const ADMIN_SECTION_ICONS: Record<AdminSection, LucideIcon> = {
-  dashboard: LayoutDashboard,
-  pixiv: Globe2,
-  misskey: AtSign,
-  x: Hash,
-  fanbox: BadgeDollarSign,
-  operations: Activity,
-  security: Shield,
-  tags: Tags,
-  maintenance: Database,
-  accounts: KeyRound,
-  access: UsersRound,
-  migration: ArrowRightLeft,
-  developer: Settings2,
-};
 
 export default function AdminPage() {
   const router = useRouter();
@@ -524,6 +498,31 @@ export default function AdminPage() {
     await refreshOperations(false);
   }
 
+  /** Pixiv request options from the Pixiv section's remembered auth / fetch settings (shared with the sync center). */
+  function buildPixivOptions(kind: "pid" | "user" | "bookmarks" = "pid"): PixivSyncOptions {
+    const auth_mode = pixivAuthMode;
+    return {
+      auth_mode,
+      refresh_token: pixivSavedTokenId ? undefined : pixivRefreshToken.trim() || undefined,
+      pixiv_token_id: pixivSavedTokenId || undefined,
+      cookie: auth_mode === "cookie" && !pixivSavedCookieId ? pixivCookie.trim() : undefined,
+      pixiv_cookie_id: auth_mode === "cookie" ? pixivSavedCookieId || undefined : undefined,
+      storage_strategy: pixivStorageStrategy,
+      public_first: pixivPublicFirst,
+      make_public: pixivMakePublic,
+      rebuild_db: pixivRebuildDb,
+      generate_cache: pixivGenerateCache,
+      limit: kind !== "pid" ? pixivLimit : undefined,
+      request_delay_seconds: pixivDelay,
+      max_retries: pixivMaxRetries,
+      retry_base_seconds: pixivRetryBase,
+      retry_max_seconds: pixivRetryMax,
+      concurrency: pixivConcurrency,
+      dry_run: pixivDryRun,
+      restrict: kind === "bookmarks" ? pixivRestrict : undefined,
+    };
+  }
+
   async function syncPixiv(retryTarget?: string, retryKind?: string) {
     if (busy === "pixiv") return;
     const kind = resolvePixivSyncKind(pixivMode, pixivSourceMode, retryKind);
@@ -549,26 +548,7 @@ export default function AdminPage() {
       toast.error(t("admin.page.tokenRequired"));
       return;
     }
-    const options = {
-      auth_mode,
-      refresh_token: pixivSavedTokenId ? undefined : pixivRefreshToken.trim() || undefined,
-      pixiv_token_id: pixivSavedTokenId || undefined,
-      cookie: auth_mode === "cookie" && !pixivSavedCookieId ? pixivCookie.trim() : undefined,
-      pixiv_cookie_id: auth_mode === "cookie" ? pixivSavedCookieId || undefined : undefined,
-      storage_strategy: pixivStorageStrategy,
-      public_first: pixivPublicFirst,
-      make_public: pixivMakePublic,
-      rebuild_db: pixivRebuildDb,
-      generate_cache: pixivGenerateCache,
-      limit: kind !== "pid" ? pixivLimit : undefined,
-      request_delay_seconds: pixivDelay,
-      max_retries: pixivMaxRetries,
-      retry_base_seconds: pixivRetryBase,
-      retry_max_seconds: pixivRetryMax,
-      concurrency: pixivConcurrency,
-      dry_run: pixivDryRun,
-      restrict: kind === "bookmarks" ? pixivRestrict : undefined,
-    };
+    const options = buildPixivOptions(kind);
     const describeResponse = (response: PixivSyncResponse) => pixivDryRun
       ? t("admin.page.dryRunDone", { count: response.preview?.length ?? 0 })
       : response.status === "queued"
@@ -705,6 +685,43 @@ export default function AdminPage() {
     }
   }
 
+  /** Sync-center dispatcher: one target at a time, using each platform section's remembered options. */
+  async function dispatchSyncTarget(target: SyncTarget): Promise<string> {
+    const describe = (response: { status?: string; sync_job_id?: string | null; sync?: unknown[]; jobs?: unknown[]; preview?: unknown[] | null }, dryRun: boolean) =>
+      dryRun
+        ? t("admin.page.dryRunDone", { count: response.preview?.length ?? 0 })
+        : response.status === "queued"
+          ? t("admin.page.queued", { id: response.sync_job_id ?? "queued" })
+          : t("admin.page.syncDone", { files: response.sync?.length ?? 0, jobs: response.jobs?.length ?? 0 });
+    if (target.platform === "pixiv") {
+      const options = buildPixivOptions(target.kind === "user" ? "user" : "pid");
+      const response = target.kind === "user" ? await NyaApi.syncPixivUser(target.value, options) : await NyaApi.syncPixivPid(target.value, options);
+      return describe(response, Boolean(options.dry_run));
+    }
+    if (target.platform === "x") {
+      const options = x.buildOptions();
+      const response = target.kind === "user" ? await NyaApi.syncXUser(target.value, options) : await NyaApi.syncXPosts([target.value], options);
+      return describe(response, Boolean(options.dry_run));
+    }
+    if (target.platform === "fanbox") {
+      const options = fanbox.buildOptions();
+      const response = target.kind === "creator" ? await NyaApi.syncFanboxCreator(target.value, options) : await NyaApi.syncFanboxPosts([target.value], options);
+      return describe(response, Boolean(options.dry_run));
+    }
+    if (target.platform === "misskey" && target.kind === "user") {
+      const options = { ...misskey.buildOptions(), host: target.host || misskey.buildOptions().host };
+      const response = await NyaApi.syncMisskeyUser(target.value, options);
+      return describe(response, Boolean(options.dry_run));
+    }
+    throw new Error(t("admin.syncCenter.unsupportedKind"));
+  }
+
+  async function afterSyncCenterRun() {
+    qc.invalidateQueries({ queryKey: ["search"] });
+    qc.invalidateQueries({ queryKey: ["posts"] });
+    await Promise.all([refreshPixivLogs(false), refreshMisskeyLogs(false), refreshXLogs(false), refreshFanboxLogs(false), refreshOperations(false)]);
+  }
+
   return (
     <div className="container max-w-6xl space-y-6 py-10">
       <header className="flex items-center gap-3">
@@ -724,6 +741,14 @@ export default function AdminPage() {
           <AdminDashboard role={me?.role ?? "guest"} sections={allowedSections} />
         )}
 
+        {activeSection === "sync" && (
+          <AdminSyncCenterPanel
+            dispatch={dispatchSyncTarget}
+            enabledPlatforms={{ pixiv: canPixivSync, x: canXSync, fanbox: canFanboxSync, misskey: canMisskeySync }}
+            onFinished={afterSyncCenterRun}
+            previewOptions={buildPixivOptions("pid")}
+          />
+        )}
         {activeSection === "pixiv" && canPixivSync && (
           <AdminPixivPanel
             isAdmin={isAdmin}

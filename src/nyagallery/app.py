@@ -17,7 +17,7 @@ import secrets
 import threading
 import time
 from typing import Annotated, Any
-from urllib.parse import quote, unquote
+from urllib.parse import quote, unquote, urlparse
 import zipfile
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
@@ -219,6 +219,7 @@ from nyagallery.fanbox import (
     exchange_pixiv_cookie_for_fanbox_session,
     normalize_creator_id,
 )
+from nyagallery.sync_targets import resolve_targets as resolve_sync_targets
 from nyagallery.x import (
     X_DEFAULT_HOST,
     XBatchResult,
@@ -443,6 +444,19 @@ class PixivSyncRequest(BaseModel):
     concurrency: int = Field(default=1, ge=1, le=3)
     dry_run: bool = False
     restrict: str = "public"
+
+
+PIXIV_PREVIEW_LIMIT = 30
+
+
+class SyncResolveRequest(BaseModel):
+    text: str = Field(default="", max_length=200_000)
+    default_platform: str = Field(default="pixiv", pattern="^(pixiv|fanbox)$")
+
+
+class PixivPreviewRequest(BaseModel):
+    pids: list[str] = Field(min_length=1, max_length=200)
+    options: PixivSyncRequest = Field(default_factory=PixivSyncRequest)
 
 
 class MisskeyTokenCreate(BaseModel):
@@ -3390,6 +3404,71 @@ def create_app(
             "source": "pixiv_cookie_oauth",
         }
 
+    @app.post("/api/sync/resolve")
+    def api_sync_resolve(payload: SyncResolveRequest, _principal: UploadPrincipal) -> dict[str, object]:
+        """Classify pasted links / ids into per-platform targets. Pure parsing, no network access."""
+        return resolve_sync_targets(payload.text, default_platform=payload.default_platform)
+
+    @app.post("/api/sync/pixiv/preview")
+    def api_sync_pixiv_preview(
+        payload: PixivPreviewRequest,
+        db: DbSession,
+        principal: UploadPrincipal,
+        http_request: Request,
+    ) -> dict[str, object]:
+        """Fetch Pixiv artwork metadata without downloading or writing anything (no log row either)."""
+        request = payload.options
+        pids = list(dict.fromkeys(pid.strip() for pid in payload.pids if pid.strip().isdigit()))[:PIXIV_PREVIEW_LIMIT]
+        if not pids:
+            raise HTTPException(status_code=422, detail="no valid pixiv ids")
+        try:
+            _apply_pixiv_proxy_config(request, http_request.app.state.nyagallery.config)
+            _resolve_saved_pixiv_token(request, db, principal, http_request)
+            _resolve_saved_pixiv_cookie(request, db, principal, http_request)
+            client, _downloader = _pixiv_sync_components(request)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        existing = {
+            row[0]
+            for row in db.execute(
+                select(AssetModel.source_id).where(AssetModel.source == "pixiv", AssetModel.source_id.in_(pids)).distinct()
+            )
+        }
+        items: list[dict[str, object]] = []
+        for pid in pids:
+            try:
+                artwork = client.get_illust(pid)
+            except PixivRateLimitError as exc:
+                items.append({"pixiv_id": pid, "error": f"rate limited; retry after {exc.retry_after_seconds or request.retry_base_seconds}s"})
+                break
+            except Exception as exc:  # one bad id must not hide the others
+                items.append({"pixiv_id": pid, "error": _clip_log_text(str(exc) or exc.__class__.__name__, 300)})
+                continue
+            preview = _pixiv_artwork_preview(artwork)
+            preview["already_archived"] = pid in existing
+            items.append(preview)
+            if request.request_delay_seconds:
+                time.sleep(min(request.request_delay_seconds, 5.0))
+        return {"items": items}
+
+    @app.get("/api/sync/pixiv/thumb")
+    def api_sync_pixiv_thumb(url: str, _principal: UploadPrincipal, http_request: Request) -> Response:
+        """Referer-bearing proxy for preview thumbnails. Only i.pximg.net is allowed (no open proxy)."""
+        thumb_url = _pixiv_thumb_url(url)
+        if thumb_url is None:
+            raise HTTPException(status_code=400, detail="unsupported thumbnail url")
+        request = PixivSyncRequest()
+        _apply_pixiv_proxy_config(request, http_request.app.state.nyagallery.config)
+        options = _pixiv_request_options(request)
+        try:
+            content = HTTPPixivDownloader(options=replace(options, max_retries=0, request_delay_seconds=0)).download(thumb_url)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail="thumbnail fetch failed") from exc
+        if len(content) > 4 * 1024 * 1024:
+            raise HTTPException(status_code=502, detail="thumbnail too large")
+        media_type = "image/png" if thumb_url.endswith(".png") else "image/jpeg"
+        return Response(content=content, media_type=media_type, headers={"Cache-Control": "private, max-age=3600"})
+
     @app.post("/api/sync/pixiv/{pid}")
     def api_sync_pixiv_pid(
         pid: str,
@@ -5396,7 +5475,28 @@ def _pixiv_artwork_preview(artwork) -> dict[str, object]:
         "is_ai_generated": artwork.is_ai_generated,
         "artwork_date": artwork.artwork_date,
         "pixiv_upload_date": artwork.pixiv_upload_date,
+        "thumbnail_url": f"/api/sync/pixiv/thumb?url={quote(artwork.pages[0].original_url, safe='')}" if artwork.pages else None,
     }
+
+
+_PIXIV_ORIGINAL_RE = re.compile(r"^/img-original/img/(?P<date>(?:\d+/){6})(?P<name>\d+(?:-[0-9a-f]{8,64})?_p\d+)(?:_ugoira0)?\.(?:jpg|jpeg|png|gif)$")
+_PIXIV_MASTER_RE = re.compile(r"^/(?:c/[0-9x_]+/)?img-master/img/(?:\d+/){6}\d+(?:-[0-9a-f]{8,64})?_p\d+(?:_master1200|_square1200)\.jpg$")
+
+
+def _pixiv_thumb_url(raw: str) -> str | None:
+    """Map an i.pximg.net original/master URL to the 540px master JPEG; reject anything else."""
+    try:
+        parsed = urlparse(unquote(raw))
+    except ValueError:
+        return None
+    if parsed.scheme != "https" or parsed.hostname != "i.pximg.net" or parsed.username or parsed.port or parsed.query:
+        return None
+    original = _PIXIV_ORIGINAL_RE.match(parsed.path)
+    if original:
+        return f"https://i.pximg.net/c/540x540_70/img-master/img/{original.group('date')}{original.group('name')}_master1200.jpg"
+    if _PIXIV_MASTER_RE.match(parsed.path):
+        return f"https://i.pximg.net{parsed.path}"
+    return None
 
 
 def _fanbox_batch_targets(targets: list[str]) -> list[str]:

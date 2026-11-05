@@ -2,6 +2,7 @@ import type { Role } from "@/lib/types";
 
 export type AdminSection =
   | "dashboard"
+  | "sync"
   | "pixiv"
   | "misskey"
   | "x"
@@ -17,6 +18,7 @@ export type AdminSection =
 
 export const ADMIN_SECTION_ORDER: AdminSection[] = [
   "dashboard",
+  "sync",
   "pixiv",
   "misskey",
   "x",
@@ -33,6 +35,7 @@ export const ADMIN_SECTION_ORDER: AdminSection[] = [
 
 const ADMIN_SECTION_ROLES: Record<AdminSection, Role[]> = {
   dashboard: ["viewer", "editor", "admin", "developer"],
+  sync: ["editor", "admin", "developer"],
   pixiv: ["editor", "admin", "developer"],
   misskey: ["editor", "admin", "developer"],
   x: ["editor", "admin", "developer"],
