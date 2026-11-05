@@ -8,6 +8,9 @@
       "readFailed": "Failed to update notification state",
       "unread": "{count} unread",
       "openAdmin": "Admin",
+      "preferences": "Notification settings",
+      "prefMention": "Someone @-mentions me in a comment",
+      "prefLike": "Someone likes my asset",
       "kinds": {
         "asset_like": "Your asset was liked",
         "comment_mention": "You were mentioned in an asset comment"

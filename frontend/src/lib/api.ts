@@ -70,6 +70,7 @@ import type { ApiTokenSummary,
   PixivPreviewItem,
   SyncResolveResponse,
   TimelineView,
+  NotificationPreferences,
   BulkVisibilityResponse,
   TranscodeJob,
   UploadHistoryResponse,
@@ -283,6 +284,9 @@ export const NyaApi = {
   userPreferences: () => api<{ fit_mode: "fit" | "fill"; show_sensitive: boolean; show_ai: boolean }>("/api/user-preferences"),
   updateUserPreferences: (payload: { fit_mode: "fit" | "fill"; show_sensitive: boolean; show_ai: boolean }) => api<{ fit_mode: "fit" | "fill"; show_sensitive: boolean; show_ai: boolean }>("/api/user-preferences", { method: "PUT", body: payload }),
   notifications: (unreadOnly = false) => api<NotificationsResponse>(`/api/notifications?unread_only=${unreadOnly}`),
+  notificationPreferences: () => api<NotificationPreferences>("/api/notification-preferences"),
+  updateNotificationPreferences: (payload: NotificationPreferences) =>
+    api<NotificationPreferences>("/api/notification-preferences", { method: "PUT", body: payload }),
   markNotificationsRead: (notification_ids: number[] = []) => api<{ marked: number }>("/api/notifications/read", { method: "POST", body: { notification_ids } }),
   createShareLink: (assetKey: string, payload: { is_public?: boolean; password?: string; expires_at?: string }) =>
     api<{ id: number; token: string; asset_key: string; is_public: boolean; expires_at: string | null }>(`/api/assets/${encodeURIComponent(assetKey)}/share-links`, { method: "POST", body: payload }),

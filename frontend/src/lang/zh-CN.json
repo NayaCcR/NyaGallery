@@ -8,6 +8,9 @@
       "readFailed": "通知状态更新失败",
       "unread": "{count} 条未读",
       "openAdmin": "管理后台",
+      "preferences": "通知设置",
+      "prefMention": "有人在评论里 @ 我",
+      "prefLike": "我的作品被点赞",
       "kinds": {
         "asset_like": "你的作品收到了一个赞",
         "comment_mention": "有人在作品评论里提到了你"

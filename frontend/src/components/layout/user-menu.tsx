@@ -2,20 +2,35 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { Bell, CheckCheck, LogIn, LogOut, Settings, User } from "lucide-react";
+import { Bell, CheckCheck, LogIn, LogOut, Settings, SlidersHorizontal, User } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useI18n } from "@/components/providers/locale-provider";
 import { localizedNotification, notificationHref, useNotifications } from "@/components/providers/notifications-provider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { NotificationItem } from "@/lib/types";
+import { NyaApi } from "@/lib/api";
+import type { NotificationItem, NotificationPreferences } from "@/lib/types";
 
 export function UserMenu() {
   const { token, logout, ready, me } = useAuth();
   const { t } = useI18n();
   const { items, unread, markAllRead, markRead, refresh } = useNotifications();
   const [open, setOpen] = useState(false);
+  const [showPrefs, setShowPrefs] = useState(false);
+  const [prefs, setPrefs] = useState<NotificationPreferences | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showPrefs || prefs) return;
+    NyaApi.notificationPreferences().then(setPrefs).catch(() => undefined);
+  }, [showPrefs, prefs]);
+
+  const updatePref = (key: keyof NotificationPreferences, value: boolean) => {
+    if (!prefs) return;
+    const next = { ...prefs, [key]: value };
+    setPrefs(next);
+    NyaApi.updateNotificationPreferences(next).catch(() => setPrefs(prefs));
+  };
 
   // Close on outside click or Escape instead of on mouse-leave, so the menu is usable.
   useEffect(() => {
@@ -99,6 +114,17 @@ export function UserMenu() {
               <Bell className="h-3.5 w-3.5" /> {t("admin.notifications.title")}
               {unread > 0 && <span className="rounded-full bg-destructive/10 px-1.5 text-[10px] text-destructive">{unread}</span>}
             </span>
+            <span className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setShowPrefs((value) => !value)}
+              aria-expanded={showPrefs}
+              aria-label={t("admin.notifications.preferences")}
+              title={t("admin.notifications.preferences")}
+              className={cn("grid h-6 w-6 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-ring", showPrefs && "bg-muted text-foreground")}
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+            </button>
             <button
               type="button"
               disabled={unread === 0}
@@ -107,7 +133,20 @@ export function UserMenu() {
             >
               <CheckCheck className="h-3.5 w-3.5" /> {t("admin.notifications.markAllRead")}
             </button>
+            </span>
           </div>
+          {showPrefs && (
+            <div className="mx-3 mb-2 space-y-1.5 rounded-md border border-border bg-muted/30 p-2.5 text-xs">
+              {prefs ? (
+                <>
+                  <PrefToggle label={t("admin.notifications.prefMention")} checked={prefs.mention_enabled} onChange={(value) => updatePref("mention_enabled", value)} />
+                  <PrefToggle label={t("admin.notifications.prefLike")} checked={prefs.like_enabled} onChange={(value) => updatePref("like_enabled", value)} />
+                </>
+              ) : (
+                <span className="text-muted-foreground">…</span>
+              )}
+            </div>
+          )}
           <div className="max-h-80 overflow-y-auto px-2 pb-2">
             {items.length === 0 ? (
               <p className="px-2 py-6 text-center text-xs text-muted-foreground">{t("admin.notifications.empty")}</p>
@@ -188,4 +227,13 @@ function formatRelative(value: string): string {
   if (diff < 86400) return rtf.format(-Math.round(diff / 3600), "hour");
   if (diff < 86400 * 7) return rtf.format(-Math.round(diff / 86400), "day");
   return date.toLocaleDateString();
+}
+
+function PrefToggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
+  return (
+    <label className="flex cursor-pointer items-center justify-between gap-3">
+      <span>{label}</span>
+      <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+    </label>
+  );
 }

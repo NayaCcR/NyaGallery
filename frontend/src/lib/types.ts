@@ -311,6 +311,11 @@ export interface PixivSyncOptions {
   restrict?: string;
 }
 
+export interface NotificationPreferences {
+  mention_enabled: boolean;
+  like_enabled: boolean;
+}
+
 export interface TimelineView {
   name: string;
   tag: string;
