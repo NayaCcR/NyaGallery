@@ -612,43 +612,74 @@ export function TokenList({
 
   return (
     <div className="overflow-hidden rounded-lg border border-border text-xs">
-      {tokens.map((item) => (
-        <div key={item.id} className="grid gap-2 border-b border-border p-3 last:border-b-0 sm:grid-cols-[1fr_140px_150px_120px_auto] sm:items-center">
-          <div className="min-w-0">
-            <div className="truncate font-mono">{item.token_prefix}...</div>
-            <div className="truncate text-muted-foreground">{item.label || t("admin.tokens.noLabel")}</div>
-          </div>
-          <div className="text-muted-foreground">{formatDate(item.created_at)}</div>
-          <div className="min-w-0 text-muted-foreground">
-            <div>{formatDate(item.last_used_at)}</div>
-            <div className="truncate font-mono" title={item.last_used_ip || ""}>
-              {item.last_used_ip || t("admin.tokens.noIp")}
+      {tokens.map((item) => {
+        const scopesText = item.scopes == null ? t("admin.tokens.legacyScopes") : item.scopes.join(", ") || t("admin.tokens.noScopes");
+        const draft = scopeDrafts[item.id];
+        const draftChanged = draft != null && draft.trim() !== (item.scopes?.join(", ") ?? "");
+        return (
+          <div key={item.id} className={cn("space-y-2 border-b border-border p-3 last:border-b-0", !item.is_active && "bg-muted/30 opacity-70")}>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="truncate font-mono">{item.token_prefix}…</span>
+                  <span
+                    className={cn(
+                      "rounded-full px-2 py-0.5 text-[11px] font-medium",
+                      item.is_active ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-muted text-muted-foreground"
+                    )}
+                  >
+                    {item.is_active ? t("admin.tokens.active") : t("admin.tokens.revoked")}
+                  </span>
+                </div>
+                <div className="truncate text-muted-foreground">{item.label || t("admin.tokens.noLabel")}</div>
+              </div>
+              {item.is_active && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  disabled={busy === `token-revoke-${item.id}`}
+                  onClick={() => onRevoke(item.id)}
+                >
+                  {t("admin.tokens.revoke")}
+                </Button>
+              )}
             </div>
-          </div>
-          <div className="min-w-0 text-muted-foreground">
-            <div className="break-words">{item.scopes == null ? t("admin.tokens.legacyScopes") : item.scopes.join(", ") || t("admin.tokens.noScopes")}</div>
+            <div className="grid gap-x-4 gap-y-1 text-[11px] text-muted-foreground sm:grid-cols-3">
+              <div>
+                <span className="text-muted-foreground/70">{t("admin.tokens.createdAt")}</span> {formatDate(item.created_at)}
+              </div>
+              <div className="min-w-0 truncate" title={item.last_used_ip || ""}>
+                <span className="text-muted-foreground/70">{t("admin.tokens.lastUsed")}</span> {formatDate(item.last_used_at)} · {item.last_used_ip || t("admin.tokens.noIp")}
+              </div>
+              <div className="min-w-0 break-words">
+                <span className="text-muted-foreground/70">scopes</span> {scopesText}
+              </div>
+            </div>
             {item.is_active && onUpdateScopes && (
-              <input aria-label={t("admin.tokens.updateScopes")} className="mt-1 w-full min-w-0 rounded-md border border-input bg-background px-2 py-1" value={scopeDrafts[item.id] ?? item.scopes?.join(", ") ?? ""} onChange={(event) => setScopeDrafts((drafts) => ({ ...drafts, [item.id]: event.target.value }))} disabled={busy !== null} placeholder="view, api" />
+              <div className="flex gap-2">
+                <input
+                  aria-label={t("admin.tokens.updateScopes")}
+                  className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 font-mono focus-ring"
+                  value={draft ?? item.scopes?.join(", ") ?? ""}
+                  onChange={(event) => setScopeDrafts((drafts) => ({ ...drafts, [item.id]: event.target.value }))}
+                  disabled={busy !== null}
+                  placeholder="view, api"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 px-2.5 text-xs"
+                  disabled={busy !== null || !draftChanged || !draft?.trim()}
+                  onClick={() => onUpdateScopes(item.id, draft.split(/[,\n，]/).map((value) => value.trim()).filter(Boolean))}
+                >
+                  {t("admin.tokens.updateScopes")}
+                </Button>
+              </div>
             )}
           </div>
-          <div className={item.is_active ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}>
-            {item.is_active ? t("admin.tokens.active") : t("admin.tokens.revoked")}
-          </div>
-          {item.is_active && onUpdateScopes && (
-            <Button size="sm" variant="ghost" disabled={busy !== null || !scopeDrafts[item.id]?.trim()} onClick={() => onUpdateScopes(item.id, scopeDrafts[item.id].split(/[,\n，]/).map((value) => value.trim()).filter(Boolean))}>
-              {t("admin.tokens.updateScopes")}
-            </Button>
-          )}
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!item.is_active || busy === `token-revoke-${item.id}`}
-            onClick={() => onRevoke(item.id)}
-          >
-            {t("admin.tokens.revoke")}
-          </Button>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

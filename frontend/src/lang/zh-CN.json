@@ -1006,6 +1006,8 @@
       "title": "注册邀请码"
     },
     "tags": {
+      "aliases": "别名",
+      "implications": "上位标签",
       "aliasSaved": "已保存 {name}",
       "createFirst": "先在标签目录中创建该 tag",
       "exportSummary": "导出汇总",
@@ -1018,6 +1020,8 @@
       "title": "标签别名"
     },
     "tokens": {
+      "createdAt": "创建于",
+      "lastUsed": "最后使用",
       "legacyScopes": "沿用当前角色权限",
       "noScopes": "无权限",
       "updateScopes": "保存权限范围",
