@@ -1,0 +1,10 @@
+{
+  "name": "community.hello",
+  "version": "0.1.0",
+  "title": "Hello world",
+  "description": "Minimal third-party plugin: one route under /api/plugins/community.hello and an event log.",
+  "plugin_types": ["analytics"],
+  "permissions": ["routes", "events"],
+  "core_min_version": "0.2.0",
+  "entry": "plugin.py"
+}
