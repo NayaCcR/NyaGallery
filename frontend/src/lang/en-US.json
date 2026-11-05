@@ -5,7 +5,13 @@
       "markAllRead": "Mark all read",
       "empty": "No notifications",
       "loadFailed": "Failed to load notifications",
-      "readFailed": "Failed to update notification state"
+      "readFailed": "Failed to update notification state",
+      "unread": "{count} unread",
+      "openAdmin": "Admin",
+      "kinds": {
+        "asset_like": "Your asset was liked",
+        "comment_mention": "You were mentioned in an asset comment"
+      }
     },
     "access": {
       "loadFailed": "Access settings failed to load",

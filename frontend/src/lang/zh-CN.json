@@ -5,7 +5,13 @@
       "markAllRead": "全部标为已读",
       "empty": "暂无通知",
       "loadFailed": "通知加载失败",
-      "readFailed": "通知状态更新失败"
+      "readFailed": "通知状态更新失败",
+      "unread": "{count} 条未读",
+      "openAdmin": "管理后台",
+      "kinds": {
+        "asset_like": "你的作品收到了一个赞",
+        "comment_mention": "有人在作品评论里提到了你"
+      }
     },
     "access": {
       "loadFailed": "访问控制加载失败",

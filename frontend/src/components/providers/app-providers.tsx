@@ -7,6 +7,7 @@ import { ThemeProvider } from "./theme-provider";
 import { AuthProvider } from "./auth-provider";
 import { ContentPreferencesProvider } from "./content-preferences-provider";
 import { ToastProvider } from "./toast-provider";
+import { NotificationsProvider } from "./notifications-provider";
 
 export function AppProviders({ children }: { children: React.ReactNode }) {
   const [client] = useState(
@@ -28,7 +29,9 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
         <ThemeProvider>
           <AuthProvider>
             <ContentPreferencesProvider>
-              <ToastProvider>{children}</ToastProvider>
+              <ToastProvider>
+                <NotificationsProvider>{children}</NotificationsProvider>
+              </ToastProvider>
             </ContentPreferencesProvider>
           </AuthProvider>
         </ThemeProvider>
