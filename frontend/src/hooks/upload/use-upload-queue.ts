@@ -54,7 +54,7 @@ export function formatUploadBytes(n: number): string {
 export function useUploadQueue({ onSuccess, onError }: UseUploadQueueOptions) {
   const { t } = useI18n();
   const [items, setItems] = useState<UploadItem[]>([]);
-  const [generateCache, setGenerateCache] = useState(false);
+  const [generateCache, setGenerateCache] = useState(true);
   const [defaultArtist, setDefaultArtist] = useState("");
   const [defaultTags, setDefaultTags] = useState<string[]>([]);
   const [tagAliasesText, setTagAliasesText] = useState("");

@@ -11,9 +11,10 @@ type UseAdminPixivSettingsOptions = {
 export function useAdminPixivSettings({ onError }: UseAdminPixivSettingsOptions) {
   const [pixivLimit, setPixivLimit] = useState(20);
   const [pixivRebuildDb, setPixivRebuildDb] = useState(true);
-  const [pixivGenerateCache, setPixivGenerateCache] = useState(false);
+  const [pixivGenerateCache, setPixivGenerateCache] = useState(true);
   const [pixivDryRun, setPixivDryRun] = useState(false);
   const [pixivPublicFirst, setPixivPublicFirst] = useState(true);
+  const [pixivMakePublic, setPixivMakePublic] = useState(true);
   const [pixivDelay, setPixivDelay] = useState(1);
   const [pixivMaxRetries, setPixivMaxRetries] = useState(3);
   const [pixivRetryBase, setPixivRetryBase] = useState(60);
@@ -50,6 +51,8 @@ export function useAdminPixivSettings({ onError }: UseAdminPixivSettingsOptions)
     setPixivDryRun,
     pixivPublicFirst,
     setPixivPublicFirst,
+    pixivMakePublic,
+    setPixivMakePublic,
     pixivDelay,
     setPixivDelay,
     pixivMaxRetries,

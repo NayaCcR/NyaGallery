@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 import mimetypes
 from pathlib import Path
@@ -307,7 +307,13 @@ class MisskeyClient:
                     continue
                 if str(item["id"]) in stop_ids:
                     return
-                yield _note_from_payload(item, default_host=self.host, origin=self.origin)
+                # Do not archive renotes: they commonly have no local files and create blank posts.
+                if item.get("renoteId") or item.get("renote"):
+                    continue
+                note = _note_from_payload(item, default_host=self.host, origin=self.origin)
+                if not note.text.strip() and not note.files:
+                    continue
+                yield note
                 seen += 1
                 if limit is not None and seen >= limit:
                     return
@@ -560,9 +566,13 @@ class MisskeySyncService:
         source_id, page_index = self._asset_identity(note, file, index)
         asset_key = make_asset_key(MISSKEY_SOURCE, source_id, page_index)
         source_filename = misskey_media_filename(note.created_at, file)
+        display_filename = _safe_misskey_source_filename(file.name) or source_filename
         existing_metadata_path = self.storage.find_metadata_path(asset_key)
         if existing_metadata_path is not None:
             metadata = self.storage.read_metadata(asset_key)
+            if metadata.original_filename != display_filename:
+                metadata = replace(metadata, original_filename=display_filename)
+                self.storage.write_metadata(metadata, replace=True)
             return (
                 MisskeyAssetResult(
                     asset_key=asset_key,
@@ -605,7 +615,7 @@ class MisskeySyncService:
             original_url=note.url,
             crawl_time=utc_now_iso(),
             file_sha256=stored.sha256,
-            original_filename=stored.filename,
+            original_filename=display_filename,
             original_path=stored.relative_path,
             pixiv_tags=note.tags,
             canonical_tags=(),
@@ -719,8 +729,17 @@ def normalize_page_size(value: Any) -> int:
     return max(1, min(MISSKEY_NOTES_PAGE_SIZE, size))
 
 
+def _safe_misskey_source_filename(filename: str) -> str:
+    name = str(filename or "").replace("\\", "/").split("/")[-1].strip()
+    name = re.sub(r"[\\/:*?\"<>|\x00-\x1f]+", "_", name).strip(" .")
+    return name[:240]
+
+
 def misskey_media_filename(created_at: str, file: MisskeyFile) -> str:
-    """Readable archival filename: <date>_<name><real extension>, MIME-derived to avoid double suffixes."""
+    """Use the source filename when available; otherwise make a readable archival fallback."""
+    source_filename = _safe_misskey_source_filename(file.name)
+    if source_filename:
+        return source_filename
     suffix = mimetypes.guess_extension(file.mime_type or "") or ""
     if suffix in {".jpe", ".jpeg"}:
         suffix = ".jpg"

@@ -176,27 +176,46 @@ def get_pixiv_refresh_token_with_browser(
     if headless and (not username or not password):
         raise PixivOAuthError("Headless Pixiv login requires --username and --password")
 
-    if login_factory is None:
-        try:
-            from gppt import GetPixivToken
-        except ImportError as exc:
-            raise PixivOAuthError(
-                'Install Pixiv browser login support with: python -m pip install -e ".[pixiv-login]"'
-            ) from exc
-        login_factory = GetPixivToken
-
     proxy = _effective_pixiv_proxy(proxy_url)
     try:
-        client_kwargs = {"headless": headless, "username": username, "password": password}
-        if proxy:
-            _add_supported_proxy_kwarg(client_kwargs, login_factory, proxy)
-        login_kwargs = {"headless": headless, "username": username, "password": password}
-        if proxy:
-            _add_supported_proxy_kwarg(login_kwargs, getattr(login_factory, "login", None), proxy)
-        with _pixiv_proxy_environment(proxy):
-            client = login_factory(**client_kwargs)
-            _add_supported_proxy_kwarg(login_kwargs, getattr(client, "login", None), proxy)
-            raw_response = _run_maybe_awaitable(client.login(**login_kwargs))
+        if login_factory is None:
+            try:
+                from gppt import GetPixivToken as login_factory
+            except ImportError:
+                # gppt v5 removed GetPixivToken and exposes a direct login function.
+                from gppt import login as gppt_login
+
+                with _pixiv_proxy_environment(proxy):
+                    raw_response = _run_maybe_awaitable(
+                        gppt_login(username or "", password or "", headless=headless)
+                    )
+                raw_response = vars(raw_response) if hasattr(raw_response, "__dataclass_fields__") else raw_response
+            else:
+                client_kwargs = {"headless": headless, "username": username, "password": password}
+                if proxy:
+                    _add_supported_proxy_kwarg(client_kwargs, login_factory, proxy)
+                login_kwargs = {"headless": headless, "username": username, "password": password}
+                if proxy:
+                    _add_supported_proxy_kwarg(login_kwargs, getattr(login_factory, "login", None), proxy)
+                with _pixiv_proxy_environment(proxy):
+                    client = login_factory(**client_kwargs)
+                    _add_supported_proxy_kwarg(login_kwargs, getattr(client, "login", None), proxy)
+                    raw_response = _run_maybe_awaitable(client.login(**login_kwargs))
+        else:
+            client_kwargs = {"headless": headless, "username": username, "password": password}
+            if proxy:
+                _add_supported_proxy_kwarg(client_kwargs, login_factory, proxy)
+            login_kwargs = {"headless": headless, "username": username, "password": password}
+            if proxy:
+                _add_supported_proxy_kwarg(login_kwargs, getattr(login_factory, "login", None), proxy)
+            with _pixiv_proxy_environment(proxy):
+                client = login_factory(**client_kwargs)
+                _add_supported_proxy_kwarg(login_kwargs, getattr(client, "login", None), proxy)
+                raw_response = _run_maybe_awaitable(client.login(**login_kwargs))
+    except ImportError as exc:
+        raise PixivOAuthError(
+            "Pixiv browser login support is unavailable: gppt does not expose a compatible login API."
+        ) from exc
     except PixivOAuthError:
         raise
     except Exception as exc:

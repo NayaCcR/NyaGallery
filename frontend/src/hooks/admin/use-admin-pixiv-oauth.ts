@@ -7,11 +7,6 @@ import type { AdminActionRunner } from "./use-admin-action";
 
 const PIXIV_OAUTH_SESSION_KEY = "nya.pixiv.oauth";
 
-type PixivLoginDraft = {
-  username: string;
-  password: string;
-};
-
 type PixivVisibleSession = {
   id: string;
   status: string;
@@ -49,7 +44,6 @@ export function useAdminPixivOAuth({
   onSuccess,
 }: UseAdminPixivOAuthOptions) {
   const { t } = useI18n();
-  const [pixivLoginDraft, setPixivLoginDraft] = useState<PixivLoginDraft>({ username: "", password: "" });
   const [pixivVisibleSession, setPixivVisibleSession] = useState<PixivVisibleSession | null>(null);
   const [pixivOAuthCallback, setPixivOAuthCallback] = useState("");
   const [pixivOAuthVerifier, setPixivOAuthVerifier] = useState("");
@@ -83,7 +77,6 @@ export function useAdminPixivOAuth({
         if (session.status === "success" && session.refresh_token) {
           setPixivRefreshToken(session.refresh_token);
           setLastPixivUser(session.user);
-          setPixivLoginDraft({ username: "", password: "" });
           onSuccess(t("admin.pixiv.visibleLoginTokenReceived"));
         }
         if (session.status === "error" && session.error) {
@@ -109,14 +102,6 @@ export function useAdminPixivOAuth({
     [pixivOAuthCallback, pixivOAuthContinueUrl, pixivOAuthInputKind]
   );
   const pixivOAuthHintText = useMemo(() => t(`admin.pixiv.oauthHints.${pixivOAuthInputKind}`), [pixivOAuthInputKind, t]);
-
-  const pixivBrowserLoginDisabledReason = useMemo(() => {
-    if (busy === "pixiv-oauth-browser-login") return t("admin.pixiv.oauthBusy");
-    if (supportsBrowserOAuthLogin === false) return t("admin.pixiv.oauthMissingDependency");
-    if (!pixivLoginDraft.username.trim()) return t("admin.pixiv.oauthNeedUsername");
-    if (!pixivLoginDraft.password) return t("admin.pixiv.oauthNeedPassword");
-    return "";
-  }, [busy, pixivLoginDraft.password, pixivLoginDraft.username, supportsBrowserOAuthLogin, t]);
 
   const pixivVisibleLoginDisabledReason = useMemo(() => {
     if (pixivVisibleSession?.status === "running") return t("admin.pixiv.visibleLoginRunning");
@@ -219,32 +204,10 @@ export function useAdminPixivOAuth({
     }
   }, [onError, pixivOAuthCallback, pixivOAuthVerifier, run, setLastPixivUser, setPixivRefreshToken, t]);
 
-  const loginPixivInBrowser = useCallback(async () => {
-    const username = pixivLoginDraft.username.trim();
-    if (!username || !pixivLoginDraft.password) {
-      onError(t("admin.pixiv.oauthErrors.usernamePasswordRequired"));
-      return;
-    }
-    const result = await run(
-      "pixiv-oauth-browser-login",
-      () => NyaApi.pixivOAuthBrowserLogin({ username, password: pixivLoginDraft.password }),
-      () => t("admin.pixiv.pixivRefreshTokenReceived")
-    );
-    if (!result) return;
-    setPixivRefreshToken(result.refresh_token);
-    setLastPixivUser(result.user);
-    setPixivLoginDraft({ username, password: "" });
-  }, [onError, pixivLoginDraft.password, pixivLoginDraft.username, run, setLastPixivUser, setPixivRefreshToken, t]);
-
   const startVisiblePixivLogin = useCallback(async () => {
-    const username = pixivLoginDraft.username.trim();
     const result = await run(
       "pixiv-oauth-visible-start",
-      () => NyaApi.pixivOAuthVisibleStart({
-        username: username || undefined,
-        password: pixivLoginDraft.password || undefined,
-        timeout_seconds: 900,
-      }),
+      () => NyaApi.pixivOAuthVisibleStart({ timeout_seconds: 900 }),
       () => t("admin.pixiv.visibleLoginStarted")
     );
     if (!result) return;
@@ -254,11 +217,9 @@ export function useAdminPixivOAuth({
       message: result.message,
       error: result.error,
     });
-  }, [pixivLoginDraft.password, pixivLoginDraft.username, run, t]);
+  }, [run, t]);
 
   return {
-    pixivLoginDraft,
-    setPixivLoginDraft,
     pixivVisibleSession,
     pixivOAuthCallback,
     setPixivOAuthCallback,
@@ -268,11 +229,9 @@ export function useAdminPixivOAuth({
     pixivOAuthOpenInputUrl,
     pixivOAuthStartUrl,
     pixivOAuthHintText,
-    pixivBrowserLoginDisabledReason,
     pixivVisibleLoginDisabledReason,
     startPixivOAuth,
     exchangePixivOAuth,
-    loginPixivInBrowser,
     startVisiblePixivLogin,
   };
 }

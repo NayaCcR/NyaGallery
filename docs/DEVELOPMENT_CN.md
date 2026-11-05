@@ -23,6 +23,7 @@ corepack enable
 corepack prepare pnpm@11.13.1 --activate
 pnpm install --frozen-lockfile
 cd ..
+# 全局参数（如 --storage / --config）必须放在 setup 子命令之前。
 nyagallery --storage storage setup --username developer --role developer
 ```
 

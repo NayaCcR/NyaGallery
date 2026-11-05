@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import threading
 import time
 from typing import Any, BinaryIO
 from urllib.error import HTTPError
@@ -806,6 +807,7 @@ class GalleryStorage:
         self.posts_dir = self.root / "posts"
         self.tags_dir = self.root / "tags"
         self.remote_cache_dir = self.root / "remote-cache"
+        self._metadata_write_lock = threading.RLock()
         self.default_strategy_name = normalize_strategy_name(default_strategy)
         self._original_backends = self._build_original_backends(strategies)
         if self.default_strategy_name not in self._original_backends:
@@ -1020,23 +1022,24 @@ class GalleryStorage:
         )
 
     def write_metadata(self, metadata: GalleryMetadata, *, replace: bool = False) -> Path:
-        self.ensure()
-        path = self.metadata_path_for(metadata)
-        existing_path = self.find_metadata_path(metadata.asset_key)
-        if existing_path and existing_path != path:
-            self._remove_metadata_from_file(existing_path, metadata.asset_key)
+        with self._metadata_write_lock:
+            self.ensure()
+            path = self.metadata_path_for(metadata)
+            existing_path = self.find_metadata_path(metadata.asset_key)
+            if existing_path and existing_path != path:
+                self._remove_metadata_from_file(existing_path, metadata.asset_key)
 
-        group = self._read_metadata_group(path)
-        assets = group["assets"]
-        old = assets.get(metadata.asset_key)
-        if old is not None and not replace:
-            if old.to_dict() == metadata.to_dict():
-                return path
-            raise MetadataAlreadyExistsError(f"metadata already exists: {path}#{metadata.asset_key}")
+            group = self._read_metadata_group(path)
+            assets = group["assets"]
+            old = assets.get(metadata.asset_key)
+            if old is not None and not replace:
+                if old.to_dict() == metadata.to_dict():
+                    return path
+                raise MetadataAlreadyExistsError(f"metadata already exists: {path}#{metadata.asset_key}")
 
-        assets[metadata.asset_key] = metadata
-        self._write_metadata_group(path, assets.values())
-        return path
+            assets[metadata.asset_key] = metadata
+            self._write_metadata_group(path, assets.values())
+            return path
 
     def read_metadata(self, asset_key: str) -> GalleryMetadata:
         found = self._find_metadata(asset_key)

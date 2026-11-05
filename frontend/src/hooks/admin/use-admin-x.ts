@@ -32,6 +32,7 @@ export function useAdminX({ run, onError, username }: UseAdminXOptions) {
   const [downloadMedia, setDownloadMedia] = useState(true);
   const [rebuildDb, setRebuildDb] = useState(true);
   const [generateCache, setGenerateCache] = useState(true);
+  const [makePublic, setMakePublic] = useState(true);
   const [dryRun, setDryRun] = useState(false);
 
   const [tokenDraft, setTokenDraft] = useState("");
@@ -140,9 +141,11 @@ export function useAdminX({ run, onError, username }: UseAdminXOptions) {
     request_delay_seconds: delay,
     rebuild_db: rebuildDb,
     generate_cache: generateCache,
+    make_public: makePublic,
     dry_run: dryRun,
   }), [
     backfill,
+    makePublic,
     ct0Draft,
     delay,
     downloadConcurrency,
@@ -193,6 +196,8 @@ export function useAdminX({ run, onError, username }: UseAdminXOptions) {
     setRebuildDb,
     generateCache,
     setGenerateCache,
+    makePublic,
+    setMakePublic,
     dryRun,
     setDryRun,
     tokenDraft,
