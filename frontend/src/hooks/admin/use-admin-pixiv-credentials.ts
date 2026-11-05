@@ -5,6 +5,7 @@ import { useI18n } from "@/components/providers/locale-provider";
 import { ApiError, NyaApi } from "@/lib/api";
 import type { PixivCookieSummary, PixivTokenSummary } from "@/lib/types";
 import type { AdminActionRunner } from "./use-admin-action";
+import { useRememberedCredential } from "./use-remembered-credential";
 
 type UseAdminPixivCredentialsOptions = {
   run: AdminActionRunner;
@@ -20,13 +21,15 @@ export function useAdminPixivCredentials({
   const { t } = useI18n();
   const [lastPixivUser, setLastPixivUser] = useState<Record<string, unknown> | null>(null);
   const [pixivRefreshToken, setPixivRefreshToken] = useState("");
-  const [pixivSavedTokenId, setPixivSavedTokenId] = useState<number | null>(null);
   const [pixivTokenLabel, setPixivTokenLabel] = useState("");
   const [pixivSavedTokens, setPixivSavedTokens] = useState<PixivTokenSummary[]>([]);
+  const [pixivTokensLoaded, setPixivTokensLoaded] = useState(false);
+  const [pixivSavedTokenId, setPixivSavedTokenId] = useRememberedCredential("pixiv-token", pixivSavedTokens, pixivTokensLoaded);
   const [pixivTokenDrafts, setPixivTokenDrafts] = useState<Record<number, string>>({});
-  const [pixivSavedCookieId, setPixivSavedCookieId] = useState<number | null>(null);
   const [pixivCookieLabel, setPixivCookieLabel] = useState("");
   const [pixivSavedCookies, setPixivSavedCookies] = useState<PixivCookieSummary[]>([]);
+  const [pixivCookiesLoaded, setPixivCookiesLoaded] = useState(false);
+  const [pixivSavedCookieId, setPixivSavedCookieId] = useRememberedCredential("pixiv-cookie", pixivSavedCookies, pixivCookiesLoaded);
   const [pixivCookieDrafts, setPixivCookieDrafts] = useState<Record<number, string>>({});
   const [pixivCookie, setPixivCookie] = useState("");
 
@@ -42,6 +45,7 @@ export function useAdminPixivCredentials({
         );
         if (result) {
           setPixivSavedTokens(result.items);
+          setPixivTokensLoaded(true);
           setPixivTokenDrafts(Object.fromEntries(result.items.map((item) => [item.id, item.label || ""])));
           if (pixivSavedTokenId && !result.items.some((item) => item.id === pixivSavedTokenId && item.is_active)) {
             setPixivSavedTokenId(null);
@@ -52,6 +56,7 @@ export function useAdminPixivCredentials({
       try {
         const result = await NyaApi.userPixivTokens(target);
         setPixivSavedTokens(result.items);
+        setPixivTokensLoaded(true);
         setPixivTokenDrafts(Object.fromEntries(result.items.map((item) => [item.id, item.label || ""])));
         if (pixivSavedTokenId && !result.items.some((item) => item.id === pixivSavedTokenId && item.is_active)) {
           setPixivSavedTokenId(null);
@@ -62,7 +67,7 @@ export function useAdminPixivCredentials({
         return null;
       }
     },
-    [onError, pixivSavedTokenId, run, t]
+    [onError, pixivSavedTokenId, run, t, setPixivSavedTokenId]
   );
 
   const loadPixivCookiesFor = useCallback(
@@ -77,6 +82,7 @@ export function useAdminPixivCredentials({
         );
         if (result) {
           setPixivSavedCookies(result.items);
+          setPixivCookiesLoaded(true);
           setPixivCookieDrafts(Object.fromEntries(result.items.map((item) => [item.id, item.label ?? ""])));
         }
         return result;
@@ -85,6 +91,7 @@ export function useAdminPixivCredentials({
       try {
         const result = await NyaApi.userPixivCookies(target);
         setPixivSavedCookies(result.items);
+        setPixivCookiesLoaded(true);
         setPixivCookieDrafts(Object.fromEntries(result.items.map((item) => [item.id, item.label ?? ""])));
         return result;
       } catch (err) {
@@ -115,7 +122,7 @@ export function useAdminPixivCredentials({
     if (refreshed?.items.some((item) => item.id === result.id && item.is_active)) {
       setPixivSavedTokenId(result.id);
     }
-  }, [lastPixivUser, loadPixivTokensFor, pixivRefreshToken, pixivTokenLabel, run, t, username]);
+  }, [lastPixivUser, loadPixivTokensFor, pixivRefreshToken, pixivTokenLabel, run, t, username, setPixivSavedTokenId]);
 
   const saveCurrentPixivCookie = useCallback(async () => {
     const cookie = pixivCookie.trim();
@@ -137,7 +144,7 @@ export function useAdminPixivCredentials({
     if (refreshed?.items.some((item) => item.id === result.id && item.is_active)) {
       setPixivSavedCookieId(result.id);
     }
-  }, [lastPixivUser, loadPixivCookiesFor, pixivCookie, pixivCookieLabel, run, t, username]);
+  }, [lastPixivUser, loadPixivCookiesFor, pixivCookie, pixivCookieLabel, run, t, username, setPixivSavedCookieId]);
 
   const updatePixivTokenLabel = useCallback(
     async (tokenId: number) => {
@@ -176,7 +183,7 @@ export function useAdminPixivCredentials({
       if (pixivSavedTokenId === tokenId) setPixivSavedTokenId(null);
       if (username) await loadPixivTokensFor(username, false);
     },
-    [loadPixivTokensFor, pixivSavedTokenId, run, t, username]
+    [loadPixivTokensFor, pixivSavedTokenId, run, t, username, setPixivSavedTokenId]
   );
 
   const revokePixivSavedCookie = useCallback(
@@ -190,7 +197,7 @@ export function useAdminPixivCredentials({
       if (pixivSavedCookieId === cookieId) setPixivSavedCookieId(null);
       if (username) await loadPixivCookiesFor(username, false);
     },
-    [loadPixivCookiesFor, pixivSavedCookieId, run, t, username]
+    [loadPixivCookiesFor, pixivSavedCookieId, run, t, username, setPixivSavedCookieId]
   );
 
   return {

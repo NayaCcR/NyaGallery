@@ -64,6 +64,9 @@ import { useAdminSecurity } from "@/hooks/admin/use-admin-security";
 import { useAdminTags } from "@/hooks/admin/use-admin-tags";
 import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
 import type { PixivAuthMode, PixivSyncResponse, Role } from "@/lib/types";
+
+const PIXIV_AUTH_MODE_KEY = "nya.admin.pixivAuthMode";
+const PIXIV_AUTH_MODES: PixivAuthMode[] = ["public", "oauth_local", "oauth", "oauth_manual", "refresh_token", "cookie", "local_import"];
 import { countPixivResults, parsePixivTargets, resolvePixivSyncKind, runPixivTargets, type PixivTargetResult } from "@/lib/pixiv-targets";
 
 type PixivMode = "pid" | "user";
@@ -111,7 +114,24 @@ export default function AdminPage() {
   const [pixivMode, setPixivMode] = useState<PixivMode>("pid");
   const [pixivSourceMode, setPixivSourceMode] = useState<PixivSourceMode>("artist_works");
   const [pixivRestrict, setPixivRestrict] = useState<string>("public");
-  const [pixivAuthMode, setPixivAuthMode] = useState<PixivAuthMode>("public");
+  const [pixivAuthMode, setPixivAuthModeState] = useState<PixivAuthMode>("public");
+  // Remember the last Pixiv auth mode so a remembered saved token/cookie is actually used after reload.
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(PIXIV_AUTH_MODE_KEY) as PixivAuthMode | null;
+      if (stored && PIXIV_AUTH_MODES.includes(stored)) setPixivAuthModeState(stored);
+    } catch {
+      /* storage unavailable */
+    }
+  }, []);
+  const setPixivAuthMode = useCallback((mode: PixivAuthMode) => {
+    setPixivAuthModeState(mode);
+    try {
+      window.localStorage.setItem(PIXIV_AUTH_MODE_KEY, mode);
+    } catch {
+      /* storage unavailable */
+    }
+  }, []);
   const {
     logs: pixivLogs,
     pollingMode: pixivPollingMode,
@@ -416,7 +436,7 @@ export default function AdminPage() {
     if (!isAdmin && (pixivAuthMode === "oauth_local" || pixivAuthMode === "oauth_manual")) {
       setPixivAuthMode("public");
     }
-  }, [isAdmin, pixivAuthMode]);
+  }, [isAdmin, pixivAuthMode, setPixivAuthMode]);
 
   if (!ready) {
     return (

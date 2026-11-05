@@ -5,6 +5,7 @@ import { useI18n } from "@/components/providers/locale-provider";
 import { ApiError, NyaApi } from "@/lib/api";
 import type { XConfigResponse, XSyncOptions, XTokenSummary } from "@/lib/types";
 import type { AdminActionRunner } from "./use-admin-action";
+import { useRememberedCredential } from "./use-remembered-credential";
 
 export type XSyncMode = "posts" | "user";
 
@@ -38,8 +39,9 @@ export function useAdminX({ run, onError, username }: UseAdminXOptions) {
   const [tokenDraft, setTokenDraft] = useState("");
   const [ct0Draft, setCt0Draft] = useState("");
   const [tokenLabel, setTokenLabel] = useState("");
-  const [savedTokenId, setSavedTokenId] = useState<number | null>(null);
   const [savedTokens, setSavedTokens] = useState<XTokenSummary[]>([]);
+  const [credentialsLoaded, setCredentialsLoaded] = useState(false);
+  const [savedTokenId, setSavedTokenId] = useRememberedCredential("x", savedTokens, credentialsLoaded);
   const [tokenLabelDrafts, setTokenLabelDrafts] = useState<Record<number, string>>({});
 
   const loadConfig = useCallback(async () => {
@@ -63,6 +65,7 @@ export function useAdminX({ run, onError, username }: UseAdminXOptions) {
       try {
         const response = await NyaApi.userXTokens(owner);
         setSavedTokens(response.items);
+        setCredentialsLoaded(true);
         return response.items;
       } catch (err) {
         if (showError) onError(err instanceof ApiError ? err.message : String(err));
@@ -95,7 +98,7 @@ export function useAdminX({ run, onError, username }: UseAdminXOptions) {
       setSavedTokenId(saved.id);
       await loadTokensFor(username, false);
     }
-  }, [config?.host, ct0Draft, loadTokensFor, onError, run, t, tokenDraft, tokenLabel, username]);
+  }, [config?.host, ct0Draft, loadTokensFor, onError, run, t, tokenDraft, tokenLabel, username, setSavedTokenId]);
 
   const updateTokenLabel = useCallback(
     async (tokenId: number) => {
@@ -122,7 +125,7 @@ export function useAdminX({ run, onError, username }: UseAdminXOptions) {
         await loadTokensFor(username, false);
       }
     },
-    [loadTokensFor, run, t, username]
+    [loadTokensFor, run, t, username, setSavedTokenId]
   );
 
   const buildOptions = useCallback((): XSyncOptions => ({

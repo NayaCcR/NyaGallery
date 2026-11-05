@@ -5,6 +5,7 @@ import { useI18n } from "@/components/providers/locale-provider";
 import { ApiError, NyaApi } from "@/lib/api";
 import type { FanboxConfigResponse, FanboxSessionSummary, FanboxSyncOptions } from "@/lib/types";
 import type { AdminActionRunner } from "./use-admin-action";
+import { useRememberedCredential } from "./use-remembered-credential";
 
 export type FanboxSyncMode = "creator" | "posts";
 
@@ -35,8 +36,9 @@ export function useAdminFanbox({ run, onError, username }: UseAdminFanboxOptions
 
   const [sessionDraft, setSessionDraft] = useState("");
   const [sessionLabel, setSessionLabel] = useState("");
-  const [savedSessionId, setSavedSessionId] = useState<number | null>(null);
   const [savedSessions, setSavedSessions] = useState<FanboxSessionSummary[]>([]);
+  const [credentialsLoaded, setCredentialsLoaded] = useState(false);
+  const [savedSessionId, setSavedSessionId] = useRememberedCredential("fanbox", savedSessions, credentialsLoaded);
   const [sessionLabelDrafts, setSessionLabelDrafts] = useState<Record<number, string>>({});
   const [pixivCookieDraft, setPixivCookieDraft] = useState("");
 
@@ -61,6 +63,7 @@ export function useAdminFanbox({ run, onError, username }: UseAdminFanboxOptions
       try {
         const response = await NyaApi.userFanboxSessions(owner);
         setSavedSessions(response.items);
+        setCredentialsLoaded(true);
         return response.items;
       } catch (err) {
         if (showError) onError(err instanceof ApiError ? err.message : String(err));
@@ -87,7 +90,7 @@ export function useAdminFanbox({ run, onError, username }: UseAdminFanboxOptions
       setSavedSessionId(saved.id);
       await loadSessionsFor(username, false);
     }
-  }, [loadSessionsFor, onError, run, sessionDraft, sessionLabel, t, username]);
+  }, [loadSessionsFor, onError, run, sessionDraft, sessionLabel, t, username, setSavedSessionId]);
 
   /** Fanbox has no credential of its own to paste; this trades a Pixiv session for a FANBOXSESSID. */
   const loginWithPixivCookie = useCallback(async () => {
@@ -106,7 +109,7 @@ export function useAdminFanbox({ run, onError, username }: UseAdminFanboxOptions
       if (derived.saved) setSavedSessionId(derived.saved.id);
       await loadSessionsFor(username, false);
     }
-  }, [loadSessionsFor, pixivCookieDraft, run, sessionLabel, t, username]);
+  }, [loadSessionsFor, pixivCookieDraft, run, sessionLabel, t, username, setSavedSessionId]);
 
   const updateSessionLabel = useCallback(
     async (sessionId: number) => {
@@ -133,7 +136,7 @@ export function useAdminFanbox({ run, onError, username }: UseAdminFanboxOptions
         await loadSessionsFor(username, false);
       }
     },
-    [loadSessionsFor, run, t, username]
+    [loadSessionsFor, run, t, username, setSavedSessionId]
   );
 
   const buildOptions = useCallback((): FanboxSyncOptions => ({

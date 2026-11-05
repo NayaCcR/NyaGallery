@@ -5,6 +5,7 @@ import { useI18n } from "@/components/providers/locale-provider";
 import { ApiError, NyaApi } from "@/lib/api";
 import type { MisskeyConfigResponse, MisskeySyncOptions, MisskeyTokenSummary } from "@/lib/types";
 import type { AdminActionRunner } from "./use-admin-action";
+import { useRememberedCredential } from "./use-remembered-credential";
 
 type UseAdminMisskeyOptions = {
   run: AdminActionRunner;
@@ -33,8 +34,9 @@ export function useAdminMisskey({ run, onError, username }: UseAdminMisskeyOptio
 
   const [tokenDraft, setTokenDraft] = useState("");
   const [tokenLabel, setTokenLabel] = useState("");
-  const [savedTokenId, setSavedTokenId] = useState<number | null>(null);
   const [savedTokens, setSavedTokens] = useState<MisskeyTokenSummary[]>([]);
+  const [credentialsLoaded, setCredentialsLoaded] = useState(false);
+  const [savedTokenId, setSavedTokenId] = useRememberedCredential("misskey", savedTokens, credentialsLoaded);
   const [tokenLabelDrafts, setTokenLabelDrafts] = useState<Record<number, string>>({});
 
   const loadConfig = useCallback(async () => {
@@ -59,6 +61,7 @@ export function useAdminMisskey({ run, onError, username }: UseAdminMisskeyOptio
       try {
         const response = await NyaApi.userMisskeyTokens(owner);
         setSavedTokens(response.items);
+        setCredentialsLoaded(true);
         return response.items;
       } catch (err) {
         if (showError) onError(err instanceof ApiError ? err.message : String(err));
@@ -89,7 +92,7 @@ export function useAdminMisskey({ run, onError, username }: UseAdminMisskeyOptio
       setSavedTokenId(saved.id);
       await loadTokensFor(username, false);
     }
-  }, [config?.host, host, loadTokensFor, onError, run, t, tokenDraft, tokenLabel, username]);
+  }, [config?.host, host, loadTokensFor, onError, run, t, tokenDraft, tokenLabel, username, setSavedTokenId]);
 
   const updateTokenLabel = useCallback(
     async (tokenId: number) => {
@@ -116,7 +119,7 @@ export function useAdminMisskey({ run, onError, username }: UseAdminMisskeyOptio
         await loadTokensFor(username, false);
       }
     },
-    [loadTokensFor, run, t, username]
+    [loadTokensFor, run, t, username, setSavedTokenId]
   );
 
   const buildOptions = useCallback((): MisskeySyncOptions => ({
