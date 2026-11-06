@@ -152,7 +152,14 @@ export function AdminSyncCenterPanel({
         <SyncCard
           icon={Eye}
           title={t("admin.syncCenter.resultTitle", { valid: resolved.valid, invalid: resolved.invalid })}
-          description={<GroupChips groups={resolved.groups} />}
+          description={
+            <>
+              <GroupChips groups={resolved.groups} />
+              <span className="mt-1 block text-[11px]">
+                {resolved.short_links_expandable ? t("admin.syncCenter.shortLinksOn") : t("admin.syncCenter.shortLinksOff")}
+              </span>
+            </>
+          }
           actions={
             <>
               {pixivArtworks.length > 0 && (
@@ -278,6 +285,11 @@ function TargetRow({
         <div className="truncate text-muted-foreground" title={item.input}>
           {item.input}
         </div>
+        {item.expanded_from && (
+          <div className="truncate text-[11px] text-primary/80" title={item.expanded_from}>
+            {t("admin.syncCenter.expandedFrom", { url: item.expanded_from })}
+          </div>
+        )}
         {!isActionable(item) && <div className="text-amber-600 dark:text-amber-400">{t(`admin.syncCenter.errors.${item.error || "unrecognized"}`)}</div>}
         {isActionable(item) && !enabled && (
           <div className="text-amber-600 dark:text-amber-400">{t("admin.syncCenter.platformDisabled")}</div>

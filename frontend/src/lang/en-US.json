@@ -126,8 +126,6 @@
       "sourcesTitle": "Supported sources",
       "sourcesHint": "Importers only read the source data and never modify source files.",
       "importJobs": "Import job queue",
-      "queueHint": "Import jobs recorded from the web UI.",
-      "queueNotRunning": "The web import queue only records job state for now; nothing executes these jobs yet. Use the generated command above to import.",
       "emptyJobs": "No import jobs",
       "jobStatus": {
         "queued": "Queued",
@@ -250,7 +248,7 @@
       "title": "Paste links, sync in one go",
       "description": "Accepts Pixiv / X / FANBOX / Misskey artwork, user and post links or ids, mixed freely. Credentials and fetch options come from each platform's section.",
       "resolve": "Detect links",
-      "resolveHint": "Ctrl+Enter also works. Parsing is local; no external site is contacted.",
+      "resolveHint": "Ctrl+Enter also works. Normal links are parsed locally; short links are expanded by the short links plugin, which only contacts the short-link service itself.",
       "resultTitle": "Detected: {valid} syncable, {invalid} unrecognized",
       "previewPixiv": "Preview Pixiv ({count})",
       "syncSelected": "Sync selected ({count})",
@@ -286,8 +284,12 @@
         "unsupported_x_link": "Unsupported X link",
         "unsupported_fanbox_link": "Unsupported FANBOX link",
         "unsupported_misskey_link": "Unsupported Misskey link",
-        "unsupported_site": "This site is not supported yet"
-      }
+        "unsupported_site": "This site is not supported yet",
+        "short_link_unresolved": "Could not expand this short link: it may be dead, or its platform is not supported"
+      },
+      "expandedFrom": "Short link expands to {url}",
+      "shortLinksOn": "Short-link expansion enabled (short links plugin)",
+      "shortLinksOff": "Short links plugin is off; expand short links manually"
     },
     "syncLogs": {
       "selectAll": "Select all",
@@ -1106,6 +1108,31 @@
       "noLabel": "No label",
       "revoke": "Revoke",
       "revoked": "Revoked"
+    },
+    "importQueue": {
+      "newJob": "New import job",
+      "newJobHint": "Import a server folder or a list of image URLs in the background; it keeps running after you leave the page.",
+      "sources": {
+        "local_directory": "Server folder",
+        "nas": "NAS folder",
+        "url_list": "Image URLs"
+      },
+      "folder": "Folder path",
+      "allowedRoots": "Only these directories (and their subfolders) can be imported:",
+      "noRoots": "No import directories are configured. Set [import] allowed_roots = [\"D:/Pictures\"] in nyagallery.toml and restart the backend to import server folders.",
+      "urls": "Image URLs (one per line)",
+      "urlsHint": "Images are downloaded directly without following redirects; private and loopback addresses are refused.",
+      "recursive": "Include subfolders",
+      "makePublic": "Make public after import",
+      "generateCache": "Generate previews",
+      "skipDuplicates": "Skip files already in the library",
+      "start": "Start import",
+      "created": "Import job queued",
+      "jobs": "Import jobs · {count}",
+      "jobsHint": "Jobs run one at a time in creation order; progress refreshes every 2 s and paused jobs resume from their checkpoint.",
+      "retryFailed": "Retry {count} failed",
+      "delete": "Delete job record",
+      "errors": "{count} errors"
     }
   },
   "auth": {

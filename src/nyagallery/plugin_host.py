@@ -44,8 +44,13 @@ KNOWN_PERMISSIONS = frozenset(
     }
 )
 
+# Named capabilities a plugin may provide to the core, with the permission each one requires.
+KNOWN_SERVICES: dict[str, str] = {
+    "short_link_expander": "network",  # (url) -> expanded url | None
+}
+
 # Core events plugins can subscribe to. Payloads are plain dicts.
-CORE_EVENTS = frozenset({"asset.created", "sync.finished", "transcode.finished", "plugin.enabled", "plugin.disabled"})
+CORE_EVENTS = frozenset({"asset.created", "sync.finished", "transcode.finished", "import.finished", "plugin.enabled", "plugin.disabled"})
 
 
 class Plugin(Protocol):
@@ -118,6 +123,15 @@ class PluginContext:
         self._require("read_config")
         return dict(self._host.plugin_config(self.name))
 
+    def provide(self, service: str, implementation: Any) -> None:
+        """Offer a named capability to the core (e.g. "short_link_expander"). Only active while enabled."""
+        if service not in KNOWN_SERVICES:
+            raise ValueError(f"unknown service {service!r}")
+        permission = KNOWN_SERVICES[service]
+        if permission:
+            self._require(permission)
+        self._host._services.setdefault(service, []).append((self.name, implementation))
+
 
 @dataclass
 class _Loaded:
@@ -138,7 +152,15 @@ class PluginHost:
         self._failed: dict[str, dict[str, Any]] = {}
         self._routers: list[tuple[str, APIRouter]] = []
         self._handlers: dict[str, list[tuple[str, Callable[[dict[str, Any]], None]]]] = {}
+        self._services: dict[str, list[tuple[str, Any]]] = {}
         self._lock = threading.RLock()
+
+    def service(self, name: str) -> Any | None:
+        """First enabled plugin's implementation of a named service, or None."""
+        for plugin_name, implementation in self._services.get(name, []):
+            if self.is_enabled(plugin_name):
+                return implementation
+        return None
 
     # ---- loading -------------------------------------------------------------------------
     def load_official(self, modules: list[str]) -> None:
@@ -333,6 +355,7 @@ class PluginHost:
                     "dependents": sorted(dependents.get(name, [])),
                     "routes": sum(len(router.routes) for owner, router in self._routers if owner == name),
                     "events": sorted(event for event, handlers in self._handlers.items() if any(owner == name for owner, _ in handlers)),
+                    "services": sorted(service for service, impls in self._services.items() if any(owner == name for owner, _ in impls)),
                 }
             )
         for failed in self._failed.values():

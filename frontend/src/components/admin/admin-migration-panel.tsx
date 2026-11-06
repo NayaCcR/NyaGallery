@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRightLeft, Check, Copy, Database, FileJson, FolderInput, Info, Loader2, Pause, Play, RotateCcw, Terminal } from "lucide-react";
+import { ArrowRightLeft, Check, Copy, Database, FileJson, FolderInput, Loader2, Terminal } from "lucide-react";
+import { AdminImportQueue } from "@/components/admin/admin-import-queue";
 import { SegmentedControl, SyncCard, SyncNotice } from "@/components/admin/admin-sync-shared";
-import { EmptyLine } from "@/components/admin/admin-fields";
-import { formatDate } from "@/components/admin/admin-format";
 import { useI18n } from "@/components/providers/locale-provider";
 import { useToast } from "@/components/providers/toast-provider";
 import { Button } from "@/components/ui/button";
@@ -17,7 +16,6 @@ import type { MigrationConfigResponse } from "@/lib/types";
 
 type MetadataMode = "file" | "database";
 type ImportSourceType = "auto" | "nyagallery_v1" | "lsky_pro";
-type ImportJob = Awaited<ReturnType<typeof NyaApi.importJobs>>["items"][number] & { created_at?: string | null; updated_at?: string | null };
 
 /** Quote a CLI argument for both PowerShell and POSIX shells when it contains spaces or quotes. */
 function shellArg(value: string): string {
@@ -33,7 +31,6 @@ export function AdminMigrationPanel() {
   const [mode, setMode] = useState<MetadataMode>("database");
   const [savingMode, setSavingMode] = useState(false);
   const [restartPending, setRestartPending] = useState(false);
-  const [importJobs, setImportJobs] = useState<ImportJob[]>([]);
   const [copied, setCopied] = useState<string | null>(null);
 
   // CLI command builder state
@@ -57,11 +54,6 @@ export function AdminMigrationPanel() {
         setTarget(current);
       })
       .catch((error) => toast.error(error instanceof Error ? error.message : t("admin.migration.loadFailed")));
-    NyaApi.importJobs()
-      .then((value) => {
-        if (!cancelled) setImportJobs(value.items);
-      })
-      .catch(() => undefined);
     return () => {
       cancelled = true;
     };
@@ -115,15 +107,6 @@ export function AdminMigrationPanel() {
     parts.push("--confirm");
     return parts.join(" ");
   }, [convertOutput, currentMode]);
-
-  async function actImport(jobId: string, action: "pause" | "resume" | "retry_failed") {
-    try {
-      const job = await NyaApi.importJobAction(jobId, action);
-      setImportJobs((current) => current.map((item) => (item.job_id === jobId ? { ...item, ...job } : item)));
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("admin.migration.importFailed"));
-    }
-  }
 
   return (
     <div className="space-y-6">
@@ -228,18 +211,7 @@ export function AdminMigrationPanel() {
         </aside>
       </div>
 
-      <SyncCard icon={Info} title={t("admin.migration.importJobs")} description={t("admin.migration.queueHint")}>
-        <SyncNotice>{t("admin.migration.queueNotRunning")}</SyncNotice>
-        {importJobs.length === 0 ? (
-          <EmptyLine text={t("admin.migration.emptyJobs")} />
-        ) : (
-          <div className="grid gap-2 xl:grid-cols-2">
-            {importJobs.map((job) => (
-              <ImportJobRow key={job.job_id} job={job} onAction={(action) => void actImport(job.job_id, action)} />
-            ))}
-          </div>
-        )}
-      </SyncCard>
+      <AdminImportQueue />
     </div>
   );
 }
@@ -252,61 +224,6 @@ function CommandBox({ command, copied, onCopy, disabled = false }: { command: st
       <Button type="button" variant="outline" size="sm" className="h-7 shrink-0 px-2 text-xs" onClick={onCopy} disabled={disabled}>
         {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} {copied ? t("common.copied") : t("admin.migration.copy")}
       </Button>
-    </div>
-  );
-}
-
-function ImportJobRow({ job, onAction }: { job: ImportJob; onAction: (action: "pause" | "resume" | "retry_failed") => void }) {
-  const { t } = useI18n();
-  const progress = Math.max(0, Math.min(100, Math.round(job.progress || 0)));
-  const failed = job.status === "failed" || job.failed > 0;
-  return (
-    <div className={cn("space-y-2 rounded-lg border border-border p-3 text-xs", failed && "border-destructive/35")}>
-      <div className="flex items-center justify-between gap-2">
-        <div className="min-w-0">
-          <div className="truncate font-mono">{job.job_id}</div>
-          <div className="text-[11px] text-muted-foreground">
-            {job.source_type}
-            {job.created_at ? ` · ${formatDate(job.created_at)}` : ""}
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <span className="rounded-full bg-muted px-2 py-0.5 font-medium">{t(`admin.migration.jobStatus.${job.status}`)}</span>
-          {job.status === "running" ? (
-            <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => onAction("pause")}>
-              <Pause className="h-3.5 w-3.5" /> {t("admin.migration.pause")}
-            </Button>
-          ) : job.status === "failed" ? (
-            <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => onAction("retry_failed")}>
-              <RotateCcw className="h-3.5 w-3.5" /> {t("admin.migration.retry")}
-            </Button>
-          ) : job.status === "queued" || job.status === "paused" ? (
-            <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => onAction("resume")}>
-              <Play className="h-3.5 w-3.5" /> {t("admin.migration.resume")}
-            </Button>
-          ) : null}
-        </div>
-      </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-        <div className={cn("h-full rounded-full", failed ? "bg-destructive" : "bg-primary")} style={{ width: `${progress}%` }} />
-      </div>
-      <div className="flex flex-wrap gap-x-3 text-[11px] text-muted-foreground tabular-nums">
-        <span>{progress}%</span>
-        <span>
-          {job.cursor}/{job.total}
-        </span>
-        <span>{t("admin.migration.succeededCount", { count: job.succeeded })}</span>
-        <span className={cn(job.failed > 0 && "text-destructive")}>{t("admin.migration.failedCount", { count: job.failed })}</span>
-      </div>
-      {job.errors.length > 0 && (
-        <ul className="space-y-0.5 text-[11px] text-destructive">
-          {job.errors.slice(0, 3).map((error, index) => (
-            <li key={index} className="break-words">
-              {error}
-            </li>
-          ))}
-        </ul>
-      )}
     </div>
   );
 }

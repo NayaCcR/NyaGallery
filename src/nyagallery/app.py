@@ -220,6 +220,10 @@ from nyagallery.fanbox import (
     exchange_pixiv_cookie_for_fanbox_session,
     normalize_creator_id,
 )
+from nyagallery.importer import SUPPORTED_SOURCES as IMPORT_SOURCES
+from nyagallery.importer import ImportConfigError, ImportRunner
+from nyagallery.importer import retry_failed as import_retry_failed
+from nyagallery.importer import validate_job_config as validate_import_config
 from nyagallery.plugin_host import PluginHost
 from nyagallery.sync_targets import resolve_targets as resolve_sync_targets
 from nyagallery.x import (
@@ -347,6 +351,7 @@ OFFICIAL_PLUGIN_MODULES: list[str] = [
     "nyagallery_plugins.misskey",
     "nyagallery_plugins.x",
     "nyagallery_plugins.fanbox",
+    "nyagallery_plugins.shortlinks",
 ]
 
 
@@ -685,12 +690,27 @@ def create_app(
     )
     access_log_thread.start()
 
+    def _schedule_import_transcode(asset_key: str, job_id: str) -> None:
+        threading.Thread(target=_generate_cache_and_refresh_asset, args=(storage, session_factory, catalog, asset_key, job_id), daemon=True).start()
+
+    import_runner = ImportRunner(
+        storage=storage,
+        session_factory=session_factory,
+        catalog=catalog,
+        allowed_roots=lambda: app.state.nyagallery.config.imports.allowed_roots,
+        max_file_bytes=lambda: app.state.nyagallery.config.imports.max_file_bytes,
+        save_catalog=lambda: _save_catalog(storage, catalog),
+        schedule_transcode=_schedule_import_transcode,
+        emit=emit_plugin_event,
+    )
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         await ping_redis_client(redis_client)
         try:
             yield
         finally:
+            import_runner.stop()
             host = getattr(_app.state.nyagallery, "plugin_host", None)
             if host is not None:
                 host.stop_all()
@@ -2470,10 +2490,20 @@ def create_app(
         rows = db.scalars(select(ImportJobModel).order_by(ImportJobModel.id.desc()).limit(100)).all()
         return {"items": [_import_job_to_dict(row) for row in rows]}
 
+    @app.get("/api/import/config")
+    def api_import_config(_principal: AdminPrincipal) -> dict[str, object]:
+        cfg = app.state.nyagallery.config.imports
+        return {"sources": sorted(IMPORT_SOURCES), "allowed_roots": list(cfg.allowed_roots), "max_file_bytes": cfg.max_file_bytes}
+
     @app.post("/api/import/jobs")
     def api_create_import_job(payload: ImportJobCreate, db: DbSession, principal: AdminPrincipal) -> dict[str, object]:
-        row = ImportJobModel(job_id=f"import-{secrets.token_urlsafe(10)}", source_type=payload.source_type, source_config=payload.source_config, owner_user_id=principal.user_id)
+        try:
+            config = validate_import_config(payload.source_type, payload.source_config, app.state.nyagallery.config.imports.allowed_roots)
+        except ImportConfigError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        row = ImportJobModel(job_id=f"import-{secrets.token_urlsafe(10)}", source_type=payload.source_type, source_config=config, owner_user_id=principal.user_id)
         db.add(row); db.commit(); db.refresh(row)
+        import_runner.notify()
         return _import_job_to_dict(row)
 
     @app.post("/api/import/jobs/{job_id}/actions")
@@ -2481,11 +2511,27 @@ def create_app(
         row = db.scalar(select(ImportJobModel).where(ImportJobModel.job_id == job_id))
         if row is None:
             raise HTTPException(status_code=404, detail="import job not found")
-        if payload.action == "pause" and row.status == "running": row.status = "paused"
-        elif payload.action in {"resume", "retry_failed"} and row.status in {"queued", "paused", "failed"}: row.status = "running"
-        else: raise HTTPException(status_code=409, detail=f"cannot {payload.action} import job in {row.status} state")
+        if payload.action == "pause" and row.status in {"running", "queued"}:
+            row.status = "paused"
+        elif payload.action == "resume" and row.status == "paused":
+            row.status = "queued"
+        elif payload.action == "retry_failed" and row.status in {"failed", "succeeded"} and row.failed_indices:
+            import_retry_failed(db, row)
+        else:
+            raise HTTPException(status_code=409, detail=f"cannot {payload.action} import job in {row.status} state")
         row.updated_at = now_utc(); db.commit()
+        import_runner.notify()
         return _import_job_to_dict(row)
+
+    @app.delete("/api/import/jobs/{job_id}")
+    def api_delete_import_job(job_id: str, db: DbSession, _principal: AdminPrincipal) -> dict[str, object]:
+        row = db.scalar(select(ImportJobModel).where(ImportJobModel.job_id == job_id))
+        if row is None:
+            raise HTTPException(status_code=404, detail="import job not found")
+        if row.status == "running":
+            raise HTTPException(status_code=409, detail="pause the job before deleting it")
+        db.delete(row); db.commit()
+        return {"job_id": job_id, "deleted": True}
 
     @app.get("/api/security/settings")
     def api_security_settings(db: DbSession, _principal: AdminPrincipal) -> dict[str, object]:
@@ -3071,8 +3117,13 @@ def create_app(
 
     @app.post("/api/sync/resolve")
     def api_sync_resolve(payload: SyncResolveRequest, _principal: UploadPrincipal) -> dict[str, object]:
-        """Classify pasted links / ids into per-platform targets. Pure parsing, no network access."""
-        return resolve_sync_targets(payload.text, default_platform=payload.default_platform)
+        """Classify pasted links / ids into per-platform targets. Short links are expanded only when a
+        plugin registered a short-link expander (official.shortlinks) and it is enabled."""
+        host = app.state.nyagallery.plugin_host
+        expander = host.service("short_link_expander") if host is not None else None
+        result = resolve_sync_targets(payload.text, default_platform=payload.default_platform, expand=expander)
+        result["short_links_expandable"] = expander is not None
+        return result
 
 
     @app.post("/api/users")
@@ -3230,6 +3281,8 @@ def create_app(
         )
         item = next((entry for entry in host.snapshot() if entry["name"] == plugin_name), None)
         return {"item": item, "disabled_sections": host.disabled_sections()}
+
+    import_runner.start()
 
     plugin_host = PluginHost(
         app,

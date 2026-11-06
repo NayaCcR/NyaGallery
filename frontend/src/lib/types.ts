@@ -311,6 +311,27 @@ export interface PixivSyncOptions {
   restrict?: string;
 }
 
+export interface ImportJob {
+  job_id: string;
+  source_type: string;
+  status: "queued" | "running" | "paused" | "failed" | "succeeded" | string;
+  total: number;
+  cursor: number;
+  succeeded: number;
+  failed: number;
+  failed_indices: number[];
+  progress: number;
+  errors: string[];
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface ImportConfigResponse {
+  sources: string[];
+  allowed_roots: string[];
+  max_file_bytes: number;
+}
+
 export interface PluginItem {
   name: string;
   version: string;
@@ -363,6 +384,7 @@ export interface SyncTarget {
   value: string;
   host: string;
   error: string;
+  expanded_from?: string;
 }
 
 export interface SyncResolveResponse {
@@ -371,6 +393,7 @@ export interface SyncResolveResponse {
   valid: number;
   invalid: number;
   truncated: boolean;
+  short_links_expandable?: boolean;
 }
 
 export interface PixivPreviewItem {

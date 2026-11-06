@@ -1,13 +1,15 @@
 """Classify pasted links / ids into per-platform sync targets for the unified sync page.
 
-Pure string parsing, no network access: short links (pixiv.me, t.co) are reported as such
-instead of being followed, so resolving never leaks requests to third parties.
+Classification itself is pure string parsing with no network access. Expanding share short links
+(pixiv.me, t.co, ...) is optional and done by a pluggable expander (the official.shortlinks plugin);
+without one, short links are reported as ``short_link`` instead of being followed.
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import asdict, dataclass
+from typing import Callable
 from urllib.parse import parse_qs, urlparse
 
 SPLIT_RE = re.compile(r"[\s,，;；|｜]+")
@@ -24,6 +26,8 @@ MISSKEY_USER_PATH_RE = re.compile(r"^/@([A-Za-z0-9_]+)(?:@([A-Za-z0-9.-]+))?/?$"
 MISSKEY_HANDLE_RE = re.compile(r"^@([A-Za-z0-9_]+)@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)$")
 KNOWN_MISSKEY_HOSTS = {"misskey.io", "misskey.design", "misskey.art", "nijimiss.moe", "mi.yumechi.jp", "misskey.flowers"}
 MAX_INPUTS = 500
+# Share-link hosts the short-link plugin may expand (host allowlist; nothing else is fetched).
+SHORT_LINK_HOSTS = frozenset({"pixiv.me", "t.co", "x.gd", "b23.tv", "bit.ly", "tinyurl.com", "ow.ly", "is.gd", "buff.ly", "goo.gl", "t.cn", "fanbox.page.link"})
 
 
 @dataclass(frozen=True)
@@ -34,6 +38,7 @@ class SyncTarget:
     value: str = ""
     host: str = ""
     error: str = ""
+    expanded_from: str = ""  # set when a short link was expanded to this target
 
     def key(self) -> str:
         return f"{self.platform}:{self.kind}:{self.host}:{self.value}" if self.value else f"raw:{self.input}"
@@ -71,10 +76,9 @@ def classify(text: str, *, default_platform: str = "pixiv") -> SyncTarget:
     bare = host[4:] if host.startswith("www.") else host
     path = parsed.path or "/"
 
-    if bare in {"pixiv.me"}:
-        return SyncTarget(raw, "pixiv", "short_link", error="short_link")
-    if bare == "t.co":
-        return SyncTarget(raw, "x", "short_link", error="short_link")
+    if bare in SHORT_LINK_HOSTS:
+        platform = {"pixiv.me": "pixiv", "t.co": "x", "fanbox.page.link": "fanbox"}.get(bare, "unknown")
+        return SyncTarget(raw, platform, "short_link", error="short_link")
     if bare == "pixiv.net" or bare.endswith(".pixiv.net"):
         legacy = FANBOX_LEGACY_RE.match(path)
         if legacy:
@@ -125,7 +129,23 @@ def classify(text: str, *, default_platform: str = "pixiv") -> SyncTarget:
     return SyncTarget(raw, "unknown", "invalid", error="unsupported_site")
 
 
-def resolve_targets(text: str, *, default_platform: str = "pixiv") -> dict[str, object]:
+ShortLinkExpander = Callable[[str], "str | None"]
+
+
+def _looks_short(token: str, target: SyncTarget) -> bool:
+    if target.kind == "short_link":
+        return True
+    parsed = _url(token)
+    return parsed is not None and is_short_link_host(parsed.hostname or "")
+
+
+def is_short_link_host(host: str) -> bool:
+    return host.lower().removeprefix("www.") in SHORT_LINK_HOSTS
+
+
+def resolve_targets(text: str, *, default_platform: str = "pixiv", expand: ShortLinkExpander | None = None) -> dict[str, object]:
+    """Classify pasted text. With ``expand`` (provided by the short-link plugin), short links are
+    expanded once and re-classified; the original input is kept and ``expanded_from`` is set."""
     seen: set[str] = set()
     targets: list[SyncTarget] = []
     for token in SPLIT_RE.split(text or ""):
@@ -133,6 +153,16 @@ def resolve_targets(text: str, *, default_platform: str = "pixiv") -> dict[str, 
         if not token:
             continue
         target = classify(token, default_platform=default_platform)
+        if expand is not None and _looks_short(token, target):
+            try:
+                expanded = expand(token)
+            except Exception:  # an expander failure leaves the original classification
+                expanded = None
+            if expanded:
+                again = classify(expanded, default_platform=default_platform)
+                target = SyncTarget(token, again.platform, again.kind, again.value, again.host, again.error, expanded_from=expanded)
+            else:
+                target = SyncTarget(token, target.platform if target.platform != "unknown" else "unknown", "short_link", error="short_link_unresolved")
         key = target.key()
         if key in seen:
             continue

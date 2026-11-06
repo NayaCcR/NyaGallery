@@ -126,8 +126,6 @@
       "sourcesTitle": "支持的来源",
       "sourcesHint": "导入器只读源数据，不修改源文件。",
       "importJobs": "导入任务队列",
-      "queueHint": "Web 端导入任务的记录。",
-      "queueNotRunning": "Web 端导入队列目前只记录任务状态，后台还不会执行这些任务。请使用上方生成的命令导入。",
       "emptyJobs": "暂无导入任务",
       "jobStatus": {
         "queued": "排队中",
@@ -250,7 +248,7 @@
       "title": "粘贴链接，一次抓取",
       "description": "支持 Pixiv / X / FANBOX / Misskey 的作品、用户、帖子链接和 ID，可混合粘贴。凭据与抓取参数沿用各平台页面的设置。",
       "resolve": "识别链接",
-      "resolveHint": "Ctrl+Enter 也可识别；只做本地解析，不会访问外部网站。",
+      "resolveHint": "Ctrl+Enter 也可识别。普通链接只在本地解析；短链由短链插件展开，只访问短链服务本身。",
       "resultTitle": "识别结果：{valid} 个可抓取，{invalid} 个无法识别",
       "previewPixiv": "预览 Pixiv（{count}）",
       "syncSelected": "抓取所选（{count}）",
@@ -286,8 +284,12 @@
         "unsupported_x_link": "不支持的 X 链接",
         "unsupported_fanbox_link": "不支持的 FANBOX 链接",
         "unsupported_misskey_link": "不支持的 Misskey 链接",
-        "unsupported_site": "暂不支持该网站"
-      }
+        "unsupported_site": "暂不支持该网站",
+        "short_link_unresolved": "短链无法展开：可能已失效，或链接平台不在支持列表里"
+      },
+      "expandedFrom": "短链展开为 {url}",
+      "shortLinksOn": "已启用短链展开（短链插件）",
+      "shortLinksOff": "短链插件未启用，短链需要手动展开"
     },
     "syncLogs": {
       "selectAll": "全选记录",
@@ -1106,6 +1108,31 @@
       "noLabel": "无标签",
       "revoke": "撤销",
       "revoked": "已撤销"
+    },
+    "importQueue": {
+      "newJob": "新建导入任务",
+      "newJobHint": "在后台导入服务器上的文件夹或一组图片链接，关掉页面也会继续。",
+      "sources": {
+        "local_directory": "服务器文件夹",
+        "nas": "NAS 文件夹",
+        "url_list": "图片链接"
+      },
+      "folder": "文件夹路径",
+      "allowedRoots": "只能导入这些目录（及其子目录）：",
+      "noRoots": "还没配置允许导入的目录。在 nyagallery.toml 里设置 [import] allowed_roots = [\"D:/图片\"] 并重启后端后，才能导入服务器文件夹。",
+      "urls": "图片链接（每行一个）",
+      "urlsHint": "只会直接下载图片，不跟随跳转；内网和本机地址会被拒绝。",
+      "recursive": "包含子文件夹",
+      "makePublic": "导入后设为公开",
+      "generateCache": "生成预览缓存",
+      "skipDuplicates": "跳过已存在的相同文件",
+      "start": "开始导入",
+      "created": "导入任务已加入队列",
+      "jobs": "导入任务 · {count}",
+      "jobsHint": "任务按创建顺序逐个执行，进度每 2 秒刷新；暂停后可以从断点继续。",
+      "retryFailed": "重试失败的 {count} 项",
+      "delete": "删除任务记录",
+      "errors": "{count} 条错误"
     }
   },
   "auth": {

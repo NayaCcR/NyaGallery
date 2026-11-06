@@ -170,6 +170,13 @@ class OriginalStorageConfig:
 
 
 @dataclass(frozen=True)
+class ImportConfig:
+    # Server directories the web import queue may read. Empty means local-directory imports are disabled.
+    allowed_roots: tuple[str, ...] = ()
+    max_file_bytes: int = 512 * MiB
+
+
+@dataclass(frozen=True)
 class DeveloperConfig:
     config_editor_enabled: bool = True
     console_enabled: bool = False
@@ -190,6 +197,7 @@ class NyaGalleryConfig:
     security: SecurityConfig = SecurityConfig()
     original_storage: OriginalStorageConfig = OriginalStorageConfig()
     developer: DeveloperConfig = DeveloperConfig()
+    imports: ImportConfig = ImportConfig()
     path: Path | None = None
 
 
@@ -347,6 +355,10 @@ def config_to_dict(config: NyaGalleryConfig, *, redact_secrets: bool = False) ->
             "config_editor_enabled": config.developer.config_editor_enabled,
             "console_enabled": config.developer.console_enabled,
         },
+        "import": {
+            "allowed_roots": list(config.imports.allowed_roots),
+            "max_file_bytes": config.imports.max_file_bytes,
+        },
     }
 
 
@@ -474,6 +486,10 @@ def render_config(config: NyaGalleryConfig) -> str:
         f"config_editor_enabled = {_toml_bool(config.developer.config_editor_enabled)}",
         f"console_enabled = {_toml_bool(config.developer.console_enabled)}",
         "",
+        "[import]",
+        "allowed_roots = [" + ", ".join(_toml_string(root) for root in config.imports.allowed_roots) + "]",
+        f"max_file_bytes = {int(config.imports.max_file_bytes)}",
+        "",
     ]
     return "\n".join(lines)
 
@@ -597,6 +613,7 @@ def _config_from_dict(data: dict[str, Any], path: Path | None) -> NyaGalleryConf
     security = _table(data, "security")
     original_storage = _table(data, "original_storage")
     developer = _table(data, "developer")
+    imports = _table(data, "import")
     secret_key = os.environ.get(SECRET_KEY_ENV) or _str(security.get("secret_key"), "")
     return NyaGalleryConfig(
         core=CoreConfig(
@@ -687,6 +704,10 @@ def _config_from_dict(data: dict[str, Any], path: Path | None) -> NyaGalleryConf
         developer=DeveloperConfig(
             config_editor_enabled=_bool(developer.get("config_editor_enabled"), True),
             console_enabled=_bool(developer.get("console_enabled"), False),
+        ),
+        imports=ImportConfig(
+            allowed_roots=tuple(str(item).strip() for item in (imports.get("allowed_roots") or []) if isinstance(item, str) and str(item).strip()),
+            max_file_bytes=_positive_int(imports.get("max_file_bytes"), 512 * MiB),
         ),
         path=path,
     )
@@ -858,6 +879,7 @@ def _with_env_overrides(config: NyaGalleryConfig) -> NyaGalleryConfig:
         security=security,
         original_storage=original_storage,
         developer=developer,
+        imports=config.imports,
         path=config.path,
     )
 
