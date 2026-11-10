@@ -19,6 +19,7 @@ _sec_probe*.py
 !/README.md
 !/READMORE.md
 docs/ROADMAP.md
+docs/local/
 tests/
 frontend/tests/
 run/
