@@ -284,144 +284,50 @@ export default function UploadPage() {
           </div>
         )}
         {items.map((item, idx) => (
-          <div
-            key={item.id}
-            className={cn(
-              "flex flex-col gap-3 rounded-xl border bg-card p-3 sm:flex-row sm:items-start",
-              item.status === "done" && "border-emerald-500/30",
-              item.status === "error" && "border-destructive/40"
-            )}
-          >
-            <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-md border border-border bg-muted">
-              {item.preview ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={item.preview}
-                  alt={item.file.name}
-                  className="h-full w-full object-cover"
-                  style={{ transform: `rotate(${item.rotation}deg) scaleX(${item.flipHorizontal ? -1 : 1}) scaleY(${item.flipVertical ? -1 : 1})`, clipPath: `inset(${item.cropTop}% ${item.cropRight}% ${item.cropBottom}% ${item.cropLeft}%)` }}
-                />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-                  <ImageIcon className="h-6 w-6" />
-                </div>
-              )}
-              <span className="absolute left-1 top-1 rounded bg-background/80 px-1 text-[10px] font-medium">
-                {idx + 1}
-              </span>
-            </div>
-
-            <div className="grid flex-1 gap-2 sm:grid-cols-3">
-              <div className="space-y-1 sm:col-span-3">
-                <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                  <span className="truncate font-medium text-foreground" title={item.file.name}>
-                    {item.file.name}
-                  </span>
-                  <span className="shrink-0">{formatUploadBytes(item.file.size)}</span>
+          <details key={item.id} className={cn("group rounded-xl border bg-card", item.status === "done" && "border-emerald-500/30", item.status === "error" && "border-destructive/40")}>
+            <summary className="flex cursor-pointer list-none items-center gap-3 p-3 marker:hidden [&::-webkit-details-marker]:hidden">
+              <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-md border border-border bg-muted">
+                {item.preview ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={item.preview} alt="" loading="lazy" className="h-full w-full object-cover" />
+                ) : <div className="flex h-full w-full items-center justify-center text-muted-foreground"><ImageIcon className="h-5 w-5" /></div>}
+                <span className="absolute left-1 top-1 rounded bg-background/80 px-1 text-[10px] font-medium">{idx + 1}</span>
+              </div>
+              <div className="min-w-0 flex-1 space-y-1">
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <span className="truncate font-medium" title={item.file.name}>{item.file.name}</span>
+                  <span className="shrink-0 text-muted-foreground">{formatUploadBytes(item.file.size)}</span>
                 </div>
                 {item.status === "uploading" && typeof item.progress === "number" && <div className="h-1.5 overflow-hidden rounded-full bg-muted"><div className="h-full bg-primary transition-[width]" style={{ width: `${item.progress}%` }} /></div>}
-                {item.message && (
-                  <p
-                    className={cn(
-                      "text-[11px]",
-                      item.status === "error" && "text-destructive",
-                      item.status === "done" && "text-emerald-600 dark:text-emerald-400"
-                    )}
-                  >
-                    {item.message}
-                    {item.status === "done" && item.assetKey && (
-                      <a
-                        href={`/asset/${encodeURIComponent(item.assetKey)}`}
-                        className="ml-2 underline hover:text-primary"
-                      >
-                        {t("pages.upload.view")}
-                      </a>
-                    )}
-                  </p>
-                )}
+                <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <span className={cn(item.status === "done" && "text-emerald-600 dark:text-emerald-400", item.status === "error" && "text-destructive")}>{t(`pages.upload.${item.status}`)}</span>
+                  {item.message && <span className="truncate">{item.message}</span>}
+                </div>
               </div>
-
-              <div>
-                <Label className="text-[11px]">{t("pages.upload.titleField")}</Label>
-                <Input
-                  value={item.title}
-                  onChange={(e) => updateItem(item.id, { title: e.target.value })}
-                  className="h-8"
-                  disabled={item.status === "uploading"}
-                />
-              </div>
-              <div>
-                <Label className="text-[11px]">{t("pages.upload.defaultArtist")}</Label>
-                <Input
-                  value={item.artist}
-                  onChange={(e) => updateItem(item.id, { artist: e.target.value })}
-                  placeholder={defaultArtist || t("pages.upload.defaultArtistPlaceholder")}
-                  className="h-8"
-                  disabled={item.status === "uploading"}
-                />
-              </div>
-              <div>
-                <Label className="text-[11px]">Source ID</Label>
-                <Input
-                  value={item.sourceId}
-                  onChange={(e) => updateItem(item.id, { sourceId: e.target.value })}
-                  placeholder={t("pages.upload.sourceIdPlaceholder")}
-                  className="h-8"
-                  disabled={item.status === "uploading"}
-                />
-              </div>
-              <div className="sm:col-span-3">
-                <Label className="text-[11px]">{t("pages.upload.tags")}</Label>
-                <TagChipInput
-                  tags={item.tags}
-                  onChange={(tags) => updateItem(item.id, { tags })}
-                  placeholder={t("pages.upload.tagsPlaceholder")}
-                  disabled={item.status === "uploading"}
-                  small
-                />
-              </div>
-              {item.file.type.startsWith("image/") && <div className="sm:col-span-3 grid gap-3 border-t border-border pt-3 sm:grid-cols-3">
-                <div className="space-y-1"><Label className="text-[11px]">{t("pages.upload.rotation")}</Label><select aria-label={t("pages.upload.rotation")} value={item.rotation} disabled={item.status === "uploading"} onChange={(event) => updateItem(item.id, { rotation: Number(event.target.value) as 0 | 90 | 180 | 270 })} className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"><option value={0}>0°</option><option value={90}>90°</option><option value={180}>180°</option><option value={270}>270°</option></select></div>
-                <div className="space-y-1"><Label className="text-[11px]">{t("pages.upload.duplicateStrategy")}</Label><select aria-label={t("pages.upload.duplicateStrategy")} value={item.duplicateStrategy} disabled={item.status === "uploading"} onChange={(event) => updateItem(item.id, { duplicateStrategy: event.target.value as "skip" | "overwrite" | "keep" })} className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"><option value="keep">{t("pages.upload.duplicateKeep")}</option><option value="skip">{t("pages.upload.duplicateSkip")}</option><option value="overwrite">{t("pages.upload.duplicateOverwrite")}</option></select></div>
-                <div className="space-y-1"><Label className="text-[11px]">{t("pages.upload.exifPolicy")}</Label><select aria-label={t("pages.upload.exifPolicy")} value={item.exifPolicy} disabled={item.status === "uploading"} onChange={(event) => updateItem(item.id, { exifPolicy: event.target.value as "keep" | "strip" })} className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"><option value="keep">{t("pages.upload.exifKeep")}</option><option value="strip">{t("pages.upload.exifStrip")}</option></select></div>
-                <div className="flex items-end gap-3 text-xs"><label className="flex items-center gap-1.5"><input type="checkbox" checked={item.flipHorizontal} disabled={item.status === "uploading"} onChange={(event) => updateItem(item.id, { flipHorizontal: event.target.checked })} />{t("pages.upload.flipHorizontal")}</label><label className="flex items-center gap-1.5"><input type="checkbox" checked={item.flipVertical} disabled={item.status === "uploading"} onChange={(event) => updateItem(item.id, { flipVertical: event.target.checked })} />{t("pages.upload.flipVertical")}</label></div>
-                <div className="space-y-1 sm:col-span-3"><Label className="text-[11px]">{t("pages.upload.cropInsets")}</Label><div className="grid grid-cols-4 gap-2">{([["cropLeft", "cropLeftLabel"], ["cropTop", "cropTopLabel"], ["cropRight", "cropRightLabel"], ["cropBottom", "cropBottomLabel"]] as const).map(([field, label]) => <label key={field} className="space-y-1 text-[10px] text-muted-foreground"><span>{t(`pages.upload.${label}`)}</span><Input type="number" min={0} max={45} value={item[field]} disabled={item.status === "uploading"} onChange={(event) => updateItem(item.id, { [field]: Math.min(45, Math.max(0, Number(event.target.value) || 0)) })} className="h-8" /></label>)}</div></div>
-              </div>}
-            </div>
-
-            <div className="flex flex-col items-end gap-2">
-              <div
-                className={cn(
-                  "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]",
-                  item.status === "pending" && "border-border text-muted-foreground",
-                  item.status === "uploading" && "border-primary/40 text-primary",
-                  item.status === "done" &&
-                    "border-emerald-500/40 text-emerald-600 dark:text-emerald-400",
-                  item.status === "error" && "border-destructive/40 text-destructive"
-                )}
-              >
-                {item.status === "uploading" && <Loader2 className="h-3 w-3 animate-spin" />}
-                {item.status === "done" && <CheckCircle2 className="h-3 w-3" />}
-                {item.status === "error" && <XCircle className="h-3 w-3" />}
-                {item.status === "pending" && t("pages.upload.pending")}
-                {item.status === "uploading" && t("pages.upload.uploading")}
-                {item.status === "done" && t("pages.upload.done")}
-                {item.status === "error" && t("pages.upload.error")}
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => removeItem(item.id)}
-                disabled={item.status === "uploading"}
-                aria-label={t("pages.upload.clear")}
-              >
+              <span className="shrink-0 text-xs text-muted-foreground transition-transform group-open:rotate-180">⌄</span>
+              <Button type="button" variant="ghost" size="sm" className="shrink-0" onClick={(event) => { event.preventDefault(); removeItem(item.id); }} disabled={item.status === "uploading"} aria-label={t("pages.upload.clear")}>
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
+            </summary>
+            <div className="grid gap-2 border-t border-border p-3 sm:grid-cols-3">
+              {item.message && <p className={cn("text-[11px] sm:col-span-3", item.status === "error" && "text-destructive", item.status === "done" && "text-emerald-600 dark:text-emerald-400")}>
+                {item.message}
+                {item.status === "done" && item.assetKey && <a href={`/asset/${encodeURIComponent(item.assetKey)}`} className="ml-2 underline hover:text-primary">{t("pages.upload.view")}</a>}
+              </p>}
+              <div><Label className="text-[11px]">{t("pages.upload.titleField")}</Label><Input value={item.title} onChange={(e) => updateItem(item.id, { title: e.target.value })} className="h-8" disabled={item.status === "uploading"} /></div>
+              <div><Label className="text-[11px]">{t("pages.upload.defaultArtist")}</Label><Input value={item.artist} onChange={(e) => updateItem(item.id, { artist: e.target.value })} placeholder={defaultArtist || t("pages.upload.defaultArtistPlaceholder")} className="h-8" disabled={item.status === "uploading"} /></div>
+              <div><Label className="text-[11px]">Source ID</Label><Input value={item.sourceId} onChange={(e) => updateItem(item.id, { sourceId: e.target.value })} placeholder={t("pages.upload.sourceIdPlaceholder")} className="h-8" disabled={item.status === "uploading"} /></div>
+              <div className="sm:col-span-3"><Label className="text-[11px]">{t("pages.upload.tags")}</Label><TagChipInput tags={item.tags} onChange={(tags) => updateItem(item.id, { tags })} placeholder={t("pages.upload.tagsPlaceholder")} disabled={item.status === "uploading"} small /></div>
+              <div className="flex items-center gap-3 border-t border-border pt-3 text-xs sm:col-span-3">
+                <label className="flex items-center gap-1.5"><input type="checkbox" checked={item.flipHorizontal} disabled={item.status === "uploading"} onChange={(event) => updateItem(item.id, { flipHorizontal: event.target.checked })} />{t("pages.upload.flipHorizontal")}</label>
+                <label className="flex items-center gap-1.5"><input type="checkbox" checked={item.flipVertical} disabled={item.status === "uploading"} onChange={(event) => updateItem(item.id, { flipVertical: event.target.checked })} />{t("pages.upload.flipVertical")}</label>
+                <select aria-label={t("pages.upload.duplicateStrategy")} value={item.duplicateStrategy} disabled={item.status === "uploading"} onChange={(event) => updateItem(item.id, { duplicateStrategy: event.target.value as "skip" | "overwrite" | "keep" })} className="h-8 rounded-md border border-input bg-background px-2 text-xs"><option value="keep">{t("pages.upload.duplicateKeep")}</option><option value="skip">{t("pages.upload.duplicateSkip")}</option><option value="overwrite">{t("pages.upload.duplicateOverwrite")}</option></select>
+                <select aria-label={t("pages.upload.exifPolicy")} value={item.exifPolicy} disabled={item.status === "uploading"} onChange={(event) => updateItem(item.id, { exifPolicy: event.target.value as "keep" | "strip" })} className="h-8 rounded-md border border-input bg-background px-2 text-xs"><option value="keep">{t("pages.upload.exifKeep")}</option><option value="strip">{t("pages.upload.exifStrip")}</option></select>
+              </div>
             </div>
-          </div>
+          </details>
         ))}
       </div>
-
       <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-background/90 backdrop-blur">
         <div className="container flex flex-wrap items-center gap-3 py-3">
           <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
